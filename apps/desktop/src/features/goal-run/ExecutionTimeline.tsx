@@ -2,7 +2,6 @@ import { useState } from "react";
 import type { GoalRunEvent } from "@loopkit/shared";
 import ReactMarkdown from "react-markdown";
 import { useAppStore } from "@/stores/app-store";
-import { WelcomeCards } from "@/features/welcome/WelcomeCards";
 
 export function ChatTimeline() {
   const messages = useAppStore((s) => s.messages);
@@ -12,15 +11,12 @@ export function ChatTimeline() {
 
   if (messages.length === 0 && runEvents.length === 0) {
     return (
-      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center max-w-lg px-4">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Welcome to LoopKit</h1>
-            <p className="text-sm text-gray-500 mb-8 max-w-md mx-auto">
-              Get started by asking questions. LoopKit can do the rest. Not sure where to start?
-            </p>
-            <WelcomeCards />
-          </div>
+      <div className="flex-1 min-h-0 overflow-y-auto flex items-center justify-center">
+        <div className="text-center max-w-md px-4">
+          <h1 className="text-2xl font-semibold text-gray-900 mb-2">Welcome to LoopKit</h1>
+          <p className="text-sm text-gray-500">
+            Select a project, choose a mode, and start chatting or set a goal.
+          </p>
         </div>
       </div>
     );
