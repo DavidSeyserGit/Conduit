@@ -41,7 +41,7 @@ export function ModelPicker({ label, value, onChange }: ModelPickerProps) {
       </button>
 
       {open && (
-        <div className="absolute z-50 mt-1 w-80 max-h-64 overflow-hidden bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl">
+        <div className="absolute z-50 bottom-full mb-1 w-80 max-h-64 overflow-hidden bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl">
           <div className="p-2 border-b border-zinc-800">
             <input
               type="text"

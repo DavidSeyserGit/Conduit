@@ -18,7 +18,7 @@ export default function App() {
   }, []);
 
   return (
-    <div className="h-screen flex flex-col bg-zinc-950">
+    <div className="h-full flex flex-col bg-zinc-950 overflow-hidden">
       <ProjectBar />
       <ChatTimeline />
       <ChatInput />
