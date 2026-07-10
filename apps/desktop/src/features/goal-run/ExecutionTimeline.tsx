@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { GoalRunEvent } from "@loopkit/shared";
 import ReactMarkdown from "react-markdown";
 import { useAppStore } from "@/stores/app-store";
+import { WelcomeCards } from "@/features/welcome/WelcomeCards";
 
 export function ChatTimeline() {
   const messages = useAppStore((s) => s.messages);
@@ -11,36 +12,50 @@ export function ChatTimeline() {
 
   if (messages.length === 0 && runEvents.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center text-zinc-500 text-sm">
-        <div className="text-center max-w-md">
-          <p className="text-lg font-medium text-zinc-400 mb-2">Welcome to LoopKit</p>
-          <p>Select a project directory, choose a mode, and start chatting or set a goal.</p>
+      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center max-w-lg px-4">
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">Welcome to LoopKit</h1>
+            <p className="text-sm text-gray-500 mb-8 max-w-md mx-auto">
+              Get started by asking questions. LoopKit can do the rest. Not sure where to start?
+            </p>
+            <WelcomeCards />
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-4">
-      {messages.map((msg) => (
-        <div key={msg.id} className="space-y-1">
-          <div className="text-xs font-medium text-zinc-500 uppercase tracking-wider">
-            {msg.role === "user" ? "User" : "Agent"}
-          </div>
-          <div className="text-sm text-zinc-200 prose prose-invert prose-sm max-w-none">
-            <ReactMarkdown>{msg.content}</ReactMarkdown>
-            {msg.isStreaming && (
-              <span className="inline-block w-1.5 h-4 bg-indigo-400 animate-pulse ml-0.5" />
+    <div className="flex-1 min-h-0 overflow-y-auto px-6 py-6">
+      <div className="max-w-3xl mx-auto space-y-6">
+        {messages.map((msg) => (
+          <div key={msg.id} className="flex gap-3">
+            {msg.role === "user" && (
+              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center text-white text-xs font-semibold shrink-0 mt-0.5">
+                U
+              </div>
             )}
+            <div className={`flex-1 ${msg.role === "user" ? "" : "ml-10"}`}>
+              <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">
+                {msg.role === "user" ? "You" : "LoopKit"}
+              </div>
+              <div className="text-sm text-gray-800 prose prose-sm max-w-none leading-relaxed">
+                <ReactMarkdown>{msg.content}</ReactMarkdown>
+                {msg.isStreaming && (
+                  <span className="inline-block w-1.5 h-4 bg-indigo-500 animate-pulse ml-0.5 rounded" />
+                )}
+              </div>
+            </div>
           </div>
-        </div>
-      ))}
+        ))}
 
-      {runEvents.length > 0 && <GoalRunTimeline events={runEvents} />}
+        {runEvents.length > 0 && <GoalRunTimeline events={runEvents} />}
 
-      {currentRun && !isRunning && (
-        <RunSummary run={currentRun} />
-      )}
+        {currentRun && !isRunning && (
+          <RunSummary run={currentRun} />
+        )}
+      </div>
     </div>
   );
 }
@@ -49,13 +64,13 @@ function GoalRunTimeline({ events }: { events: GoalRunEvent[] }) {
   const iterations = groupByIteration(events);
 
   return (
-    <div className="space-y-3 border-t border-zinc-800 pt-4">
-      <div className="text-xs font-medium text-indigo-400 uppercase tracking-wider">
+    <div className="border-t border-gray-200 pt-5 space-y-3">
+      <div className="text-xs font-semibold text-indigo-600 uppercase tracking-wider">
         Goal Execution
       </div>
 
       {events.some((e) => e.type === "run_started") && (
-        <div className="text-sm text-zinc-400">Goal started</div>
+        <div className="text-sm text-gray-500">Goal started</div>
       )}
 
       {iterations.map((iter) => (
@@ -124,55 +139,52 @@ function IterationBlock({ iteration }: { iteration: IterationData }) {
       : undefined;
 
   return (
-    <div className="border border-zinc-800 rounded-lg overflow-hidden">
+    <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between px-3 py-2 bg-zinc-900/50 hover:bg-zinc-800/50 transition-colors text-left"
+        className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
       >
-        <span className="text-sm font-medium text-zinc-300">
+        <span className="text-sm font-semibold text-gray-800">
           Iteration {iteration.number}
         </span>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
           {completedTools.length > 0 && (
-            <span className="text-xs text-zinc-500">
+            <span className="text-xs text-gray-500">
               {completedTools.length} tool{completedTools.length !== 1 ? "s" : ""}
             </span>
           )}
           {judgeApproved !== undefined && (
             <span
-              className={`text-xs font-medium ${
-                judgeApproved ? "text-green-400" : "text-red-400"
+              className={`text-xs font-semibold ${
+                judgeApproved ? "text-emerald-600" : "text-red-500"
               }`}
             >
               {judgeApproved ? "Approved" : "Rejected"}
             </span>
           )}
           <svg
-            className={`w-3.5 h-3.5 text-zinc-500 transition-transform ${expanded ? "rotate-180" : ""}`}
+            className={`w-3.5 h-3.5 text-gray-400 transition-transform ${expanded ? "rotate-180" : ""}`}
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
-            strokeWidth={2}
+            strokeWidth="2.5"
           >
             <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
           </svg>
         </div>
       </button>
 
-      <div className="px-3 py-2 space-y-1">
+      <div className="px-4 py-2.5 space-y-1.5">
         {completedTools.map((event, i) => {
           if (event.type !== "tool_completed") return null;
           const tc = event.toolCall;
           const icon = tc.status === "completed" ? "✓" : "✗";
           return (
-            <div key={i} className="text-xs text-zinc-400 flex items-start gap-1.5">
-              <span className={tc.status === "completed" ? "text-green-500" : "text-red-500"}>
+            <div key={i} className="text-xs text-gray-600 flex items-start gap-2">
+              <span className={tc.status === "completed" ? "text-emerald-500 font-semibold" : "text-red-500 font-semibold"}>
                 {icon}
               </span>
-              <span>
-                {formatToolName(tc.name)}
-                {tc.error && <span className="text-red-400 ml-1">— {tc.error}</span>}
-              </span>
+              <span>{formatToolName(tc.name)}</span>
             </div>
           );
         })}
@@ -181,22 +193,22 @@ function IterationBlock({ iteration }: { iteration: IterationData }) {
           if (event.type !== "validation_completed") return null;
           const v = event.result;
           return (
-            <div key={`v-${i}`} className="text-xs text-zinc-400 flex items-start gap-1.5">
-              <span className={v.passed ? "text-green-500" : "text-red-500"}>
+            <div key={`v-${i}`} className="text-xs text-gray-600 flex items-start gap-2">
+              <span className={v.passed ? "text-emerald-500 font-semibold" : "text-red-500 font-semibold"}>
                 {v.passed ? "✓" : "✗"}
               </span>
-              <span>Ran: {v.command}</span>
+              <span>Ran: <code className="font-mono text-xs bg-gray-100 px-1 rounded">{v.command}</code></span>
             </div>
           );
         })}
       </div>
 
       {expanded && (
-        <div className="px-3 py-2 border-t border-zinc-800 space-y-2">
+        <div className="px-4 py-3 border-t border-gray-200 space-y-2 bg-gray-50">
           {iteration.planUpdated?.type === "plan_updated" && (
             <div className="text-xs">
-              <span className="text-zinc-500">Plan: </span>
-              <span className="text-zinc-300">{iteration.planUpdated.plan.summary}</span>
+              <span className="text-gray-500 font-medium">Plan: </span>
+              <span className="text-gray-700">{iteration.planUpdated.plan.summary}</span>
             </div>
           )}
 
@@ -228,22 +240,22 @@ function JudgeFeedback({
   };
 }) {
   return (
-    <div className="text-xs space-y-1.5 bg-zinc-900/80 rounded p-2">
+    <div className="text-xs space-y-1.5 bg-white border border-gray-200 rounded-lg p-3">
       <div className="flex items-center gap-2">
-        <span className="text-zinc-500 font-medium">Judge</span>
-        <span className={result.approved ? "text-green-400" : "text-red-400"}>
+        <span className="text-gray-700 font-semibold">Judge</span>
+        <span className={`font-semibold ${result.approved ? "text-emerald-600" : "text-red-500"}`}>
           {result.approved ? "Approved" : "Rejected"}
         </span>
-        <span className="text-zinc-600">
-          ({(result.confidence * 100).toFixed(0)}% confidence)
+        <span className="text-gray-400">
+          ({(result.confidence * 100).toFixed(0)}%)
         </span>
       </div>
-      <p className="text-zinc-300">{result.summary}</p>
+      <p className="text-gray-700">{result.summary}</p>
       {result.feedback.map((f, i) => (
-        <p key={i} className="text-zinc-400 pl-2">— {f}</p>
+        <p key={i} className="text-gray-600 pl-2">— {f}</p>
       ))}
       {result.missingRequirements.map((r, i) => (
-        <p key={i} className="text-amber-400/80 pl-2">Missing: {r}</p>
+        <p key={i} className="text-amber-700 pl-2">Missing: {r}</p>
       ))}
     </div>
   );
@@ -265,12 +277,12 @@ function ToolDetail({
     <div className="text-xs">
       <button
         onClick={() => setShowResult(!showResult)}
-        className="text-zinc-500 hover:text-zinc-300"
+        className="text-gray-700 hover:text-gray-900 font-medium"
       >
         {toolCall.name}({JSON.stringify(toolCall.arguments).slice(0, 60)}...)
       </button>
       {showResult && toolCall.result !== undefined && (
-        <pre className="mt-1 p-2 bg-zinc-950 rounded text-zinc-400 overflow-x-auto max-h-32 text-[10px]">
+        <pre className="mt-2 p-2.5 bg-gray-900 rounded-lg text-gray-300 overflow-x-auto max-h-32 text-[10px]">
           {JSON.stringify(toolCall.result, null, 2)}
         </pre>
       )}
@@ -304,21 +316,19 @@ function RunSummary({
   };
 
   return (
-    <div className="border border-zinc-800 rounded-lg p-3 bg-zinc-900/30 text-xs space-y-1">
-      <div className="font-medium text-zinc-300">
+    <div className="border border-gray-200 rounded-xl p-4 bg-gradient-to-br from-indigo-50 to-white text-xs space-y-1.5">
+      <div className="font-semibold text-gray-900 text-sm">
         {statusLabel[run.status] ?? run.status}
       </div>
-      <div className="text-zinc-500 space-y-0.5">
+      <div className="text-gray-500 space-y-0.5">
         <div>Iterations: {run.iteration}</div>
         {run.tokenUsage && (
-          <>
-            <div>
-              Coding tokens: {run.tokenUsage.totalTokens.toLocaleString()}
-            </div>
-          </>
+          <div>
+            Tokens: {run.tokenUsage.totalTokens.toLocaleString()}
+          </div>
         )}
         {run.estimatedCost !== undefined && (
-          <div>Estimated cost: ${run.estimatedCost.toFixed(2)}</div>
+          <div>Cost: ${run.estimatedCost.toFixed(2)}</div>
         )}
         <div>Elapsed: {elapsed}s</div>
       </div>

@@ -6,9 +6,10 @@ interface ModelPickerProps {
   label: string;
   value: string;
   onChange: (id: string) => void;
+  compact?: boolean;
 }
 
-export function ModelPicker({ label, value, onChange }: ModelPickerProps) {
+export function ModelPicker({ label, value, onChange, compact }: ModelPickerProps) {
   const models = useAppStore((s) => s.models);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -28,34 +29,47 @@ export function ModelPicker({ label, value, onChange }: ModelPickerProps) {
 
   return (
     <div className="relative">
-      <label className="block text-xs text-zinc-500 mb-1">{label}</label>
+      {!compact && <label className="block text-xs text-gray-500 mb-1 font-medium">{label}</label>}
       <button
         onClick={() => setOpen(!open)}
-        className="w-full text-left px-3 py-1.5 text-sm bg-zinc-800 border border-zinc-700 rounded-md hover:border-zinc-600 transition-colors truncate"
+        className={compact
+          ? "flex items-center gap-1 px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-full transition-colors font-medium"
+          : "w-full text-left px-3 py-1.5 text-sm bg-gray-50 border border-gray-200 rounded-lg hover:border-gray-300 transition-colors truncate text-gray-700"
+        }
       >
         {selected ? (
-          <span className="text-zinc-200">{selected.displayName}</span>
+          <span className={compact ? "truncate" : ""}>{selected.displayName}</span>
         ) : (
-          <span className="text-zinc-500">Select model...</span>
+          <span className={compact ? "text-gray-400" : "text-gray-500"}>{compact ? "Model" : "Select model..."}</span>
         )}
+        <svg className={`w-3 h-3 ${compact ? "text-gray-400" : "text-gray-400"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
       </button>
 
       {open && (
-        <div className="absolute z-50 bottom-full mb-1 w-80 max-h-64 overflow-hidden bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl">
-          <div className="p-2 border-b border-zinc-800">
+        <div className="absolute z-50 bottom-full mb-2 w-72 max-h-72 overflow-hidden bg-white border border-gray-200 rounded-xl shadow-xl">
+          <div className="p-2 border-b border-gray-100">
             <input
               type="text"
               placeholder="Search models..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full px-2 py-1 text-sm bg-zinc-800 border border-zinc-700 rounded text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-indigo-500"
+              className="w-full px-2.5 py-1.5 text-sm bg-gray-50 border border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:border-indigo-400 focus:bg-white"
               autoFocus
             />
           </div>
-          <div className="overflow-y-auto max-h-48">
+          <div className="overflow-y-auto max-h-56">
             {filtered.length === 0 ? (
-              <div className="p-3 text-sm text-zinc-500 text-center">
-                {models.length === 0 ? "Configure API key in settings" : "No models found"}
+              <div className="p-4 text-sm text-gray-500 text-center">
+                {models.length === 0 ? (
+                  <div>
+                    <div className="font-medium mb-1">No models loaded</div>
+                    <div className="text-xs">Configure API key in settings</div>
+                  </div>
+                ) : (
+                  "No models found"
+                )}
               </div>
             ) : (
               filtered.map((model) => (
@@ -90,26 +104,26 @@ function ModelOption({
   return (
     <button
       onClick={onSelect}
-      className={`w-full text-left px-3 py-2 hover:bg-zinc-800 transition-colors ${
-        selected ? "bg-indigo-500/10" : ""
+      className={`w-full text-left px-3 py-2.5 hover:bg-gray-50 transition-colors border-l-2 ${
+        selected ? "bg-indigo-50/60 border-l-indigo-500" : "border-l-transparent"
       }`}
     >
       <div className="flex items-center justify-between">
-        <span className="text-sm text-zinc-200 truncate">{model.displayName}</span>
-        <span className="text-xs text-zinc-500 ml-2 shrink-0">{model.provider}</span>
+        <span className="text-sm text-gray-900 truncate font-medium">{model.displayName}</span>
+        <span className="text-xs text-gray-400 ml-2 shrink-0 bg-gray-100 px-1.5 py-0.5 rounded">{model.provider}</span>
       </div>
       <div className="flex items-center gap-2 mt-0.5">
         {model.contextLength && (
-          <span className="text-xs text-zinc-600">
+          <span className="text-xs text-gray-400">
             {(model.contextLength / 1000).toFixed(0)}k ctx
           </span>
         )}
         {model.supportsTools && (
-          <span className="text-xs text-zinc-600">tools</span>
+          <span className="text-xs text-emerald-600 bg-emerald-50 px-1 rounded">tools</span>
         )}
         {model.inputPrice !== undefined && (
-          <span className="text-xs text-zinc-600">
-            ${model.inputPrice.toFixed(2)}/M in
+          <span className="text-xs text-gray-400">
+            ${model.inputPrice.toFixed(2)}/M
           </span>
         )}
       </div>
@@ -117,7 +131,11 @@ function ModelOption({
   );
 }
 
-export function ModelSelectors() {
+interface ModelSelectorsProps {
+  compact?: boolean;
+}
+
+export function ModelSelectors({ compact }: ModelSelectorsProps) {
   const codingModelId = useAppStore((s) => s.codingModelId);
   const judgeModelId = useAppStore((s) => s.judgeModelId);
   const maxIterations = useAppStore((s) => s.maxIterations);
@@ -125,6 +143,27 @@ export function ModelSelectors() {
   const setCodingModelId = useAppStore((s) => s.setCodingModelId);
   const setJudgeModelId = useAppStore((s) => s.setJudgeModelId);
   const setMaxIterations = useAppStore((s) => s.setMaxIterations);
+
+  if (compact) {
+    return (
+      <div className="flex items-center gap-1.5">
+        <ModelPicker
+          label={mode === "goal" ? "Coding model" : "Model"}
+          value={codingModelId}
+          onChange={setCodingModelId}
+          compact
+        />
+        {mode === "goal" && (
+          <ModelPicker
+            label="Judge model"
+            value={judgeModelId}
+            onChange={setJudgeModelId}
+            compact
+          />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-end gap-3 flex-wrap">
@@ -145,14 +184,14 @@ export function ModelSelectors() {
             />
           </div>
           <div>
-            <label className="block text-xs text-zinc-500 mb-1">Max iterations</label>
+            <label className="block text-xs text-gray-500 mb-1 font-medium">Max iterations</label>
             <input
               type="number"
               min={1}
               max={10}
               value={maxIterations}
               onChange={(e) => setMaxIterations(parseInt(e.target.value) || 3)}
-              className="w-16 px-2 py-1.5 text-sm bg-zinc-800 border border-zinc-700 rounded-md text-zinc-200 focus:outline-none focus:border-indigo-500"
+              className="w-16 px-2 py-1.5 text-sm bg-gray-50 border border-gray-200 rounded-lg text-gray-900 focus:outline-none focus:border-indigo-400"
             />
           </div>
         </>
