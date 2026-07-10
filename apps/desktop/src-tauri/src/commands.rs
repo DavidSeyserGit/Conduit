@@ -450,6 +450,93 @@ pub fn tool_get_git_diff(workspace: String, path: Option<String>) -> ToolResult 
     }
 }
 
+fn github_entry() -> Result<keyring::Entry, String> {
+    keyring::Entry::new("loopkit", "github-token").map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn github_client_id() -> String {
+    std::env::var("GITHUB_CLIENT_ID").unwrap_or_else(|_| "Ov23liMo1oJoAzSI7573".to_string())
+}
+
+#[tauri::command]
+pub fn github_get_token() -> ToolResult {
+    match github_entry() {
+        Ok(entry) => match entry.get_password() {
+            Ok(token) => ToolResult { success: true, result: Some(serde_json::json!({ "token": token })), error: None },
+            Err(keyring::Error::NoEntry) => ToolResult { success: true, result: Some(serde_json::json!({ "token": null })), error: None },
+            Err(e) => ToolResult { success: false, result: None, error: Some(e.to_string()) },
+        },
+        Err(e) => ToolResult { success: false, result: None, error: Some(e) },
+    }
+}
+
+#[tauri::command]
+pub fn github_store_token(token: String) -> ToolResult {
+    match github_entry().and_then(|entry| entry.set_password(&token).map_err(|e| e.to_string())) {
+        Ok(()) => ToolResult { success: true, result: None, error: None },
+        Err(e) => ToolResult { success: false, result: None, error: Some(e.to_string()) },
+    }
+}
+
+#[tauri::command]
+pub fn git_clone_repo(url: String, destination: String, name: String) -> ToolResult {
+    if name.is_empty() || name == "." || name == ".." || name.contains('/') || name.contains('\\') {
+        return ToolResult { success: false, result: None, error: Some("Invalid repository name".to_string()) };
+    }
+    if !(url.starts_with("https://") || url.starts_with("git@")) {
+        return ToolResult { success: false, result: None, error: Some("Unsupported repository URL".to_string()) };
+    }
+
+    let destination = PathBuf::from(destination);
+    if !destination.is_dir() {
+        return ToolResult { success: false, result: None, error: Some("Destination must be an existing folder".to_string()) };
+    }
+    let target = destination.join(&name);
+    if target.exists() {
+        return ToolResult { success: false, result: None, error: Some(format!("Folder already exists: {}", target.display())) };
+    }
+
+    let token = match github_entry().and_then(|entry| entry.get_password().map_err(|e| e.to_string())) {
+        Ok(token) => token,
+        Err(e) => return ToolResult { success: false, result: None, error: Some(format!("GitHub authorization is required: {e}")) },
+    };
+    let askpass = std::env::temp_dir().join(format!("loopkit-git-askpass-{}", std::process::id()));
+    let script = if cfg!(target_os = "windows") {
+        let path = askpass.with_extension("cmd");
+        std::fs::write(&path, "@echo off\nif /I \"%1\" == \"Username for 'https://github.com': \" (echo x-access-token) else (echo %LOOPKIT_GITHUB_TOKEN%)\n").ok();
+        path
+    } else {
+        std::fs::write(&askpass, "#!/bin/sh\ncase \"$1\" in *Username*) echo x-access-token;; *) echo \"$LOOPKIT_GITHUB_TOKEN\";; esac\n").ok();
+        #[cfg(unix)] {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&askpass, fs::Permissions::from_mode(0o700));
+        }
+        askpass
+    };
+    let target_string = target.to_string_lossy().to_string();
+    let output = Command::new("git")
+        .args(["clone", &url, &target_string])
+        .env("GIT_ASKPASS", &script)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("LOOPKIT_GITHUB_TOKEN", token)
+        .output();
+    let _ = fs::remove_file(&script);
+    match output {
+        Ok(out) if out.status.success() => ToolResult {
+            success: true,
+            result: Some(serde_json::json!({ "path": target })),
+            error: None,
+        },
+        Ok(out) => ToolResult {
+            success: false,
+            result: None,
+            error: Some(String::from_utf8_lossy(&out.stderr).trim().to_string()),
+        },
+        Err(e) => ToolResult { success: false, result: None, error: Some(e.to_string()) },
+    }
+}
+
 #[tauri::command]
 pub fn tool_execute(
     workspace: String,

@@ -67,7 +67,7 @@ export function ChatInput() {
         </div>
       )}
 
-      <div className="max-w-2xl mx-auto">
+      <div className="max-w-5xl mx-auto">
         <div className="flex justify-end mb-2">
           <ModelSelectors compact />
         </div>

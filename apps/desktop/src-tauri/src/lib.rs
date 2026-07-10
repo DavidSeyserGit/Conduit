@@ -14,6 +14,10 @@ pub fn run() {
             commands::tool_search_files,
             commands::tool_run_command,
             commands::tool_get_git_diff,
+            commands::github_client_id,
+            commands::github_get_token,
+            commands::github_store_token,
+            commands::git_clone_repo,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

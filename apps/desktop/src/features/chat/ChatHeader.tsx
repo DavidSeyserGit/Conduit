@@ -4,7 +4,6 @@ import { useAppStore } from "@/stores/app-store";
 
 export function ChatHeader() {
   const workspacePath = useAppStore((s) => s.workspacePath);
-  const setWorkspacePath = useAppStore((s) => s.setWorkspacePath);
   const setShowSettings = useAppStore((s) => s.setShowSettings);
   const mode = useAppStore((s) => s.mode);
   const setMode = useAppStore((s) => s.setMode);
@@ -14,36 +13,15 @@ export function ChatHeader() {
     ? workspacePath.split("/").pop() ?? workspacePath
     : "Select project";
 
-  const handleSelectProject = async () => {
-    try {
-      const { open } = await import("@tauri-apps/plugin-dialog");
-      const selected = await open({
-        directory: true,
-        multiple: false,
-        title: "Select working directory",
-      });
-      if (selected && typeof selected === "string") {
-        setWorkspacePath(selected);
-      }
-    } catch {
-      const path = prompt("Enter workspace path:");
-      if (path) setWorkspacePath(path);
-    }
-  };
-
   return (
     <div className="flex items-center justify-between gap-3 px-5 py-2.5 border-b border-gray-100 bg-white shrink-0">
       <div className="flex items-center gap-2 min-w-0">
-        <button
-          onClick={handleSelectProject}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm text-gray-700 hover:bg-gray-100 transition-colors truncate"
-          title={workspacePath || undefined}
-        >
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-gray-700 truncate" title={workspacePath || undefined}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-400 shrink-0">
             <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
           </svg>
           <span className="truncate font-medium">{projectName}</span>
-        </button>
+        </div>
 
         <ModePicker mode={mode} onChange={setMode} disabled={isRunning} />
       </div>
