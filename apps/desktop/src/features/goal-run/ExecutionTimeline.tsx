@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { GoalRunEvent } from "@loopkit/shared";
 import ReactMarkdown from "react-markdown";
 import { useAppStore } from "@/stores/app-store";
@@ -8,6 +8,11 @@ export function ChatTimeline() {
   const runEvents = useAppStore((s) => s.runEvents);
   const currentRun = useAppStore((s) => s.currentRun);
   const isRunning = useAppStore((s) => s.isRunning);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages, runEvents, currentRun, isRunning]);
 
   if (messages.length === 0 && runEvents.length === 0) {
     return (
@@ -32,7 +37,7 @@ export function ChatTimeline() {
                 {msg.role === "user" ? "You" : "LoopKit"}
               </div>
               <div className={`text-sm leading-relaxed prose prose-sm max-w-none px-4 py-3 ${msg.role === "user" ? "bg-gray-900 text-white [&_*]:text-white rounded-2xl rounded-br-md" : "bg-gray-50 border border-gray-200 text-gray-800 rounded-2xl rounded-bl-md"}`}>
-                <ReactMarkdown>{msg.content}</ReactMarkdown>
+                <div className={`chat-markdown ${msg.role === "user" ? "chat-markdown-user" : ""}`}><ReactMarkdown>{msg.content}</ReactMarkdown></div>
                 {msg.isStreaming && (
                   <span className="inline-block w-1.5 h-4 bg-indigo-500 animate-pulse ml-0.5 rounded align-middle" />
                 )}
@@ -46,6 +51,7 @@ export function ChatTimeline() {
         {currentRun && !isRunning && (
           <RunSummary run={currentRun} />
         )}
+        <div ref={bottomRef} />
       </div>
     </div>
   );
@@ -79,7 +85,7 @@ function GoalRunTimeline({ events }: { events: GoalRunEvent[] }) {
               <div className="max-w-[82%]">
                 <div className="text-[11px] font-medium text-gray-400 mb-1 px-1">LoopKit</div>
                 <div className="prose prose-sm max-w-none text-gray-800 bg-white border border-gray-200 rounded-2xl rounded-bl-md px-4 py-3 shadow-sm">
-                  <ReactMarkdown>{event.content}</ReactMarkdown>
+                  <div className="chat-markdown"><ReactMarkdown>{event.content}</ReactMarkdown></div>
                 </div>
               </div>
             </div>
