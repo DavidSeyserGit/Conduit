@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { ModelDescriptor } from "@loopkit/shared";
+import { isRecommendedJudgeModel } from "@loopkit/agent-runtime";
 import { useAppStore } from "@/stores/app-store";
 
 interface ModelPickerProps {
@@ -7,10 +8,12 @@ interface ModelPickerProps {
   value: string;
   onChange: (id: string) => void;
   compact?: boolean;
+  isJudgePicker?: boolean;
 }
 
-export function ModelPicker({ label, value, onChange, compact }: ModelPickerProps) {
+export function ModelPicker({ label, value, onChange, compact, isJudgePicker }: ModelPickerProps) {
   const models = useAppStore((s) => s.models);
+  const codingModelId = useAppStore((s) => s.codingModelId);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [provider, setProvider] = useState("all");
@@ -43,7 +46,7 @@ export function ModelPicker({ label, value, onChange, compact }: ModelPickerProp
             <span className="text-[11px] text-gray-400">{filtered.length}</span>
           </div>
           <div className="overflow-y-auto flex-1 p-1.5">
-            {filtered.length === 0 ? <div className="p-6 text-sm text-gray-500 text-center">{models.length === 0 ? "No models loaded" : "No models found"}</div> : filtered.map((model) => <ModelOption key={model.id} model={model} selected={model.id === value} onSelect={() => { onChange(model.id); setOpen(false); setSearch(""); }} />)}
+            {filtered.length === 0 ? <div className="p-6 text-sm text-gray-500 text-center">{models.length === 0 ? "No models loaded" : "No models found"}</div> : filtered.map((model) => <ModelOption key={model.id} model={model} selected={model.id === value} onSelect={() => { onChange(model.id); setOpen(false); setSearch(""); }} isJudgePicker={isJudgePicker} codingModelId={codingModelId} />)}
           </div>
         </div>
       </div>}
@@ -61,11 +64,16 @@ function ProviderIcon({ provider }: { provider: string }) {
   return <span className="text-xs font-semibold">{provider.slice(0, 2).toUpperCase()}</span>;
 }
 
-function ModelOption({ model, selected, onSelect }: { model: ModelDescriptor; selected: boolean; onSelect: () => void }) {
+function ModelOption({ model, selected, onSelect, isJudgePicker, codingModelId }: { model: ModelDescriptor; selected: boolean; onSelect: () => void; isJudgePicker?: boolean; codingModelId: string }) {
+  const isCodex = model.provider === "codex";
+  const isRecommendedJudge = isJudgePicker && codingModelId && isRecommendedJudgeModel(codingModelId, model.id);
+
   return <button onClick={onSelect} className={`w-full text-left px-3 py-2.5 rounded-xl hover:bg-gray-50 transition-colors ${selected ? "bg-fuchsia-50" : ""}`}>
     <div className="flex items-center gap-2">
       <span className="w-6 h-6 rounded-md bg-gray-50 text-gray-500 flex items-center justify-center shrink-0"><ProviderIcon provider={model.provider} /></span>
       <span className="text-sm text-gray-900 truncate font-medium flex-1">{model.displayName}</span>
+      {isRecommendedJudge && <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded font-medium">Recommended judge</span>}
+      {isCodex && <span className="text-[10px] text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded font-medium">Subscription</span>}
       {selected && <span className="text-fuchsia-600 text-xs">✓</span>}
     </div>
     <div className="flex items-center gap-2 mt-1 pl-8">
@@ -88,10 +96,10 @@ export function ModelSelectors({ compact }: ModelSelectorsProps) {
   const setJudgeModelId = useAppStore((s) => s.setJudgeModelId);
   const setMaxIterations = useAppStore((s) => s.setMaxIterations);
 
-  if (compact) return <div className="flex items-center gap-1.5"><ModelPicker label={mode === "goal" ? "Coding model" : "Model"} value={codingModelId} onChange={setCodingModelId} compact />{mode === "goal" && <ModelPicker label="Judge model" value={judgeModelId} onChange={setJudgeModelId} compact />}</div>;
+  if (compact) return <div className="flex items-center gap-1.5"><ModelPicker label={mode === "goal" ? "Coding model" : "Model"} value={codingModelId} onChange={setCodingModelId} compact />{mode === "goal" && <ModelPicker label="Judge model" value={judgeModelId} onChange={setJudgeModelId} compact isJudgePicker />}</div>;
 
   return <div className="flex items-end gap-3 flex-wrap">
     <div className="w-48"><ModelPicker label={mode === "goal" ? "Coding model" : "Model"} value={codingModelId} onChange={setCodingModelId} /></div>
-    {mode === "goal" && <><div className="w-48"><ModelPicker label="Judge model" value={judgeModelId} onChange={setJudgeModelId} /></div><div><label className="block text-xs text-gray-500 mb-1 font-medium">Max iterations</label><input type="number" min={1} max={10} value={maxIterations} onChange={(e) => setMaxIterations(parseInt(e.target.value) || 3)} className="w-16 px-2 py-1.5 text-sm bg-gray-50 border border-gray-200 rounded-lg text-gray-900 focus:outline-none focus:border-indigo-400" /></div></>}
+    {mode === "goal" && <><div className="w-48"><ModelPicker label="Judge model" value={judgeModelId} onChange={setJudgeModelId} isJudgePicker /></div><div><label className="block text-xs text-gray-500 mb-1 font-medium">Max iterations</label><input type="number" min={1} max={10} value={maxIterations} onChange={(e) => setMaxIterations(parseInt(e.target.value) || 3)} className="w-16 px-2 py-1.5 text-sm bg-gray-50 border border-gray-200 rounded-lg text-gray-900 focus:outline-none focus:border-indigo-400" /></div></>}
   </div>;
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { GoalRunEvent } from "@loopkit/shared";
+import type { GoalRunEvent, GoalRunState } from "@loopkit/shared";
+import { downloadRunAsJSON } from "@loopkit/agent-runtime";
 import ReactMarkdown from "react-markdown";
 import { useAppStore } from "@/stores/app-store";
 
@@ -49,7 +50,7 @@ export function ChatTimeline() {
         {runEvents.length > 0 && <GoalRunTimeline events={runEvents} />}
 
         {currentRun && !isRunning && (
-          <RunSummary run={currentRun} />
+          <RunSummary run={currentRun} events={runEvents} />
         )}
         <div ref={bottomRef} />
       </div>
@@ -149,10 +150,11 @@ function groupByIteration(events: GoalRunEvent[]): IterationData[] {
 function IterationBlock({ iteration }: { iteration: IterationData }) {
   const [expanded, setExpanded] = useState(false);
   const completedTools = iteration.toolCalls.filter((e) => e.type === "tool_completed");
-  const judgeApproved =
-    iteration.judgeResult?.type === "judge_completed"
-      ? iteration.judgeResult.result.approved
-      : undefined;
+  const judgeResult = iteration.judgeResult?.type === "judge_completed"
+    ? iteration.judgeResult.result
+    : undefined;
+  const judgeApproved = judgeResult?.approved;
+  const judgeConfidence = judgeResult?.confidence;
 
   return (
     <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
@@ -176,6 +178,11 @@ function IterationBlock({ iteration }: { iteration: IterationData }) {
               }`}
             >
               {judgeApproved ? "Approved" : "Rejected"}
+            </span>
+          )}
+          {judgeConfidence !== undefined && (
+            <span className="text-xs text-gray-500">
+              {(judgeConfidence * 100).toFixed(0)}% conf
             </span>
           )}
           <svg
@@ -256,17 +263,28 @@ function JudgeFeedback({
     confidence: number;
   };
 }) {
+  const confidencePercent = (result.confidence * 100).toFixed(0);
+  const confidenceColor = result.confidence >= 0.7 ? "bg-emerald-500" : result.confidence >= 0.4 ? "bg-amber-500" : "bg-red-500";
+
   return (
-    <div className="text-xs space-y-1.5 bg-white border border-gray-200 rounded-lg p-3">
-      <div className="flex items-center gap-2">
-        <span className="text-gray-700 font-semibold">Judge</span>
-        <span className={`font-semibold ${result.approved ? "text-emerald-600" : "text-red-500"}`}>
-          {result.approved ? "Approved" : "Rejected"}
-        </span>
-        <span className="text-gray-400">
-          ({(result.confidence * 100).toFixed(0)}%)
-        </span>
+    <div className="text-xs space-y-2 bg-white border border-gray-200 rounded-lg p-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-gray-700 font-semibold">Judge</span>
+          <span className={`font-semibold ${result.approved ? "text-emerald-600" : "text-red-500"}`}>
+            {result.approved ? "Approved" : "Rejected"}
+          </span>
+        </div>
+        <span className="text-gray-500 font-medium">{confidencePercent}% confidence</span>
       </div>
+      
+      <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden">
+        <div
+          className={`h-full ${confidenceColor} transition-all duration-300`}
+          style={{ width: `${confidencePercent}%` }}
+        />
+      </div>
+
       <p className="text-gray-700">{result.summary}</p>
       {result.feedback.map((f, i) => (
         <p key={i} className="text-gray-600 pl-2">— {f}</p>
@@ -315,15 +333,10 @@ function ToolDetail({
 
 function RunSummary({
   run,
+  events,
 }: {
-  run: {
-    status: string;
-    iteration: number;
-    tokenUsage?: { promptTokens: number; completionTokens: number; totalTokens: number };
-    estimatedCost?: number;
-    startedAt: string;
-    finishedAt?: string;
-  };
+  run: GoalRunState;
+  events: GoalRunEvent[];
 }) {
   const elapsed = run.finishedAt
     ? Math.round(
@@ -338,11 +351,27 @@ function RunSummary({
     failed: "Goal failed",
   };
 
+  const handleExport = () => {
+    downloadRunAsJSON(run, events);
+  };
+
   return (
-    <div className="border border-gray-200 rounded-xl p-4 bg-white text-xs space-y-1.5">
-      <div className="font-semibold text-gray-900 text-sm">
-        {statusLabel[run.status] ?? run.status}
+    <div className="border border-gray-200 rounded-xl p-4 bg-white text-xs space-y-2">
+      <div className="flex items-center justify-between">
+        <div className="font-semibold text-gray-900 text-sm">
+          {statusLabel[run.status] ?? run.status}
+        </div>
+        <button
+          onClick={handleExport}
+          className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors font-medium flex items-center gap-1.5"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+          Export
+        </button>
       </div>
+
       <div className="text-gray-500 space-y-0.5">
         <div>Iterations: {run.iteration}</div>
         {run.tokenUsage && (
@@ -355,6 +384,33 @@ function RunSummary({
         )}
         <div>Elapsed: {elapsed}s</div>
       </div>
+
+      {run.metrics && (
+        <div className="pt-2 border-t border-gray-100 space-y-1.5">
+          <div className="font-medium text-gray-700 text-xs">Loop Metrics</div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-gray-500">
+            <div>Total tool calls: {run.metrics.totalToolCalls}</div>
+            <div>Avg confidence: {(run.metrics.averageConfidence * 100).toFixed(0)}%</div>
+            <div>Iterations to complete: {run.metrics.iterationsToComplete}</div>
+            <div>Success rate: {(run.metrics.successRate * 100).toFixed(0)}%</div>
+          </div>
+          {run.metrics.confidenceTrend.length > 1 && (
+            <div className="flex items-center gap-1.5 pt-1">
+              <span className="text-gray-500">Confidence trend:</span>
+              <div className="flex items-end gap-0.5 h-4">
+                {run.metrics.confidenceTrend.map((conf, i) => (
+                  <div
+                    key={i}
+                    className="w-1.5 bg-gray-400 rounded-t"
+                    style={{ height: `${Math.max(conf * 100, 5)}%` }}
+                    title={`Iteration ${i + 1}: ${(conf * 100).toFixed(0)}%`}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
