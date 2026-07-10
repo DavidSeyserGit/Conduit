@@ -48,7 +48,7 @@ export function ModelPicker({ label, value, onChange, compact }: ModelPickerProp
       </button>
 
       {open && (
-        <div className="absolute z-50 top-full mt-2 w-72 max-h-72 overflow-hidden bg-white border border-gray-200 rounded-xl shadow-xl">
+        <div className={`absolute z-50 w-72 max-h-72 overflow-hidden bg-white border border-gray-200 rounded-xl shadow-xl ${compact ? "bottom-full mb-2" : "top-full mt-2"}`}>
           <div className="p-2 border-b border-gray-100">
             <input
               type="text"

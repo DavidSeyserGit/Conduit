@@ -1,5 +1,7 @@
 import { useState } from "react";
+import type { CSSProperties } from "react";
 import { useAppStore } from "@/stores/app-store";
+import { ModelSelectors } from "@/features/model-picker/ModelPicker";
 
 export function ChatInput() {
   const [input, setInput] = useState("");
@@ -14,6 +16,7 @@ export function ChatInput() {
   const pendingApproval = useAppStore((s) => s.pendingApproval);
   const approveCommand = useAppStore((s) => s.approveCommand);
   const rejectCommand = useAppStore((s) => s.rejectCommand);
+  const inputGlowColor = useAppStore((s) => s.settings.inputGlowColor ?? "#3b82f6");
 
   const canSend =
     input.trim().length > 0 &&
@@ -41,7 +44,7 @@ export function ChatInput() {
   };
 
   return (
-    <div className="border-t border-gray-100 bg-white py-3 px-4 shrink-0">
+    <div className="bg-white px-4 pt-3 pb-6 shrink-0">
       {pendingApproval && (
         <div className="mb-3 px-4 py-2 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between">
           <div className="text-xs text-amber-800 truncate flex-1 mr-3">
@@ -64,8 +67,14 @@ export function ChatInput() {
         </div>
       )}
 
-      <div className="max-w-3xl mx-auto">
-        <div className="flex items-center bg-gray-100 rounded-full border border-gray-200 focus-within:border-gray-300 focus-within:bg-white transition-all pr-2">
+      <div className="max-w-2xl mx-auto">
+        <div className="flex justify-end mb-2">
+          <ModelSelectors compact />
+        </div>
+        <div
+          className="input-glow flex items-center rounded-xl pr-2 transition-all"
+          style={{ "--glow-color": inputGlowColor } as CSSProperties}
+        >
           <input
             type="text"
             value={input}
@@ -75,7 +84,7 @@ export function ChatInput() {
               mode === "goal" ? "Describe your goal..." : "Message LoopKit..."
             }
             disabled={isRunning}
-            className="flex-1 bg-transparent px-4 py-3 text-sm text-gray-900 placeholder-gray-400 outline-none disabled:opacity-50"
+            className="flex-1 bg-transparent px-4 py-7 text-sm text-gray-900 placeholder-gray-400 outline-none disabled:opacity-50"
           />
           {isRunning ? (
             <button

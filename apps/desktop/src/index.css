@@ -30,6 +30,49 @@ body {
   box-sizing: border-box;
 }
 
+.input-glow {
+  --glow-color: #3b82f6;
+  --glow-angle: 0deg;
+  border: 2px solid transparent;
+  background:
+    linear-gradient(#f3f4f6, #f3f4f6) padding-box,
+    conic-gradient(
+      from var(--glow-angle),
+      color-mix(in srgb, var(--glow-color) 28%, white),
+      color-mix(in srgb, var(--glow-color) 28%, white) 72%,
+      var(--glow-color) 86%,
+      color-mix(in srgb, var(--glow-color) 65%, white) 92%,
+      color-mix(in srgb, var(--glow-color) 28%, white)
+    ) border-box;
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--glow-color) 55%, transparent));
+  animation: input-glow-rotate 8s linear infinite;
+}
+
+.input-glow:focus-within {
+  background:
+    linear-gradient(#ffffff, #ffffff) padding-box,
+    conic-gradient(
+      from var(--glow-angle),
+      color-mix(in srgb, var(--glow-color) 45%, white),
+      color-mix(in srgb, var(--glow-color) 45%, white) 72%,
+      color-mix(in srgb, var(--glow-color) 90%, black) 86%,
+      color-mix(in srgb, var(--glow-color) 70%, white) 92%,
+      color-mix(in srgb, var(--glow-color) 45%, white)
+    ) border-box;
+}
+
+@property --glow-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes input-glow-rotate {
+  to {
+    --glow-angle: 360deg;
+  }
+}
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;

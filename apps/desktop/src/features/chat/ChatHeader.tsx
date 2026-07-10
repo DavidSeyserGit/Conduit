@@ -1,7 +1,6 @@
 import { useState } from "react";
 import type { ChatMode } from "@loopkit/shared";
 import { useAppStore } from "@/stores/app-store";
-import { ModelSelectors } from "@/features/model-picker/ModelPicker";
 
 export function ChatHeader() {
   const workspacePath = useAppStore((s) => s.workspacePath);
@@ -50,7 +49,6 @@ export function ChatHeader() {
       </div>
 
       <div className="flex items-center gap-2 shrink-0">
-        <ModelSelectors compact />
         <button
           onClick={() => setShowSettings(true)}
           className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
