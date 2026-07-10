@@ -1,6 +1,15 @@
 import { useAppStore } from "@/stores/app-store";
 import type { CommandPermissionMode } from "@loopkit/shared";
 
+const GLOW_COLORS = [
+  { name: "Blue", value: "#3b82f6" },
+  { name: "Purple", value: "#8b5cf6" },
+  { name: "Pink", value: "#ec4899" },
+  { name: "Orange", value: "#f97316" },
+  { name: "Green", value: "#10b981" },
+  { name: "Cyan", value: "#06b6d4" },
+];
+
 export function SettingsPanel() {
   const showSettings = useAppStore((s) => s.showSettings);
   const setShowSettings = useAppStore((s) => s.setShowSettings);
@@ -32,6 +41,29 @@ export function SettingsPanel() {
         </div>
 
         <div className="p-5 space-y-5">
+          <div>
+            <label className="block text-xs text-gray-700 mb-2 font-medium">
+              Input Glow Color
+            </label>
+            <div className="flex items-center gap-3">
+              {GLOW_COLORS.map((color) => (
+                <button
+                  key={color.value}
+                  type="button"
+                  title={color.name}
+                  aria-label={`${color.name} input glow`}
+                  onClick={() => updateSettings({ inputGlowColor: color.value })}
+                  className={`w-8 h-8 rounded-full transition-transform hover:scale-110 ${
+                    (settings.inputGlowColor ?? "#3b82f6") === color.value
+                      ? "ring-2 ring-gray-900 ring-offset-2"
+                      : "ring-1 ring-black/10"
+                  }`}
+                  style={{ backgroundColor: color.value }}
+                />
+              ))}
+            </div>
+          </div>
+
           <div>
             <label className="block text-xs text-gray-700 mb-2 font-medium">
               OpenRouter API Key

@@ -234,6 +234,7 @@ export type CommandPermissionMode =
 
 export interface AppSettings {
   openRouterApiKey?: string;
+  inputGlowColor: string;
   commandPermissionMode: CommandPermissionMode;
   defaultCodingModelId?: string;
   defaultJudgeModelId?: string;

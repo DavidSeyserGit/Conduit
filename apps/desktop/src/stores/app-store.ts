@@ -67,6 +67,7 @@ interface AppState {
 }
 
 const defaultSettings: AppSettings = {
+  inputGlowColor: "#3b82f6",
   commandPermissionMode: "auto_approve_safe",
   defaultMaxIterations: 3,
 };
