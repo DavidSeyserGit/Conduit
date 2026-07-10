@@ -72,7 +72,19 @@ function GoalRunTimeline({ events }: { events: GoalRunEvent[] }) {
       )}
 
       {iterations.map((iter) => (
-        <IterationBlock key={iter.number} iteration={iter} />
+        <div key={iter.number} className="space-y-3">
+          <IterationBlock iteration={iter} />
+          {iter.agentMessages.map((event) => event.type === "agent_message" && (
+            <div key={event.messageId} className="flex justify-start">
+              <div className="max-w-[82%]">
+                <div className="text-[11px] font-medium text-gray-400 mb-1 px-1">LoopKit</div>
+                <div className="prose prose-sm max-w-none text-gray-800 bg-white border border-gray-200 rounded-2xl rounded-bl-md px-4 py-3 shadow-sm">
+                  <ReactMarkdown>{event.content}</ReactMarkdown>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
       ))}
     </div>
   );
@@ -200,23 +212,10 @@ function IterationBlock({ iteration }: { iteration: IterationData }) {
           );
         })}
 
-        {iteration.agentMessages.length > 0 && (
-          <div className="mt-3 pt-3 border-t border-gray-100 prose prose-sm max-w-none text-gray-700">
-            {iteration.agentMessages.slice(-1).map((event) => event.type === "agent_message" && (
-              <ReactMarkdown key={event.messageId}>{event.content}</ReactMarkdown>
-            ))}
-          </div>
-        )}
       </div>
 
       {expanded && (
         <div className="px-4 py-3 border-t border-gray-200 space-y-2 bg-gray-50">
-          {iteration.agentMessages.map((event, i) => event.type === "agent_message" && (
-            <div key={`agent-${i}`} className="prose prose-sm max-w-none text-gray-700 bg-white border border-gray-200 rounded-lg p-3">
-              <ReactMarkdown>{event.content}</ReactMarkdown>
-            </div>
-          ))}
-
           {iteration.planUpdated?.type === "plan_updated" && (
             <div className="text-xs">
               <span className="text-gray-500 font-medium">Plan: </span>
