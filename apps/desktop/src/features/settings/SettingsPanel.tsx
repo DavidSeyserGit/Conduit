@@ -123,8 +123,11 @@ export function SettingsPanel() {
           </div>
         </div>
 
-        <div className="px-5 py-3.5 border-t border-gray-100 bg-gray-50 text-xs text-gray-500">
-          API keys are stored locally. OpenRouter is the primary model provider.
+        <div className="px-5 py-3.5 border-t border-gray-100 bg-gray-50 text-xs text-gray-500 space-y-1.5">
+          <div>API keys are stored locally. OpenRouter is the primary model provider.</div>
+          <div className="text-gray-400">
+            <span className="font-medium text-indigo-600">Tip:</span> Use your ChatGPT subscription for coding — select <span className="font-medium">Codex (ChatGPT subscription)</span> as the coding model after running <code className="bg-gray-200 px-1 rounded">codex login</code> in your terminal.
+          </div>
         </div>
       </div>
     </div>

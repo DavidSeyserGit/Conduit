@@ -150,6 +150,27 @@ export interface GoalIteration {
   judgeResult?: JudgeResult;
 }
 
+export interface IterationMetrics {
+  iteration: number;
+  toolCallCount: number;
+  durationMs: number;
+  confidence: number;
+  approved: boolean;
+  changedFiles: number;
+  validationPassed: boolean;
+}
+
+export interface LoopMetrics {
+  totalIterations: number;
+  totalToolCalls: number;
+  totalDurationMs: number;
+  averageConfidence: number;
+  confidenceTrend: number[];
+  iterationsToComplete: number;
+  successRate: number;
+  perIteration: IterationMetrics[];
+}
+
 export interface GoalRunState {
   id: string;
   goal: string;
@@ -166,6 +187,29 @@ export interface GoalRunState {
   tokenUsage?: TokenUsage;
   estimatedCost?: number;
   lastJudgeFeedback?: string[];
+  metrics?: LoopMetrics;
+}
+
+export interface JudgePreset {
+  id: string;
+  name: string;
+  description: string;
+  codingModelPattern: string;
+  judgeModelPattern: string;
+  recommended: boolean;
+}
+
+export interface ExportedRun {
+  version: string;
+  exportedAt: string;
+  run: GoalRunState;
+  events: GoalRunEvent[];
+  metadata: {
+    codingModelId: string;
+    judgeModelId: string;
+    totalIterations: number;
+    totalDurationMs: number;
+  };
 }
 
 export interface GoalRunConfig {

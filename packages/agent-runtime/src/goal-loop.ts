@@ -15,6 +15,7 @@ import {
   addAgentMessage,
   accumulateTokenUsage,
 } from "./state.js";
+import { computeLoopMetrics } from "./metrics.js";
 
 export type GoalRunEventHandler = (event: GoalRunEvent) => void;
 
@@ -58,9 +59,17 @@ export class GoalLoopRunner {
     let state = createInitialGoalState(config);
     state.status = "running";
 
+    const collectedEvents: GoalRunEvent[] = [];
+
     const emit = (event: GoalRunEvent) => {
+      collectedEvents.push(event);
       onEvent(event);
       state = applyEventToState(state, event);
+    };
+
+    const finalizeState = (finalState: GoalRunState): GoalRunState => {
+      const metrics = computeLoopMetrics(collectedEvents);
+      return { ...finalState, metrics };
     };
 
     emit({ type: "run_started", runId: state.id });
@@ -76,14 +85,16 @@ export class GoalLoopRunner {
 
     if (!codingProviderInfo) {
       const error = `No provider found for coding model: ${config.codingModelId}`;
+      const finalState = finalizeState({ ...state, status: "failed" });
       emit({ type: "run_failed", error });
-      return { status: "failed", state: { ...state, status: "failed" }, error };
+      return { status: "failed", state: finalState, error };
     }
 
     if (!judgeProviderInfo) {
       const error = `No provider found for judge model: ${config.judgeModelId}`;
+      const finalState = finalizeState({ ...state, status: "failed" });
       emit({ type: "run_failed", error });
-      return { status: "failed", state: { ...state, status: "failed" }, error };
+      return { status: "failed", state: finalState, error };
     }
 
     const codingAgent = new CodingAgent();
@@ -97,7 +108,8 @@ export class GoalLoopRunner {
       if (this.cancelled) {
         state.status = "cancelled";
         state.finishedAt = new Date().toISOString();
-        const result: GoalRunResult = { status: "cancelled", state };
+        const finalState = finalizeState(state);
+        const result: GoalRunResult = { status: "cancelled", state: finalState };
         emit({ type: "run_completed", result });
         return result;
       }
@@ -154,7 +166,8 @@ export class GoalLoopRunner {
         if (judgeResult.approved) {
           state.status = "completed";
           state.finishedAt = new Date().toISOString();
-          const result: GoalRunResult = { status: "completed", state };
+          const finalState = finalizeState(state);
+          const result: GoalRunResult = { status: "completed", state: finalState };
           emit({ type: "run_completed", result });
           return result;
         }
@@ -168,16 +181,18 @@ export class GoalLoopRunner {
         state.status = "failed";
         state.finishedAt = new Date().toISOString();
         state.iterations.push(iteration);
+        const finalState = finalizeState(state);
         emit({ type: "run_failed", error });
-        return { status: "failed", state, error };
+        return { status: "failed", state: finalState, error };
       }
     }
 
     state.status = "iteration_limit_reached";
     state.finishedAt = new Date().toISOString();
+    const finalState = finalizeState(state);
     const result: GoalRunResult = {
       status: "iteration_limit_reached",
-      state,
+      state: finalState,
     };
     emit({ type: "run_completed", result });
     return result;
