@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { GoalRunEvent } from "@loopkit/shared";
 import ReactMarkdown from "react-markdown";
 import { useAppStore } from "@/stores/app-store";
@@ -8,6 +8,11 @@ export function ChatTimeline() {
   const runEvents = useAppStore((s) => s.runEvents);
   const currentRun = useAppStore((s) => s.currentRun);
   const isRunning = useAppStore((s) => s.isRunning);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages, runEvents, currentRun, isRunning]);
 
   if (messages.length === 0 && runEvents.length === 0) {
     return (
@@ -24,22 +29,17 @@ export function ChatTimeline() {
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto px-6 py-6">
-      <div className="max-w-3xl mx-auto space-y-6">
+        <div className="max-w-6xl mx-auto space-y-6">
         {messages.map((msg) => (
-          <div key={msg.id} className="flex gap-3">
-            {msg.role === "user" && (
-              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center text-white text-xs font-semibold shrink-0 mt-0.5">
-                U
-              </div>
-            )}
-            <div className={`flex-1 ${msg.role === "user" ? "" : "ml-10"}`}>
-              <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">
+          <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+            <div className={`max-w-[82%] ${msg.role === "user" ? "items-end" : "items-start"}`}>
+              <div className="text-[11px] font-medium text-gray-400 mb-1 px-1">
                 {msg.role === "user" ? "You" : "LoopKit"}
               </div>
-              <div className="text-sm text-gray-800 prose prose-sm max-w-none leading-relaxed">
-                <ReactMarkdown>{msg.content}</ReactMarkdown>
+              <div className={`text-sm leading-relaxed prose prose-sm max-w-none px-4 py-3 ${msg.role === "user" ? "bg-gray-900 text-white [&_*]:text-white rounded-2xl rounded-br-md" : "bg-gray-50 border border-gray-200 text-gray-800 rounded-2xl rounded-bl-md"}`}>
+                <div className={`chat-markdown ${msg.role === "user" ? "chat-markdown-user" : ""}`}><ReactMarkdown>{msg.content}</ReactMarkdown></div>
                 {msg.isStreaming && (
-                  <span className="inline-block w-1.5 h-4 bg-indigo-500 animate-pulse ml-0.5 rounded" />
+                  <span className="inline-block w-1.5 h-4 bg-indigo-500 animate-pulse ml-0.5 rounded align-middle" />
                 )}
               </div>
             </div>
@@ -51,6 +51,7 @@ export function ChatTimeline() {
         {currentRun && !isRunning && (
           <RunSummary run={currentRun} />
         )}
+        <div ref={bottomRef} />
       </div>
     </div>
   );
@@ -60,17 +61,36 @@ function GoalRunTimeline({ events }: { events: GoalRunEvent[] }) {
   const iterations = groupByIteration(events);
 
   return (
-    <div className="border-t border-gray-200 pt-5 space-y-3">
-      <div className="text-xs font-semibold text-indigo-600 uppercase tracking-wider">
-        Goal Execution
+    <div className="border border-gray-200 rounded-2xl bg-gray-50/70 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-semibold text-gray-900">Goal execution</div>
+        <span className="text-[11px] text-gray-400">Agent activity</span>
       </div>
 
       {events.some((e) => e.type === "run_started") && (
-        <div className="text-sm text-gray-500">Goal started</div>
+        <div className="text-xs text-gray-500">Working through the repository…</div>
+      )}
+
+      {events.find((e) => e.type === "run_failed")?.type === "run_failed" && (
+        <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+          Run failed: {(events.find((e) => e.type === "run_failed") as Extract<GoalRunEvent, { type: "run_failed" }>).error}
+        </div>
       )}
 
       {iterations.map((iter) => (
-        <IterationBlock key={iter.number} iteration={iter} />
+        <div key={iter.number} className="space-y-3">
+          <IterationBlock iteration={iter} />
+          {iter.agentMessages.map((event) => event.type === "agent_message" && (
+            <div key={event.messageId} className="flex justify-start">
+              <div className="max-w-[82%]">
+                <div className="text-[11px] font-medium text-gray-400 mb-1 px-1">LoopKit</div>
+                <div className="prose prose-sm max-w-none text-gray-800 bg-white border border-gray-200 rounded-2xl rounded-bl-md px-4 py-3 shadow-sm">
+                  <div className="chat-markdown"><ReactMarkdown>{event.content}</ReactMarkdown></div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
       ))}
     </div>
   );
@@ -135,10 +155,10 @@ function IterationBlock({ iteration }: { iteration: IterationData }) {
       : undefined;
 
   return (
-    <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
+    <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
+        className="w-full flex items-center justify-between px-4 py-3 bg-white hover:bg-gray-50 transition-colors text-left"
       >
         <span className="text-sm font-semibold text-gray-800">
           Iteration {iteration.number}
@@ -170,7 +190,7 @@ function IterationBlock({ iteration }: { iteration: IterationData }) {
         </div>
       </button>
 
-      <div className="px-4 py-2.5 space-y-1.5">
+      <div className="px-4 py-2.5 space-y-1.5 bg-white">
         {completedTools.map((event, i) => {
           if (event.type !== "tool_completed") return null;
           const tc = event.toolCall;
@@ -197,6 +217,7 @@ function IterationBlock({ iteration }: { iteration: IterationData }) {
             </div>
           );
         })}
+
       </div>
 
       {expanded && (
@@ -265,6 +286,7 @@ function ToolDetail({
     arguments: Record<string, unknown>;
     result?: unknown;
     status: string;
+    error?: string;
   };
 }) {
   const [showResult, setShowResult] = useState(false);
@@ -281,6 +303,11 @@ function ToolDetail({
         <pre className="mt-2 p-2.5 bg-gray-900 rounded-lg text-gray-300 overflow-x-auto max-h-32 text-[10px]">
           {JSON.stringify(toolCall.result, null, 2)}
         </pre>
+      )}
+      {showResult && toolCall.error && (
+        <div className="mt-2 p-2.5 bg-red-50 border border-red-200 rounded-lg text-red-700 whitespace-pre-wrap">
+          {toolCall.error}
+        </div>
       )}
     </div>
   );
@@ -312,7 +339,7 @@ function RunSummary({
   };
 
   return (
-    <div className="border border-gray-200 rounded-xl p-4 bg-gradient-to-br from-indigo-50 to-white text-xs space-y-1.5">
+    <div className="border border-gray-200 rounded-xl p-4 bg-white text-xs space-y-1.5">
       <div className="font-semibold text-gray-900 text-sm">
         {statusLabel[run.status] ?? run.status}
       </div>

@@ -288,6 +288,7 @@ export class OpenRouterProvider implements ModelProvider {
   ): Promise<Response> {
     const response = await fetch(url, {
       ...init,
+      signal: init?.signal ?? AbortSignal.timeout(120_000),
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
         "Content-Type": "application/json",

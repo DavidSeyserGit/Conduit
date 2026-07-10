@@ -34,6 +34,7 @@ export interface CodingAgentConfig {
   maxIterations: number;
   emit: (event: GoalRunEvent) => void;
   signal?: AbortSignal;
+  modelApiKey?: string;
 }
 
 export interface CodingAgentResult {
@@ -48,6 +49,29 @@ export interface CodingAgentResult {
 
 export class CodingAgent {
   async run(config: CodingAgentConfig): Promise<CodingAgentResult> {
+    if (typeof window !== "undefined") {
+      const response = await fetch("/api/agent/pi-iteration", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workspace: config.workspacePath,
+          goal: config.goal,
+          modelId: config.modelId,
+          apiKey: config.modelApiKey,
+          previousPlan: config.previousPlan,
+          judgeFeedback: config.judgeFeedback,
+          iteration: config.iteration,
+          maxIterations: config.maxIterations,
+        }),
+      });
+      const body = await response.text();
+      if (!body) throw new Error(`Pi backend returned an empty response (${response.status})`);
+      const result = JSON.parse(body) as { result?: CodingAgentResult; events?: GoalRunEvent[]; error?: string };
+      if (!response.ok || !result.result) throw new Error(result.error || `Pi backend failed (${response.status})`);
+      for (const event of result.events ?? []) config.emit(event);
+      return result.result;
+    }
+
     const toolCalls: StoredToolCall[] = [];
     const changedFiles = new Set<string>();
     const validationResults: ValidationResult[] = [];

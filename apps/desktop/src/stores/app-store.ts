@@ -16,10 +16,18 @@ import {
 import { GoalLoopRunner, AskChatRunner } from "@loopkit/agent-runtime";
 import { createTauriToolExecutor } from "@/lib/tauri-tools";
 
+export interface Project {
+  name: string;
+  path: string;
+  remote?: string;
+}
+
 interface AppState {
   // Project
   workspacePath: string;
   setWorkspacePath: (path: string) => void;
+  projects: Project[];
+  addProject: (project: Project) => void;
 
   // Settings
   settings: AppSettings;
@@ -87,6 +95,11 @@ export const useAppStore = create<AppState>()(
     (set, get) => ({
       workspacePath: "",
       setWorkspacePath: (path) => set({ workspacePath: path }),
+      projects: [],
+      addProject: (project) => set((s) => ({
+        projects: [...s.projects.filter((p) => p.path !== project.path), project],
+        workspacePath: project.path,
+      })),
 
       settings: defaultSettings,
       updateSettings: (partial) => {
@@ -254,6 +267,7 @@ export const useAppStore = create<AppState>()(
               codingModelId: state.codingModelId,
               judgeModelId: state.judgeModelId,
               maxIterations: state.maxIterations,
+              modelApiKey: state.settings.openRouterApiKey,
             },
             toolExecutor,
             {
@@ -324,6 +338,7 @@ export const useAppStore = create<AppState>()(
       name: "loopkit-app",
       partialize: (state) => ({
         workspacePath: state.workspacePath,
+        projects: state.projects,
         settings: state.settings,
         codingModelId: state.codingModelId,
         judgeModelId: state.judgeModelId,

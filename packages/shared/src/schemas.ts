@@ -175,6 +175,7 @@ export interface GoalRunConfig {
   judgeModelId: string;
   maxIterations: number;
   maxCost?: number;
+  modelApiKey?: string;
 }
 
 export interface GoalRunResult {

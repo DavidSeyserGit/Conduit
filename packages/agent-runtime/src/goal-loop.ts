@@ -120,6 +120,7 @@ export class GoalLoopRunner {
           maxIterations: config.maxIterations,
           emit,
           signal: this.abortController.signal,
+          modelApiKey: config.modelApiKey,
         });
 
         state.plan = agentResult.plan ?? state.plan;

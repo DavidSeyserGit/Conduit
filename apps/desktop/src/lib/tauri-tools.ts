@@ -23,6 +23,23 @@ export function createTauriToolExecutor(
       }
 
       try {
+        if (!(window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) {
+          const response = await fetch("/api/workspace/tool", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ workspace: getWorkspacePath(), name, args, mode }),
+          });
+          const body = await response.text();
+          if (!body) return { success: false, error: `Workspace tool returned an empty response (${response.status})` };
+          let result: TauriToolResult;
+          try {
+            result = JSON.parse(body) as TauriToolResult;
+          } catch {
+            return { success: false, error: `Workspace tool returned invalid JSON (${response.status})` };
+          }
+          if (result.success && WRITE_TOOLS.has(name) && args.path) context.onFileChanged?.(args.path as string);
+          return result;
+        }
         const result = await invoke<TauriToolResult>("tool_execute", {
           workspace: getWorkspacePath(),
           name,

@@ -16,6 +16,7 @@
     "@loopkit/model-providers": "workspace:*",
     "@loopkit/shared": "workspace:*",
     "@loopkit/tools": "workspace:*",
+    "@mariozechner/pi-coding-agent": "^0.73.1",
     "@tauri-apps/api": "^2.1.1",
     "@tauri-apps/plugin-dialog": "^2.2.0",
     "@tauri-apps/plugin-shell": "^2.2.0",

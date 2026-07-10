@@ -123,3 +123,20 @@ body {
   padding: 1rem;
   font-size: 0.8125rem;
 }
+
+.chat-markdown > :first-child { margin-top: 0; }
+.chat-markdown > :last-child { margin-bottom: 0; }
+.chat-markdown p { margin: 0.5rem 0; }
+.chat-markdown h1, .chat-markdown h2, .chat-markdown h3 { color: #111827; font-weight: 650; line-height: 1.3; margin: 1rem 0 0.45rem; }
+.chat-markdown h1 { font-size: 1.25rem; }
+.chat-markdown h2 { font-size: 1.1rem; }
+.chat-markdown h3 { font-size: 1rem; }
+.chat-markdown ul, .chat-markdown ol { margin: 0.55rem 0; padding-left: 1.35rem; }
+.chat-markdown li { margin: 0.2rem 0; }
+.chat-markdown blockquote { border-left: 3px solid #d1d5db; color: #6b7280; margin: 0.75rem 0; padding-left: 0.8rem; }
+.chat-markdown a { color: #4f46e5; text-decoration: underline; }
+.chat-markdown code { background: #f3f4f6; border-radius: 0.3rem; color: #4338ca; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.86em; padding: 0.12rem 0.3rem; }
+.chat-markdown pre { background: #111827; border-radius: 0.65rem; margin: 0.75rem 0; overflow-x: auto; padding: 0.8rem 0.9rem; }
+.chat-markdown pre code { background: transparent; color: #e5e7eb; padding: 0; }
+.chat-markdown-user h1, .chat-markdown-user h2, .chat-markdown-user h3, .chat-markdown-user blockquote, .chat-markdown-user a { color: inherit; }
+.chat-markdown-user code { background: rgb(255 255 255 / 0.14); color: inherit; }

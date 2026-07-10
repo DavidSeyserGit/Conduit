@@ -48,9 +48,20 @@ pnpm --filter @loopkit/desktop tauri:build
 
 1. Open LoopKit and click the settings icon
 2. Enter your [OpenRouter API key](https://openrouter.ai/keys)
-3. Select a working directory (project)
-4. Choose coding and judge models
-5. Switch to **Goal** mode and enter a goal
+3. Create a GitHub OAuth App, enable **Device Flow**, and start LoopKit with its client ID:
+
+   ```bash
+   GITHUB_CLIENT_ID=your_client_id VITE_GITHUB_CLIENT_ID=your_client_id pnpm --filter @loopkit/desktop tauri:dev
+   ```
+
+   For the browser preview, use `VITE_GITHUB_CLIENT_ID=your_client_id pnpm --filter @loopkit/desktop dev`.
+
+4. Click **+** beside Projects, connect GitHub, and authorize the app
+5. Choose a repository and clone destination
+6. Choose coding and judge models, then switch to **Goal** mode
+
+GitHub access tokens are stored in the operating system keychain. The selected
+repository is cloned locally and the agent runs against that local checkout.
 
 ## Architecture
 
