@@ -6,13 +6,18 @@ export class CodexProvider implements ModelProvider {
   readonly name = "Codex (ChatGPT subscription)";
 
   async listModels(): Promise<ModelDescriptor[]> {
-    return [{
-      id: "codex/subscription",
-      provider: "codex",
-      displayName: "Codex (ChatGPT subscription)",
-      supportsTools: true,
-      supportsStructuredOutput: false,
-    }];
+    if (typeof window !== "undefined") {
+      const response = await fetch("/api/codex/models");
+      if (!response.ok) throw new Error(`Codex model discovery failed (${response.status})`);
+      return (await response.json()).map((model: { slug: string; display_name: string }) => ({
+        id: `codex/${model.slug}`,
+        provider: "codex",
+        displayName: model.display_name,
+        supportsTools: true,
+        supportsStructuredOutput: false,
+      }));
+    }
+    return [{ id: "codex/subscription", provider: "codex", displayName: "Codex (ChatGPT subscription)", supportsTools: true, supportsStructuredOutput: false }];
   }
 
   async createResponse(_request: ModelRequest): Promise<ModelResponse> {

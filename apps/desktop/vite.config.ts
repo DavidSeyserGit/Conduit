@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import os from "node:os";
 import { AuthStorage, ModelRegistry, SessionManager, createAgentSession } from "@mariozechner/pi-coding-agent";
 
 const githubClientId = process.env.GITHUB_CLIENT_ID || "Ov23liMo1oJoAzSI7573";
@@ -46,13 +47,21 @@ function githubApi() {
     name: "github-oauth-api",
     configureServer(server: { middlewares: { use: (handler: (req: any, res: any, next: () => void) => void) => void } }) {
       server.middlewares.use(async (req, res, next) => {
-        if (!req.url?.startsWith("/api/github/") && !req.url?.startsWith("/api/workspace/") && !req.url?.startsWith("/api/agent/")) return next();
+        if (!req.url?.startsWith("/api/github/") && !req.url?.startsWith("/api/workspace/") && !req.url?.startsWith("/api/agent/") && !req.url?.startsWith("/api/codex/")) return next();
         const cookies = Object.fromEntries((req.headers.cookie || "").split(";").filter(Boolean).map((part: string) => part.trim().split("=")));
         const sessionId = cookies.loopkit_session || randomUUID();
         const session = sessions.get(sessionId) || {};
         sessions.set(sessionId, session);
         res.setHeader("Set-Cookie", `loopkit_session=${sessionId}; HttpOnly; SameSite=Lax; Path=/`);
         res.setHeader("Content-Type", "application/json");
+
+        if (req.url === "/api/codex/models" && req.method === "GET") {
+          try {
+            const cachePath = path.join(process.env.CODEX_HOME || path.join(os.homedir(), ".codex"), "models_cache.json");
+            const cache = JSON.parse(await fs.readFile(cachePath, "utf8"));
+            return res.end(JSON.stringify((cache.models || []).filter((model: any) => model.visibility === "list" && model.supported_in_api !== false)));
+          } catch (error: any) { res.statusCode = 503; return res.end(JSON.stringify({ error: `Codex model cache unavailable: ${error.message}` })); }
+        }
 
         if (req.url === "/api/workspace/tool" && req.method === "POST") {
           try {
@@ -104,7 +113,8 @@ function githubApi() {
               const outputFile = path.join(workspaceRoot, `.loopkit-codex-${randomUUID()}.txt`);
               const prompt = `Work directly on this repository and complete the goal using your coding tools.\n\nGoal: ${goal}\nIteration: ${iteration} of ${maxIterations}\n${previousPlan ? `Previous plan:\n${JSON.stringify(previousPlan)}` : ""}\n${judgeFeedback?.length ? `Judge feedback:\n${judgeFeedback.join("\n")}` : ""}\nAt the end, briefly summarize verified work completed.`;
               try {
-                await execFileAsync("codex", ["exec", "--json", "--ephemeral", "--skip-git-repo-check", "-C", root, "-s", "workspace-write", "-a", "never", "-o", outputFile, prompt], { cwd: root, maxBuffer: 20 * 1024 * 1024 });
+                const codexModel = String(modelId).replace(/^codex\//, "");
+                await execFileAsync("codex", ["exec", "--json", "--ephemeral", "--skip-git-repo-check", "-C", root, "-m", codexModel, "-s", "workspace-write", "-a", "never", "-o", outputFile, prompt], { cwd: root, maxBuffer: 20 * 1024 * 1024 });
                 const summary = await fs.readFile(outputFile, "utf8").catch(() => "");
                 const diff = await execFileAsync("git", ["diff", "--name-only"], { cwd: root });
                 const events = summary ? [{ type: "agent_message", content: summary, messageId: randomUUID() }] : [];
