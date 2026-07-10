@@ -61,6 +61,25 @@ body {
     ) border-box;
 }
 
+.agent-status {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--status-color) 35%, white), var(--status-color), color-mix(in srgb, var(--status-color) 35%, white));
+  background-size: 240% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 1px color-mix(in srgb, var(--status-color) 16%, transparent));
+  opacity: 0.92;
+  animation: status-glow 3s linear infinite;
+}
+
+@keyframes status-glow {
+  to { background-position: 240% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-status { animation: none; }
+}
+
 @property --glow-angle {
   syntax: "<angle>";
   inherits: false;

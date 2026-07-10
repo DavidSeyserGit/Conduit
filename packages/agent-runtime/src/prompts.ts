@@ -88,7 +88,7 @@ export function buildCodingAgentPrompt(params: {
 
   if (params.judgeFeedback && params.judgeFeedback.length > 0) {
     parts.push(
-      `## Judge Feedback (address these issues)\n${params.judgeFeedback.map((f) => `- ${f}`).join("\n")}`
+      `## Required Judge Fixes\nThe previous iteration was rejected. Before reporting completion, address every item below, then validate the fixes:\n${params.judgeFeedback.map((f, i) => `${i + 1}. ${f}`).join("\n")}`
     );
   }
 
