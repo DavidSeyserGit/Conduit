@@ -1,0 +1,20 @@
+{
+  "name": "loopkit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Minimal desktop coding chatbot with explicit agent loops",
+  "scripts": {
+    "dev": "pnpm --filter @loopkit/desktop dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}
