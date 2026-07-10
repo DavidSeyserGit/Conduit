@@ -176,6 +176,10 @@ export class GoalLoopRunner {
           ...judgeResult.feedback,
           ...judgeResult.missingRequirements.map((r) => `Missing: ${r}`),
         ];
+        emit({
+          type: "agent_status",
+          message: `Judge rejected iteration ${state.iteration}; sending ${state.lastJudgeFeedback.length} required fix${state.lastJudgeFeedback.length === 1 ? "" : "es"} to the coding agent…`,
+        });
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err);
         state.status = "failed";

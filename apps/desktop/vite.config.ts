@@ -20,6 +20,17 @@ async function readJson(req: any) {
   return JSON.parse(body || "{}");
 }
 
+function createAgentStream(res: any) {
+  res.setHeader("Content-Type", "application/x-ndjson");
+  const send = (payload: unknown) => res.write(`${JSON.stringify(payload)}\n`);
+  const status = (message: string) => send({ event: { type: "agent_status", message } });
+  const heartbeat = (message: string) => {
+    const timer = setInterval(() => status(message), 30_000);
+    return () => clearInterval(timer);
+  };
+  return { send, status, heartbeat };
+}
+
 function workspacePath(workspace: string, relative = ".") {
   const root = path.resolve(workspace);
   const target = path.resolve(root, relative);
@@ -110,19 +121,30 @@ function githubApi() {
             if (!isClone && !isGitRepo) throw new Error("Workspace is not a Git repository");
 
             if (String(modelId).startsWith("codex/")) {
+              const stream = createAgentStream(res);
+              stream.status("Initializing Codex agent…");
               const outputFile = path.join(workspaceRoot, `.loopkit-codex-${randomUUID()}.txt`);
-              const prompt = `Work directly on this repository and complete the goal using your coding tools.\n\nGoal: ${goal}\nIteration: ${iteration} of ${maxIterations}\n${previousPlan ? `Previous plan:\n${JSON.stringify(previousPlan)}` : ""}\n${judgeFeedback?.length ? `Judge feedback:\n${judgeFeedback.join("\n")}` : ""}\nAt the end, briefly summarize verified work completed.`;
+              const prompt = `Work directly on this repository and complete the goal using your coding tools.\n\nGoal: ${goal}\nIteration: ${iteration} of ${maxIterations}\n${previousPlan ? `Previous plan:\n${JSON.stringify(previousPlan)}` : ""}\n${judgeFeedback?.length ? `Required judge fixes — address every item and validate them:\n${judgeFeedback.map((f, i) => `${i + 1}. ${f}`).join("\n")}` : ""}\nAt the end, briefly summarize verified work completed.`;
+              let stopHeartbeat = () => {};
               try {
                 const codexModel = String(modelId).replace(/^codex\//, "");
-                await execFileAsync("codex", ["exec", "--json", "--ephemeral", "--skip-git-repo-check", "-C", root, "-m", codexModel, "-s", "workspace-write", "-a", "never", "-o", outputFile, prompt], { cwd: root, maxBuffer: 20 * 1024 * 1024 });
+                stream.status(`Starting Codex ${codexModel}…`);
+                stopHeartbeat = stream.heartbeat("Codex is still working…");
+                await execFileAsync("codex", ["exec", "--json", "--ephemeral", "--skip-git-repo-check", "-C", root, "-m", codexModel, "--dangerously-bypass-approvals-and-sandbox", "-o", outputFile, prompt], { cwd: root, maxBuffer: 20 * 1024 * 1024 });
+                stream.status("Codex finished; collecting changes…");
                 const summary = await fs.readFile(outputFile, "utf8").catch(() => "");
                 const diff = await execFileAsync("git", ["diff", "--name-only"], { cwd: root });
-                const events = summary ? [{ type: "agent_message", content: summary, messageId: randomUUID() }] : [];
-                return res.end(JSON.stringify({ events, result: { changedFiles: diff.stdout.split("\n").filter(Boolean), validationResults: [], agentSummary: summary, toolCalls: [], messages: [] } }));
-              } finally { await fs.rm(outputFile, { force: true }); }
+                if (summary) stream.send({ event: { type: "agent_message", content: summary, messageId: randomUUID() } });
+                return res.end(JSON.stringify({ result: { changedFiles: diff.stdout.split("\n").filter(Boolean), validationResults: [], agentSummary: summary, toolCalls: [], messages: [] } }) + "\n");
+              } finally { stopHeartbeat(); await fs.rm(outputFile, { force: true }); }
             }
 
             if (!apiKey) throw new Error("OpenRouter API key is missing");
+
+            const stream = createAgentStream(res);
+            const { send } = stream;
+            const { status } = stream;
+            status("Initializing Pi agent…");
 
             const authStorage = AuthStorage.inMemory();
             authStorage.setRuntimeApiKey("openrouter", apiKey);
@@ -134,9 +156,12 @@ function githubApi() {
               apiKey,
               models: [{ id: piModelId, name: piModelId, reasoning: true, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 16384 }],
             });
+            status(`Loading model ${piModelId}…`);
             const model = modelRegistry.find("openrouter", piModelId);
             if (!model) throw new Error(`Pi could not load model: ${piModelId}`);
+            status("Creating Pi session…");
             const { session } = await createAgentSession({ cwd: root, model, modelRegistry, authStorage, sessionManager: SessionManager.inMemory(root), tools: ["read", "bash", "edit", "write", "grep", "find", "ls"] });
+            status("Pi session ready; sending goal…");
             const events: any[] = [];
             const toolCalls = new Map<string, any>();
             let summary = "";
@@ -144,22 +169,35 @@ function githubApi() {
               if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") summary += event.assistantMessageEvent.delta;
               if (event.type === "tool_execution_start") {
                 const toolCall = { id: event.toolCallId, name: event.toolName, arguments: event.args || {}, status: "running", startedAt: new Date().toISOString() };
-                toolCalls.set(event.toolCallId, toolCall); events.push({ type: "tool_started", toolCall });
+                toolCalls.set(event.toolCallId, toolCall); const streamed = { type: "tool_started", toolCall }; events.push(streamed); send({ event: streamed });
               }
               if (event.type === "tool_execution_end") {
                 const toolCall = toolCalls.get(event.toolCallId) || { id: event.toolCallId, name: event.toolName, arguments: event.args || {}, startedAt: new Date().toISOString() };
                 toolCall.status = event.isError ? "failed" : "completed"; toolCall.result = event.result; toolCall.completedAt = new Date().toISOString();
                 if (event.isError) toolCall.error = JSON.stringify(event.result);
-                events.push({ type: "tool_completed", toolCall });
+                const streamed = { type: "tool_completed", toolCall }; events.push(streamed); send({ event: streamed });
               }
             });
-            await session.prompt(`Work directly on this repository and complete the goal using your tools.\n\nGoal: ${goal}\nIteration: ${iteration} of ${maxIterations}\n${previousPlan ? `Previous plan:\n${JSON.stringify(previousPlan)}` : ""}\n${judgeFeedback?.length ? `Judge feedback:\n${judgeFeedback.join("\n")}` : ""}\nAt the end, briefly summarize verified work completed.`);
+            status(judgeFeedback?.length ? "Applying judge feedback and revisiting the repository…" : "Pi is working through the repository…");
+            const stopHeartbeat = stream.heartbeat("Pi is still working…");
+            try {
+              await session.prompt(`Work directly on this repository and complete the goal using your tools.\n\nGoal: ${goal}\nIteration: ${iteration} of ${maxIterations}\n${previousPlan ? `Previous plan:\n${JSON.stringify(previousPlan)}` : ""}\n${judgeFeedback?.length ? `Judge feedback:\n${judgeFeedback.join("\n")}` : ""}\nAt the end, briefly summarize verified work completed.`);
+            } finally {
+              stopHeartbeat();
+            }
+            status("Pi finished; collecting changes…");
             session.dispose();
             const diff = await execFileAsync("git", ["diff", "--name-only"], { cwd: root });
             const changedFiles = diff.stdout.split("\n").filter(Boolean);
             if (summary) events.push({ type: "agent_message", content: summary, messageId: randomUUID() });
-            return res.end(JSON.stringify({ events, result: { changedFiles, validationResults: [], agentSummary: summary, toolCalls: Array.from(toolCalls.values()), messages: [] } }));
-          } catch (error: any) { res.statusCode = 500; return res.end(JSON.stringify({ error: error.message || String(error) })); }
+            const result = { changedFiles, validationResults: [], agentSummary: summary, toolCalls: Array.from(toolCalls.values()), messages: [] };
+            send({ result });
+            return res.end();
+          } catch (error: any) {
+            if (res.headersSent) { res.write(`${JSON.stringify({ event: { type: "agent_status", message: `Agent failed: ${error.message || String(error)}` } })}\n`); res.write(`${JSON.stringify({ error: error.message || String(error) })}\n`); return res.end(); }
+            res.statusCode = 500;
+            return res.end(JSON.stringify({ error: error.message || String(error) }));
+          }
         }
 
         if (req.url === "/api/github/device/start" && req.method === "POST") {

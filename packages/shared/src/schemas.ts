@@ -233,6 +233,7 @@ export interface GoalRunResult {
 export type GoalRunEvent =
   | { type: "run_started"; runId: string }
   | { type: "iteration_started"; iteration: number }
+  | { type: "agent_status"; message: string }
   | { type: "agent_message"; content: string; messageId: string }
   | { type: "plan_updated"; plan: AgentPlan }
   | { type: "tool_started"; toolCall: StoredToolCall }
