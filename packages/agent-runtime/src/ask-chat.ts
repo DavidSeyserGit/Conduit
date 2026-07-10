@@ -7,6 +7,7 @@ import type { ToolExecutor } from "@loopkit/tools";
 import type { ModelProvider } from "@loopkit/model-providers";
 import { getToolDefinitions } from "@loopkit/tools";
 import { ASK_MODE_SYSTEM_PROMPT } from "./prompts.js";
+import { accumulateTokenUsage } from "./state.js";
 
 export interface AskChatConfig {
   workspacePath: string;
@@ -60,13 +61,13 @@ export class AskChatRunner {
             config.onStream?.(event.content);
           }
           if (event.usage) {
-            totalUsage = event.usage;
+            totalUsage = accumulateTokenUsage(totalUsage, event.usage);
           }
         }
       );
 
       if (response.usage) {
-        totalUsage = response.usage;
+        totalUsage = accumulateTokenUsage(totalUsage, response.usage);
       }
 
       if (!response.toolCalls || response.toolCalls.length === 0) {

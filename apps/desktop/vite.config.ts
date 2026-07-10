@@ -114,7 +114,7 @@ function githubApi() {
 
         if (req.url === "/api/agent/pi-iteration" && req.method === "POST") {
           try {
-            const { workspace, goal, modelId, apiKey, previousPlan, judgeFeedback, iteration, maxIterations } = await readJson(req);
+            const { workspace, goal, modelId, apiKey, previousPlan, judgeFeedback, iteration, maxIterations, inputPrice, outputPrice, supportsReasoning } = await readJson(req);
             const root = path.resolve(workspace);
             const isClone = root.startsWith(`${path.resolve(workspaceRoot)}${path.sep}`);
             const isGitRepo = await fs.stat(path.join(root, ".git")).then(() => true).catch(() => false);
@@ -150,11 +150,13 @@ function githubApi() {
             authStorage.setRuntimeApiKey("openrouter", apiKey);
             const modelRegistry = ModelRegistry.inMemory(authStorage);
             const piModelId = String(modelId).replace(/^openrouter\//, "");
+            const inputPricePerToken = Number(inputPrice || 0) / 1_000_000;
+            const outputPricePerToken = Number(outputPrice || 0) / 1_000_000;
             modelRegistry.registerProvider("openrouter", {
               api: "openai-completions",
               baseUrl: "https://openrouter.ai/api/v1",
               apiKey,
-              models: [{ id: piModelId, name: piModelId, reasoning: true, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 16384 }],
+              models: [{ id: piModelId, name: piModelId, reasoning: Boolean(supportsReasoning), input: ["text"], cost: { input: inputPricePerToken, output: outputPricePerToken, cacheRead: inputPricePerToken, cacheWrite: inputPricePerToken }, contextWindow: 128000, maxTokens: 16384, headers: { "HTTP-Referer": "https://loopkit.dev", "X-Title": "LoopKit", "User-Agent": "LoopKit/0.1" } }],
             });
             status(`Loading model ${piModelId}…`);
             const model = modelRegistry.find("openrouter", piModelId);
@@ -165,8 +167,17 @@ function githubApi() {
             const events: any[] = [];
             const toolCalls = new Map<string, any>();
             let summary = "";
+            const tokenUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
             session.subscribe((event: any) => {
               if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") summary += event.assistantMessageEvent.delta;
+              if (event.type === "message_end" && event.message?.usage) {
+                const usage = event.message.usage;
+                tokenUsage.promptTokens += Number(usage.input || 0);
+                tokenUsage.completionTokens += Number(usage.output || 0);
+                tokenUsage.totalTokens += Number(usage.totalTokens || Number(usage.input || 0) + Number(usage.output || 0));
+                tokenUsage.cacheReadTokens += Number(usage.cacheRead || 0);
+                tokenUsage.cacheWriteTokens += Number(usage.cacheWrite || 0);
+              }
               if (event.type === "tool_execution_start") {
                 const toolCall = { id: event.toolCallId, name: event.toolName, arguments: event.args || {}, status: "running", startedAt: new Date().toISOString() };
                 toolCalls.set(event.toolCallId, toolCall); const streamed = { type: "tool_started", toolCall }; events.push(streamed); send({ event: streamed });
@@ -181,7 +192,20 @@ function githubApi() {
             status(judgeFeedback?.length ? "Applying judge feedback and revisiting the repository…" : "Pi is working through the repository…");
             const stopHeartbeat = stream.heartbeat("Pi is still working…");
             try {
-              await session.prompt(`Work directly on this repository and complete the goal using your tools.\n\nGoal: ${goal}\nIteration: ${iteration} of ${maxIterations}\n${previousPlan ? `Previous plan:\n${JSON.stringify(previousPlan)}` : ""}\n${judgeFeedback?.length ? `Judge feedback:\n${judgeFeedback.join("\n")}` : ""}\nAt the end, briefly summarize verified work completed.`);
+              const prompt = `Work directly on this repository and complete the goal using your tools.\n\nGoal: ${goal}\nIteration: ${iteration} of ${maxIterations}\n${previousPlan ? `Previous plan:\n${JSON.stringify(previousPlan)}` : ""}\n${judgeFeedback?.length ? `Judge feedback:\n${judgeFeedback.join("\n")}` : ""}\nAt the end, briefly summarize verified work completed.`;
+              let completed = false;
+              for (let attempt = 0; attempt < 3 && !completed; attempt++) {
+                try {
+                  await session.prompt(prompt);
+                  completed = true;
+                } catch (error: any) {
+                  const message = error?.message || String(error);
+                  const transient = /network|fetch failed|socket|timeout|timed out|econnreset|502|503|504|429/i.test(message);
+                  if (!transient || attempt === 2) throw new Error(`OpenRouter coding request failed for ${piModelId}: ${message}`);
+                  status(`OpenRouter connection interrupted; retrying (${attempt + 1}/2)…`);
+                  await new Promise((resolve) => setTimeout(resolve, 1500 * (attempt + 1)));
+                }
+              }
             } finally {
               stopHeartbeat();
             }
@@ -190,7 +214,8 @@ function githubApi() {
             const diff = await execFileAsync("git", ["diff", "--name-only"], { cwd: root });
             const changedFiles = diff.stdout.split("\n").filter(Boolean);
             if (summary) events.push({ type: "agent_message", content: summary, messageId: randomUUID() });
-            const result = { changedFiles, validationResults: [], agentSummary: summary, toolCalls: Array.from(toolCalls.values()), messages: [] };
+            const estimatedCost = tokenUsage.promptTokens * inputPricePerToken + tokenUsage.completionTokens * outputPricePerToken;
+            const result = { changedFiles, validationResults: [], agentSummary: summary, toolCalls: Array.from(toolCalls.values()), messages: [], tokenUsage, estimatedCost };
             send({ result });
             return res.end();
           } catch (error: any) {
@@ -212,7 +237,7 @@ function githubApi() {
           if (!session.device) { res.statusCode = 400; return res.end(JSON.stringify({ error: "No authorization in progress" })); }
           const response = await fetch("https://github.com/login/oauth/access_token", { method: "POST", headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ client_id: githubClientId, device_code: session.device.device_code, grant_type: "urn:ietf:params:oauth:grant-type:device_code" }) });
           const result = await response.json();
-          if (result.access_token) { session.token = result.access_token; session.device = undefined; return res.end(JSON.stringify({ authorized: true })); }
+          if (result.access_token) { session.token = result.access_token; session.device = undefined; return res.end(JSON.stringify({ authorized: true, token: result.access_token })); }
           return res.end(JSON.stringify({ pending: result.error === "authorization_pending" || result.error === "slow_down", error: result.error_description || result.error }));
         }
 
@@ -223,9 +248,49 @@ function githubApi() {
           return res.end(await response.text());
         }
 
-        if (req.url === "/api/github/clone" && req.method === "POST") {
+        if (req.url?.startsWith("/api/github/issues") && req.method === "GET") {
           if (!session.token) { res.statusCode = 401; return res.end(JSON.stringify({ error: "Not authorized" })); }
-          const { full_name, clone_url } = await readJson(req);
+          const repo = new URL(req.url, "http://localhost").searchParams.get("repo") || "";
+          if (!/^[^/]+\/[^/]+$/.test(repo)) { res.statusCode = 400; return res.end(JSON.stringify({ error: "Invalid repository" })); }
+          const response = await fetch(`https://api.github.com/repos/${repo}/issues?state=open&sort=updated&per_page=50`, { headers: { Authorization: `Bearer ${session.token}`, Accept: "application/vnd.github+json" } });
+          const issues = await response.json();
+          res.statusCode = response.status;
+          return res.end(JSON.stringify(Array.isArray(issues) ? issues.filter((issue: any) => !issue.pull_request) : issues));
+        }
+
+        if (req.url === "/api/workspace/git-worktree" && req.method === "POST") {
+          try {
+            const { action, repository, branch, sessionId, worktree } = await readJson(req);
+            const root = path.resolve(String(repository || ""));
+            const gitRoot = await execFileAsync("git", ["-C", root, "rev-parse", "--show-toplevel"]);
+            const resolvedRoot = path.resolve(gitRoot.stdout.trim());
+            const validIdentifier = (value: unknown, allowSlash = false) => typeof value === "string" && value.length > 0 && value.length <= 80 && /^[A-Za-z0-9_.\/-]+$/.test(value) && !value.includes("..") && (allowSlash || !value.includes("/"));
+            const worktreeRoot = path.join(path.dirname(resolvedRoot), ".loopkit-worktrees", path.basename(resolvedRoot));
+            if (action === "create") {
+              if (!validIdentifier(branch, true) || !validIdentifier(sessionId)) throw new Error("Invalid branch or session identifier");
+              const target = path.join(worktreeRoot, String(sessionId));
+              if (await fs.access(target).then(() => true).catch(() => false)) throw new Error(`Worktree already exists: ${target}`);
+              await fs.mkdir(worktreeRoot, { recursive: true });
+              await execFileAsync("git", ["-C", resolvedRoot, "worktree", "add", "-b", String(branch), target, "HEAD"]);
+              return res.end(JSON.stringify({ success: true, result: { path: target, branch } }));
+            }
+            if (action === "remove") {
+              const target = path.resolve(String(worktree || ""));
+              if (!target.startsWith(`${worktreeRoot}${path.sep}`)) throw new Error("Invalid worktree path");
+              await execFileAsync("git", ["-C", resolvedRoot, "worktree", "remove", "--force", target]);
+              return res.end(JSON.stringify({ success: true, result: { removed: true } }));
+            }
+            throw new Error("Unknown Git worktree action");
+          } catch (error: any) {
+            res.statusCode = 400;
+            return res.end(JSON.stringify({ success: false, error: error.stderr || error.message || String(error) }));
+          }
+        }
+
+        if (req.url === "/api/github/clone" && req.method === "POST") {
+          const { full_name, clone_url, token } = await readJson(req);
+          const accessToken = session.token || String(token || "");
+          if (!accessToken) { res.statusCode = 401; return res.end(JSON.stringify({ error: "Not authorized" })); }
           const name = String(full_name || "").split("/").pop() || "";
           let repoUrl: URL;
           try { repoUrl = new URL(clone_url); } catch { res.statusCode = 400; return res.end(JSON.stringify({ error: "Invalid repository URL" })); }
@@ -236,7 +301,7 @@ function githubApi() {
           const askpass = path.join(workspaceRoot, `.loopkit-askpass-${process.pid}`);
           await fs.writeFile(askpass, "#!/bin/sh\ncase \"$1\" in *Username*) echo x-access-token;; *) echo \"$LOOPKIT_GITHUB_TOKEN\";; esac\n", { mode: 0o700 });
           try {
-            await execFileAsync("git", ["clone", clone_url, target], { env: { ...process.env, GIT_ASKPASS: askpass, GIT_TERMINAL_PROMPT: "0", LOOPKIT_GITHUB_TOKEN: session.token } });
+            await execFileAsync("git", ["clone", clone_url, target], { env: { ...process.env, GIT_ASKPASS: askpass, GIT_TERMINAL_PROMPT: "0", LOOPKIT_GITHUB_TOKEN: accessToken } });
             return res.end(JSON.stringify({ path: target }));
           } catch (error: any) {
             res.statusCode = 500;

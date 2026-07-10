@@ -148,6 +148,7 @@ function RunSummary({
   run: GoalRunState;
   events: GoalRunEvent[];
 }) {
+  const openGitDiff = useAppStore((s) => s.openGitDiff);
   const elapsed = run.finishedAt
     ? Math.round(
         (new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime()) / 1000
@@ -171,15 +172,24 @@ function RunSummary({
         <div className="font-semibold text-gray-900 text-sm">
           {statusLabel[run.status] ?? run.status}
         </div>
-        <button
-          onClick={handleExport}
-          className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors font-medium flex items-center gap-1.5"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-          </svg>
-          Export
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleExport}
+            className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors font-medium flex items-center gap-1.5"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            Export
+          </button>
+          <button
+            onClick={() => void openGitDiff()}
+            className="px-3 py-1.5 text-xs bg-gray-900 hover:bg-gray-800 text-white rounded-lg transition-colors font-medium flex items-center gap-1.5"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path d="M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3M8 7h8M8 12h8M8 17h5" /></svg>
+            Changes
+          </button>
+        </div>
       </div>
 
       <div className="text-gray-500 space-y-0.5">
@@ -189,9 +199,11 @@ function RunSummary({
             Tokens: {run.tokenUsage.totalTokens.toLocaleString()}
           </div>
         )}
-        {run.estimatedCost !== undefined && (
-          <div>Cost: ${run.estimatedCost.toFixed(2)}</div>
+        {run.estimatedCost !== undefined && run.estimatedCost > 0 && (
+          <div>Estimated cost: {formatCost(run.estimatedCost)}</div>
         )}
+        {run.codingCost && <div>Coding: {formatCost(run.codingCost.totalCost)}</div>}
+        {run.judgeCost && <div>Judge: {formatCost(run.judgeCost.totalCost)}</div>}
         <div>Elapsed: {elapsed}s</div>
       </div>
 
@@ -223,4 +235,8 @@ function RunSummary({
       )}
     </div>
   );
+}
+
+function formatCost(cost: number): string {
+  return cost > 0 && cost < 0.0001 ? "<$0.0001" : `$${cost.toFixed(4)}`;
 }

@@ -4,13 +4,21 @@ import { useAppStore } from "@/stores/app-store";
 
 export function ChatHeader() {
   const workspacePath = useAppStore((s) => s.workspacePath);
+  const activeProjectPath = useAppStore((s) => s.activeProjectPath);
+  const activeSessionId = useAppStore((s) => s.activeSessionId);
+  const sessions = useAppStore((s) => s.sessions);
+  const sessionUsage = useAppStore((s) => s.sessionUsage);
   const setShowSettings = useAppStore((s) => s.setShowSettings);
   const mode = useAppStore((s) => s.mode);
   const setMode = useAppStore((s) => s.setMode);
   const isRunning = useAppStore((s) => s.isRunning);
+  const createWorktree = useAppStore((s) => s.createWorktree);
+  const removeWorktree = useAppStore((s) => s.removeWorktree);
+  const openGitDiff = useAppStore((s) => s.openGitDiff);
 
-  const projectName = workspacePath
-    ? workspacePath.split("/").pop() ?? workspacePath
+  const activeSession = sessions[activeProjectPath]?.find((session) => session.id === activeSessionId);
+  const projectName = activeProjectPath
+    ? activeProjectPath.split("/").pop() ?? activeProjectPath
     : "Select project";
 
   return (
@@ -24,9 +32,44 @@ export function ChatHeader() {
         </div>
 
         <ModePicker mode={mode} onChange={setMode} disabled={isRunning} />
+        {activeSession?.branch && <span className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-md" title={workspacePath}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M6 3v18M18 3v18M6 7h12M6 17h12" /><circle cx="6" cy="7" r="2" /><circle cx="18" cy="17" r="2" /></svg>
+          <span className="max-w-[180px] truncate">{activeSession.branch}</span>
+        </span>}
+        {(sessionUsage.totalTokens > 0 || sessionUsage.totalCost > 0) && <span className="hidden md:inline-flex items-center gap-1.5 px-2 py-1 text-[11px] text-gray-500 bg-gray-50 border border-gray-100 rounded-md" title={`Prompt ${sessionUsage.promptTokens.toLocaleString()} tokens, output ${sessionUsage.completionTokens.toLocaleString()}, cache read ${sessionUsage.cacheReadTokens.toLocaleString()}, cache write ${sessionUsage.cacheWriteTokens.toLocaleString()}`}>
+          <span>{formatTokens(sessionUsage.totalTokens)} tokens</span>
+          {(sessionUsage.cacheReadTokens > 0 || sessionUsage.cacheWriteTokens > 0) && <span className="text-indigo-500">{formatTokens(sessionUsage.cacheReadTokens + sessionUsage.cacheWriteTokens)} cached</span>}
+          <span className="text-gray-700">{formatCost(sessionUsage.totalCost)}</span>
+        </span>}
       </div>
 
       <div className="flex items-center gap-2 shrink-0">
+        {activeProjectPath && <button
+          onClick={() => void openGitDiff()}
+          className="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+          title="Show Git changes"
+          aria-label="Show Git changes"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3M8 7h8M8 12h8M8 17h5" /></svg>
+        </button>}
+        {activeProjectPath && !activeSession?.worktreePath && <button
+          onClick={() => void createWorktree().catch((error) => window.alert(error instanceof Error ? error.message : String(error)))}
+          disabled={isRunning}
+          className="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-40"
+          title="Create isolated Git worktree"
+          aria-label="Create isolated Git worktree"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M6 3v18M18 3v18M6 7h12M6 17h12" /><circle cx="6" cy="7" r="2" /><circle cx="18" cy="17" r="2" /></svg>
+        </button>}
+        {activeSession?.worktreePath && <button
+          onClick={() => { if (window.confirm("Remove this chat's worktree? Uncommitted changes will be deleted.")) void removeWorktree().catch((error) => window.alert(error instanceof Error ? error.message : String(error))); }}
+          disabled={isRunning}
+          className="p-2 text-gray-500 hover:text-red-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-40"
+          title="Remove worktree"
+          aria-label="Remove worktree"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" /></svg>
+        </button>}
         <button
           onClick={() => setShowSettings(true)}
           className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
@@ -40,6 +83,14 @@ export function ChatHeader() {
       </div>
     </div>
   );
+}
+
+function formatTokens(tokens: number): string {
+  return tokens >= 1000 ? `${(tokens / 1000).toFixed(tokens >= 10000 ? 0 : 1)}k` : String(tokens);
+}
+
+function formatCost(cost: number): string {
+  return cost > 0 && cost < 0.0001 ? "<$0.0001" : `$${cost.toFixed(4)}`;
 }
 
 function ModePicker({

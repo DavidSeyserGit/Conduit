@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { useAppStore } from "@/stores/app-store";
 import { ModelSelectors } from "@/features/model-picker/ModelPicker";
@@ -10,25 +10,34 @@ export function ChatInput() {
   const workspacePath = useAppStore((s) => s.workspacePath);
   const codingModelId = useAppStore((s) => s.codingModelId);
   const judgeModelId = useAppStore((s) => s.judgeModelId);
+  const codingModel = useAppStore((s) => s.models.find((model) => model.id === s.codingModelId));
   const sendMessage = useAppStore((s) => s.sendMessage);
   const startGoalRun = useAppStore((s) => s.startGoalRun);
+  const goalDraft = useAppStore((s) => s.goalDraft);
+  const setGoalDraft = useAppStore((s) => s.setGoalDraft);
   const cancelRun = useAppStore((s) => s.cancelRun);
   const pendingApproval = useAppStore((s) => s.pendingApproval);
   const approveCommand = useAppStore((s) => s.approveCommand);
   const rejectCommand = useAppStore((s) => s.rejectCommand);
   const inputGlowColor = useAppStore((s) => s.settings.inputGlowColor ?? "#3b82f6");
 
+  useEffect(() => {
+    if (goalDraft) setInput(goalDraft);
+  }, [goalDraft]);
+
   const canSend =
     input.trim().length > 0 &&
     !isRunning &&
     workspacePath &&
     codingModelId &&
+    codingModel?.supportsTools &&
     (mode === "ask" || judgeModelId);
 
   const handleSubmit = () => {
     if (!canSend) return;
     const content = input.trim();
     setInput("");
+    setGoalDraft("");
     if (mode === "ask") {
       sendMessage(content);
     } else {

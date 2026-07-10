@@ -3,6 +3,7 @@ import type {
   GoalRunResult,
   GoalRunState,
   GoalRunEvent,
+  ModelCostBreakdown,
 } from "@loopkit/shared";
 import type { ProviderRegistry } from "@loopkit/model-providers";
 import type { ToolExecutor, ToolExecutorContext } from "@loopkit/tools";
@@ -16,6 +17,7 @@ import {
   accumulateTokenUsage,
 } from "./state.js";
 import { computeLoopMetrics } from "./metrics.js";
+import { estimateCost } from "./state.js";
 
 export type GoalRunEventHandler = (event: GoalRunEvent) => void;
 
@@ -56,8 +58,11 @@ export class GoalLoopRunner {
     this.cancelled = false;
     this.abortController = new AbortController();
 
-    let state = createInitialGoalState(config);
+    let state = config.resumeState
+      ? structuredClone(config.resumeState)
+      : createInitialGoalState(config);
     state.status = "running";
+    state.finishedAt = undefined;
 
     const collectedEvents: GoalRunEvent[] = [];
 
@@ -133,6 +138,9 @@ export class GoalLoopRunner {
           emit,
           signal: this.abortController.signal,
           modelApiKey: config.modelApiKey,
+          inputPrice: config.codingInputPrice,
+          outputPrice: config.codingOutputPrice,
+          supportsReasoning: config.codingSupportsReasoning,
         });
 
         state.plan = agentResult.plan ?? state.plan;
@@ -148,8 +156,15 @@ export class GoalLoopRunner {
           state.tokenUsage,
           agentResult.tokenUsage
         );
+        state.codingTokenUsage = accumulateTokenUsage(state.codingTokenUsage, agentResult.tokenUsage);
+        state.codingCost = updateCost(
+          config.codingModelId,
+          state.codingTokenUsage,
+          config.codingInputPrice,
+          config.codingOutputPrice
+        );
 
-        const judgeResult = await judge.review({
+        const judgeReview = await judge.review({
           goal: state.goal,
           plan: state.plan,
           changedFiles: agentResult.changedFiles,
@@ -159,6 +174,16 @@ export class GoalLoopRunner {
           workspacePath: state.workspacePath,
           getDiff: () => toolExecutor.execute("get_git_diff", {}, "goal"),
         });
+        const judgeResult = judgeReview.result;
+        state.tokenUsage = accumulateTokenUsage(state.tokenUsage, judgeReview.tokenUsage);
+        state.judgeTokenUsage = accumulateTokenUsage(state.judgeTokenUsage, judgeReview.tokenUsage);
+        state.judgeCost = updateCost(
+          config.judgeModelId,
+          state.judgeTokenUsage,
+          config.judgeInputPrice,
+          config.judgeOutputPrice
+        );
+        state.estimatedCost = (state.codingCost?.totalCost || 0) + (state.judgeCost?.totalCost || 0);
 
         iteration.judgeResult = judgeResult;
         state.iterations.push(iteration);
@@ -224,4 +249,18 @@ export async function runGoalLoop(
 ): Promise<GoalRunResult> {
   const runner = new GoalLoopRunner(registry);
   return runner.run(config, toolExecutor, toolContext, onEvent);
+}
+
+function updateCost(
+  modelId: string,
+  usage: { promptTokens: number; completionTokens: number; cacheReadTokens?: number; cacheWriteTokens?: number } | undefined,
+  inputPrice?: number,
+  outputPrice?: number
+): ModelCostBreakdown | undefined {
+  if (!usage || (inputPrice === undefined && outputPrice === undefined)) return undefined;
+  const inputCost = estimateCost({ ...usage, promptTokens: Math.max(0, usage.promptTokens - (usage.cacheReadTokens || 0)), totalTokens: usage.promptTokens + usage.completionTokens }, inputPrice, undefined) || 0;
+  const outputCost = estimateCost({ ...usage, totalTokens: usage.promptTokens + usage.completionTokens }, undefined, outputPrice) || 0;
+  const cacheReadCost = estimateCost({ ...usage, promptTokens: usage.cacheReadTokens || 0, completionTokens: 0, totalTokens: usage.cacheReadTokens || 0 }, inputPrice, undefined) || 0;
+  const cacheWriteCost = estimateCost({ ...usage, promptTokens: usage.cacheWriteTokens || 0, completionTokens: 0, totalTokens: usage.cacheWriteTokens || 0 }, inputPrice, undefined) || 0;
+  return { modelId, inputCost, outputCost, cacheReadCost, cacheWriteCost, totalCost: inputCost + outputCost + cacheReadCost + cacheWriteCost };
 }

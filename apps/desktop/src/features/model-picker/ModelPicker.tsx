@@ -67,13 +67,15 @@ function ProviderIcon({ provider }: { provider: string }) {
 function ModelOption({ model, selected, onSelect, isJudgePicker, codingModelId }: { model: ModelDescriptor; selected: boolean; onSelect: () => void; isJudgePicker?: boolean; codingModelId: string }) {
   const isCodex = model.provider === "codex";
   const isRecommendedJudge = isJudgePicker && codingModelId && isRecommendedJudgeModel(codingModelId, model.id);
+  const supportsCodingTools = isJudgePicker || model.supportsTools;
 
-  return <button onClick={onSelect} className={`w-full text-left px-3 py-2.5 rounded-xl hover:bg-gray-50 transition-colors ${selected ? "bg-fuchsia-50" : ""}`}>
+  return <button onClick={onSelect} disabled={!supportsCodingTools} className={`w-full text-left px-3 py-2.5 rounded-xl transition-colors ${selected ? "bg-fuchsia-50" : supportsCodingTools ? "hover:bg-gray-50" : "opacity-50 cursor-not-allowed"}`}>
     <div className="flex items-center gap-2">
       <span className="w-6 h-6 rounded-md bg-gray-50 text-gray-500 flex items-center justify-center shrink-0"><ProviderIcon provider={model.provider} /></span>
       <span className="text-sm text-gray-900 truncate font-medium flex-1">{model.displayName}</span>
       {isRecommendedJudge && <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded font-medium">Recommended judge</span>}
       {isCodex && <span className="text-[10px] text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded font-medium">Subscription</span>}
+      {!supportsCodingTools && <span className="text-[10px] text-gray-500 bg-gray-100 border border-gray-200 px-1.5 py-0.5 rounded font-medium">No tools</span>}
       {selected && <span className="text-fuchsia-600 text-xs">✓</span>}
     </div>
     <div className="flex items-center gap-2 mt-1 pl-8">

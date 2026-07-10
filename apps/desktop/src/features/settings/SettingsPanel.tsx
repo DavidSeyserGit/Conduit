@@ -15,14 +15,16 @@ export function SettingsPanel() {
   const setShowSettings = useAppStore((s) => s.setShowSettings);
   const settings = useAppStore((s) => s.settings);
   const updateSettings = useAppStore((s) => s.updateSettings);
-  const loadModels = useAppStore((s) => s.loadModels);
+  const refreshModels = useAppStore((s) => s.refreshModels);
+  const saveOpenRouterKey = useAppStore((s) => s.saveOpenRouterKey);
   const initProviders = useAppStore((s) => s.initProviders);
 
   if (!showSettings) return null;
 
   const handleSaveApiKey = async () => {
+    await saveOpenRouterKey(settings.openRouterApiKey ?? "");
     initProviders();
-    await loadModels();
+    await refreshModels();
   };
 
   return (
@@ -124,7 +126,7 @@ export function SettingsPanel() {
         </div>
 
         <div className="px-5 py-3.5 border-t border-gray-100 bg-gray-50 text-xs text-gray-500 space-y-1.5">
-          <div>API keys are stored locally. OpenRouter is the primary model provider.</div>
+          <div>OpenRouter keys are stored in the system keychain in the desktop app and browser storage in preview mode.</div>
           <div className="text-gray-400">
             <span className="font-medium text-indigo-600">Tip:</span> Use your ChatGPT subscription for coding — select <span className="font-medium">Codex (ChatGPT subscription)</span> as the coding model after running <code className="bg-gray-200 px-1 rounded">codex login</code> in your terminal.
           </div>

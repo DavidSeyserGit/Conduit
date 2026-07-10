@@ -51,8 +51,9 @@ export class OpenRouterProvider implements ModelProvider {
       provider: "openrouter",
       displayName: m.name,
       contextLength: m.context_length ?? m.top_provider?.context_length,
-      supportsTools: true,
+      supportsTools: m.supported_parameters ? m.supported_parameters.includes("tools") : true,
       supportsStructuredOutput: m.supported_parameters?.includes("response_format") ?? true,
+      supportsReasoning: m.supported_parameters?.some((parameter) => parameter === "reasoning" || parameter === "reasoning_effort") ?? false,
       inputPrice: m.pricing?.prompt ? parseFloat(m.pricing.prompt) * 1_000_000 : undefined,
       outputPrice: m.pricing?.completion ? parseFloat(m.pricing.completion) * 1_000_000 : undefined,
     }));
@@ -151,10 +152,13 @@ export class OpenRouterProvider implements ModelProvider {
             }
 
             if (parsed.usage) {
+              const promptDetails = parsed.usage.prompt_tokens_details || {};
               usage = {
                 promptTokens: parsed.usage.prompt_tokens ?? 0,
                 completionTokens: parsed.usage.completion_tokens ?? 0,
                 totalTokens: parsed.usage.total_tokens ?? 0,
+                cacheReadTokens: promptDetails.cached_tokens ?? parsed.usage.cache_read_input_tokens ?? 0,
+                cacheWriteTokens: parsed.usage.cache_creation_input_tokens ?? 0,
               };
             }
           } catch {
@@ -241,7 +245,7 @@ export class OpenRouterProvider implements ModelProvider {
   private parseResponse(data: Record<string, unknown>): ModelResponse {
     const choice = (data.choices as Array<Record<string, unknown>>)?.[0];
     const message = choice?.message as Record<string, unknown> | undefined;
-    const usage = data.usage as Record<string, number> | undefined;
+    const usage = data.usage as (Record<string, any> & { prompt_tokens_details?: Record<string, number> }) | undefined;
 
     let structuredOutput: unknown;
     const content = (message?.content as string) ?? "";
@@ -276,6 +280,8 @@ export class OpenRouterProvider implements ModelProvider {
             promptTokens: usage.prompt_tokens ?? 0,
             completionTokens: usage.completion_tokens ?? 0,
             totalTokens: usage.total_tokens ?? 0,
+            cacheReadTokens: usage.prompt_tokens_details?.cached_tokens ?? usage.cache_read_input_tokens ?? 0,
+            cacheWriteTokens: usage.cache_creation_input_tokens ?? 0,
           }
         : undefined,
       finishReason: choice?.finish_reason as string,
@@ -286,17 +292,34 @@ export class OpenRouterProvider implements ModelProvider {
     url: string,
     init?: RequestInit
   ): Promise<Response> {
-    const response = await fetch(url, {
+    const request = {
       ...init,
-      signal: init?.signal ?? AbortSignal.timeout(120_000),
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
         "Content-Type": "application/json",
         "HTTP-Referer": "https://loopkit.dev",
         "X-Title": "LoopKit",
+        "User-Agent": "LoopKit/0.1",
         ...init?.headers,
       },
-    });
+    };
+    let response: Response | undefined;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        response = await fetch(url, { ...request, signal: init?.signal ?? AbortSignal.timeout(120_000) });
+      } catch (error) {
+        if (init?.signal?.aborted) throw error;
+        const message = error instanceof Error ? error.message : String(error);
+        if (attempt === 2 || !/network|fetch failed|socket|timeout|econnreset/i.test(message)) {
+          throw new ProviderError(`OpenRouter network error: ${message}`, true);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+        continue;
+      }
+      if (![429, 502, 503, 504].includes(response.status) || attempt === 2) break;
+      await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+    }
+    if (!response) throw new ProviderError("OpenRouter returned no response", true);
 
     if (!response.ok) {
       let errorMessage = `OpenRouter API error: ${response.status}`;

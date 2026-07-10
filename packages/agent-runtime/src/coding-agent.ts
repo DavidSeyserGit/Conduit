@@ -36,6 +36,9 @@ export interface CodingAgentConfig {
   emit: (event: GoalRunEvent) => void;
   signal?: AbortSignal;
   modelApiKey?: string;
+  inputPrice?: number;
+  outputPrice?: number;
+  supportsReasoning?: boolean;
 }
 
 export interface CodingAgentResult {
@@ -46,6 +49,7 @@ export interface CodingAgentResult {
   toolCalls: StoredToolCall[];
   messages: ModelMessage[];
   tokenUsage?: TokenUsage;
+  estimatedCost?: number;
 }
 
 export class CodingAgent {
@@ -73,6 +77,9 @@ export class CodingAgent {
             judgeFeedback: config.judgeFeedback,
             iteration: config.iteration,
             maxIterations: config.maxIterations,
+            inputPrice: config.inputPrice,
+            outputPrice: config.outputPrice,
+            supportsReasoning: config.supportsReasoning,
           }),
           signal: controller.signal,
         });
@@ -101,7 +108,7 @@ export class CodingAgent {
             if (done) break;
           }
           if (!result) throw new Error("Pi backend returned no result");
-          return result;
+        return result;
         }
 
         const body = await response.text();
@@ -113,6 +120,9 @@ export class CodingAgent {
       } catch (error) {
         if (controller.signal.aborted && !config.signal?.aborted) {
           throw new Error("Coding agent timed out after 5 minutes. Check the model/API connection and try again.");
+        }
+        if (error instanceof TypeError && /fetch|network|load failed/i.test(error.message)) {
+          throw new Error("Could not reach the LoopKit agent backend. Check that the Vite/Tauri server is running and try again.");
         }
         throw error;
       } finally {
@@ -230,6 +240,7 @@ export class CodingAgent {
       }
     }
 
+    const estimatedCost = estimateUsageCost(totalUsage, config.inputPrice, config.outputPrice);
     return {
       plan,
       changedFiles: Array.from(changedFiles),
@@ -238,8 +249,14 @@ export class CodingAgent {
       toolCalls,
       messages,
       tokenUsage: totalUsage,
+      estimatedCost,
     };
   }
+}
+
+function estimateUsageCost(usage: TokenUsage | undefined, inputPrice?: number, outputPrice?: number): number | undefined {
+  if (!usage || (inputPrice === undefined && outputPrice === undefined)) return undefined;
+  return (usage.promptTokens / 1_000_000) * (inputPrice ?? 0) + (usage.completionTokens / 1_000_000) * (outputPrice ?? 0);
 }
 
 function accumulateUsage(
@@ -252,5 +269,7 @@ function accumulateUsage(
     promptTokens: current.promptTokens + addition.promptTokens,
     completionTokens: current.completionTokens + addition.completionTokens,
     totalTokens: current.totalTokens + addition.totalTokens,
+    cacheReadTokens: (current.cacheReadTokens || 0) + (addition.cacheReadTokens || 0),
+    cacheWriteTokens: (current.cacheWriteTokens || 0) + (addition.cacheWriteTokens || 0),
   };
 }

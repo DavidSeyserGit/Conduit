@@ -9,6 +9,7 @@ export const ModelDescriptorSchema = z.object({
   contextLength: z.number().optional(),
   supportsTools: z.boolean(),
   supportsStructuredOutput: z.boolean(),
+  supportsReasoning: z.boolean().optional(),
   inputPrice: z.number().optional(),
   outputPrice: z.number().optional(),
 });
@@ -63,6 +64,26 @@ export interface TokenUsage {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+}
+
+export interface ModelCostBreakdown {
+  modelId: string;
+  inputCost: number;
+  outputCost: number;
+  cacheReadCost?: number;
+  cacheWriteCost?: number;
+  totalCost: number;
+}
+
+export interface SessionUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalCost: number;
 }
 
 // ─── Agent Plan ───────────────────────────────────────────────────────────────
@@ -185,6 +206,10 @@ export interface GoalRunState {
   startedAt: string;
   finishedAt?: string;
   tokenUsage?: TokenUsage;
+  codingTokenUsage?: TokenUsage;
+  judgeTokenUsage?: TokenUsage;
+  codingCost?: ModelCostBreakdown;
+  judgeCost?: ModelCostBreakdown;
   estimatedCost?: number;
   lastJudgeFeedback?: string[];
   metrics?: LoopMetrics;
@@ -220,6 +245,12 @@ export interface GoalRunConfig {
   maxIterations: number;
   maxCost?: number;
   modelApiKey?: string;
+  resumeState?: GoalRunState;
+  codingInputPrice?: number;
+  codingOutputPrice?: number;
+  judgeInputPrice?: number;
+  judgeOutputPrice?: number;
+  codingSupportsReasoning?: boolean;
 }
 
 export interface GoalRunResult {

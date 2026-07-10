@@ -5,17 +5,19 @@ import { ChatTimeline } from "@/features/goal-run/ExecutionTimeline";
 import { ChatInput } from "@/features/chat/ChatInput";
 import { SettingsPanel } from "@/features/settings/SettingsPanel";
 import { LeftSidebar } from "@/features/sidebar/LeftSidebar";
+import { GitDiffPanel } from "@/features/git/GitDiffPanel";
 
 export default function App() {
   const initProviders = useAppStore((s) => s.initProviders);
   const loadModels = useAppStore((s) => s.loadModels);
-  const settings = useAppStore((s) => s.settings);
+  const hydrateOpenRouterKey = useAppStore((s) => s.hydrateOpenRouterKey);
 
   useEffect(() => {
-    initProviders();
-    if (settings.openRouterApiKey) {
-      loadModels();
-    }
+    void (async () => {
+      await hydrateOpenRouterKey();
+      initProviders();
+      await loadModels();
+    })();
   }, []);
 
   return (
@@ -24,9 +26,10 @@ export default function App() {
       <main className="flex-1 flex flex-col min-h-0">
         <ChatHeader />
         <ChatTimeline />
-        <ChatInput />
+      <ChatInput />
       </main>
       <SettingsPanel />
+      <GitDiffPanel />
     </div>
   );
 }
