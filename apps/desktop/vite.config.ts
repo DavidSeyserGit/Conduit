@@ -99,6 +99,19 @@ function githubApi() {
             const isClone = root.startsWith(`${path.resolve(workspaceRoot)}${path.sep}`);
             const isGitRepo = await fs.stat(path.join(root, ".git")).then(() => true).catch(() => false);
             if (!isClone && !isGitRepo) throw new Error("Workspace is not a Git repository");
+
+            if (String(modelId).startsWith("codex/")) {
+              const outputFile = path.join(workspaceRoot, `.loopkit-codex-${randomUUID()}.txt`);
+              const prompt = `Work directly on this repository and complete the goal using your coding tools.\n\nGoal: ${goal}\nIteration: ${iteration} of ${maxIterations}\n${previousPlan ? `Previous plan:\n${JSON.stringify(previousPlan)}` : ""}\n${judgeFeedback?.length ? `Judge feedback:\n${judgeFeedback.join("\n")}` : ""}\nAt the end, briefly summarize verified work completed.`;
+              try {
+                await execFileAsync("codex", ["exec", "--json", "--ephemeral", "--skip-git-repo-check", "-C", root, "-s", "workspace-write", "-a", "never", "-o", outputFile, prompt], { cwd: root, maxBuffer: 20 * 1024 * 1024 });
+                const summary = await fs.readFile(outputFile, "utf8").catch(() => "");
+                const diff = await execFileAsync("git", ["diff", "--name-only"], { cwd: root });
+                const events = summary ? [{ type: "agent_message", content: summary, messageId: randomUUID() }] : [];
+                return res.end(JSON.stringify({ events, result: { changedFiles: diff.stdout.split("\n").filter(Boolean), validationResults: [], agentSummary: summary, toolCalls: [], messages: [] } }));
+              } finally { await fs.rm(outputFile, { force: true }); }
+            }
+
             if (!apiKey) throw new Error("OpenRouter API key is missing");
 
             const authStorage = AuthStorage.inMemory();
