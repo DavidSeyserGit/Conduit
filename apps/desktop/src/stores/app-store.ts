@@ -46,9 +46,6 @@ interface AppState {
   setJudgeModelId: (id: string) => void;
   setMaxIterations: (n: number) => void;
 
-  // Chat input (controllable from outside)
-  setInputText?: (text: string) => void;
-
   // Goal run
   currentRun: GoalRunState | null;
   runEvents: GoalRunEvent[];
