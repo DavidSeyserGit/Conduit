@@ -12,6 +12,7 @@ import {
   DefaultProviderRegistry,
   OpenRouterProvider,
   ACPAgentProvider,
+  CodexProvider,
 } from "@loopkit/model-providers";
 import { GoalLoopRunner, AskChatRunner } from "@loopkit/agent-runtime";
 import { createTauriToolExecutor } from "@/lib/tauri-tools";
@@ -168,6 +169,7 @@ export const useAppStore = create<AppState>()(
 
         const acpProvider = new ACPAgentProvider(settings.acpAgents ?? []);
         registry.register(acpProvider);
+        registry.register(new CodexProvider());
       },
 
       sendMessage: async (content) => {

@@ -63,6 +63,10 @@ pnpm --filter @loopkit/desktop tauri:build
 GitHub access tokens are stored in the operating system keychain. The selected
 repository is cloned locally and the agent runs against that local checkout.
 
+To use your ChatGPT/Codex subscription for coding, install the Codex CLI and
+run `codex login`. LoopKit runs the locally authenticated Codex CLI in Goal
+mode; select **Codex (ChatGPT subscription)** as the coding model.
+
 ## Architecture
 
 ```
