@@ -9,6 +9,10 @@ export const ModelDescriptorSchema = z.object({
   contextLength: z.number().optional(),
   supportsTools: z.boolean(),
   supportsStructuredOutput: z.boolean(),
+  supportsReasoning: z.boolean().optional(),
+  supportsAsk: z.boolean().optional(),
+  supportsGoal: z.boolean().optional(),
+  supportsJudge: z.boolean().optional(),
   inputPrice: z.number().optional(),
   outputPrice: z.number().optional(),
 });
@@ -30,6 +34,7 @@ export interface ToolCallRequest {
 
 export interface ModelRequest {
   modelId: string;
+  workspacePath?: string;
   messages: ModelMessage[];
   tools?: ToolDefinition[];
   structuredOutput?: { schema: Record<string, unknown>; name: string };
@@ -63,6 +68,26 @@ export interface TokenUsage {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+}
+
+export interface ModelCostBreakdown {
+  modelId: string;
+  inputCost: number;
+  outputCost: number;
+  cacheReadCost?: number;
+  cacheWriteCost?: number;
+  totalCost: number;
+}
+
+export interface SessionUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalCost: number;
 }
 
 // ─── Agent Plan ───────────────────────────────────────────────────────────────
@@ -185,6 +210,10 @@ export interface GoalRunState {
   startedAt: string;
   finishedAt?: string;
   tokenUsage?: TokenUsage;
+  codingTokenUsage?: TokenUsage;
+  judgeTokenUsage?: TokenUsage;
+  codingCost?: ModelCostBreakdown;
+  judgeCost?: ModelCostBreakdown;
   estimatedCost?: number;
   lastJudgeFeedback?: string[];
   metrics?: LoopMetrics;
@@ -220,6 +249,12 @@ export interface GoalRunConfig {
   maxIterations: number;
   maxCost?: number;
   modelApiKey?: string;
+  resumeState?: GoalRunState;
+  codingInputPrice?: number;
+  codingOutputPrice?: number;
+  judgeInputPrice?: number;
+  judgeOutputPrice?: number;
+  codingSupportsReasoning?: boolean;
 }
 
 export interface GoalRunResult {
@@ -273,6 +308,16 @@ export interface SessionState {
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
+export type HarnessId = "openrouter" | "codex" | "acp" | "claude-code" | "kilo";
+
+export type QualityLaneId = "fast" | "confidence" | "deep";
+
+export interface QualityLaneDefault {
+  codingModelId?: string;
+  judgeModelId?: string;
+  maxIterations?: number;
+}
+
 export type CommandPermissionMode =
   | "ask_every_time"
   | "auto_approve_safe"
@@ -280,11 +325,16 @@ export type CommandPermissionMode =
 
 export interface AppSettings {
   openRouterApiKey?: string;
+  enabledHarnesses?: Partial<Record<HarnessId, boolean>>;
+  enableOtherProviders?: boolean;
   inputGlowColor: string;
+  askModeColor?: string;
+  goalModeColor?: string;
   commandPermissionMode: CommandPermissionMode;
   defaultCodingModelId?: string;
   defaultJudgeModelId?: string;
   defaultMaxIterations: number;
+  qualityLaneDefaults?: Partial<Record<QualityLaneId, QualityLaneDefault>>;
   acpAgents?: AcpAgentConfig[];
 }
 

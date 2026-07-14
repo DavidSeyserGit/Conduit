@@ -4,6 +4,7 @@ import type {
   ModelMessage,
   ValidationResult,
   AgentPlan,
+  TokenUsage,
 } from "@loopkit/shared";
 import { JudgeResultSchema } from "@loopkit/shared";
 import type { ModelProvider } from "@loopkit/model-providers";
@@ -25,6 +26,11 @@ export interface JudgeContext {
   getDiff: () => Promise<ToolCallResult>;
 }
 
+export interface JudgeReviewResult {
+  result: JudgeResult;
+  tokenUsage?: TokenUsage;
+}
+
 export class Judge {
   constructor(
     private provider: ModelProvider,
@@ -32,7 +38,7 @@ export class Judge {
     private emit: (event: GoalRunEvent) => void
   ) {}
 
-  async review(ctx: JudgeContext): Promise<JudgeResult> {
+  async review(ctx: JudgeContext): Promise<JudgeReviewResult> {
     this.emit({ type: "judge_started", iteration: ctx.iteration });
 
     const diffResult = await ctx.getDiff();
@@ -56,6 +62,7 @@ export class Judge {
     ];
 
     let result: JudgeResult;
+    let tokenUsage: TokenUsage | undefined;
 
     try {
       const response = await this.provider.createResponse({
@@ -68,6 +75,8 @@ export class Judge {
         temperature: 0.1,
         maxTokens: 4096,
       });
+
+      tokenUsage = response.usage;
 
       result = this.parseJudgeResponse(response.structuredOutput ?? response.content);
     } catch (firstError) {
@@ -97,6 +106,8 @@ export class Judge {
           maxTokens: 4096,
         });
 
+        tokenUsage = addUsage(tokenUsage, retryResponse.usage);
+
         result = this.parseJudgeResponse(
           retryResponse.structuredOutput ?? retryResponse.content
         );
@@ -114,7 +125,7 @@ export class Judge {
     }
 
     this.emit({ type: "judge_completed", result });
-    return result;
+    return { result, tokenUsage };
   }
 
   private parseJudgeResponse(raw: unknown): JudgeResult {
@@ -130,4 +141,16 @@ export class Judge {
     const parsed = JudgeResultSchema.parse(raw);
     return parsed;
   }
+}
+
+function addUsage(current: TokenUsage | undefined, addition: TokenUsage | undefined): TokenUsage | undefined {
+  if (!addition) return current;
+  if (!current) return { ...addition };
+  return {
+    promptTokens: current.promptTokens + addition.promptTokens,
+    completionTokens: current.completionTokens + addition.completionTokens,
+    totalTokens: current.totalTokens + addition.totalTokens,
+    cacheReadTokens: (current.cacheReadTokens || 0) + (addition.cacheReadTokens || 0),
+    cacheWriteTokens: (current.cacheWriteTokens || 0) + (addition.cacheWriteTokens || 0),
+  };
 }

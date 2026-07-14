@@ -454,6 +454,35 @@ fn github_entry() -> Result<keyring::Entry, String> {
     keyring::Entry::new("loopkit", "github-token").map_err(|e| e.to_string())
 }
 
+fn openrouter_entry() -> Result<keyring::Entry, String> {
+    keyring::Entry::new("loopkit", "openrouter-api-key").map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn openrouter_get_key() -> ToolResult {
+    match openrouter_entry() {
+        Ok(entry) => match entry.get_password() {
+            Ok(key) => ToolResult { success: true, result: Some(serde_json::json!({ "key": key })), error: None },
+            Err(keyring::Error::NoEntry) => ToolResult { success: true, result: Some(serde_json::json!({ "key": null })), error: None },
+            Err(error) => ToolResult { success: false, result: None, error: Some(error.to_string()) },
+        },
+        Err(error) => ToolResult { success: false, result: None, error: Some(error) },
+    }
+}
+
+#[tauri::command]
+pub fn openrouter_store_key(key: String) -> ToolResult {
+    let result = if key.trim().is_empty() {
+        openrouter_entry().and_then(|entry| entry.delete_credential().map_err(|error| error.to_string()))
+    } else {
+        openrouter_entry().and_then(|entry| entry.set_password(&key).map_err(|error| error.to_string()))
+    };
+    match result {
+        Ok(()) => ToolResult { success: true, result: None, error: None },
+        Err(error) => ToolResult { success: false, result: None, error: Some(error) },
+    }
+}
+
 #[tauri::command]
 pub fn github_client_id() -> String {
     std::env::var("GITHUB_CLIENT_ID").unwrap_or_else(|_| "Ov23liMo1oJoAzSI7573".to_string())
@@ -534,6 +563,72 @@ pub fn git_clone_repo(url: String, destination: String, name: String) -> ToolRes
             error: Some(String::from_utf8_lossy(&out.stderr).trim().to_string()),
         },
         Err(e) => ToolResult { success: false, result: None, error: Some(e.to_string()) },
+    }
+}
+
+fn worktree_root(repository: &Path) -> PathBuf {
+    repository
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(".loopkit-worktrees")
+        .join(repository.file_name().unwrap_or_default())
+}
+
+fn valid_git_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 80
+        && value.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '/' | '.'))
+        && !value.contains("..")
+}
+
+#[tauri::command]
+pub fn git_worktree_create(repository: String, branch: String, session_id: String) -> ToolResult {
+    let repository = match PathBuf::from(&repository).canonicalize() {
+        Ok(path) if path.is_dir() => path,
+        _ => return ToolResult { success: false, result: None, error: Some("Repository does not exist".to_string()) },
+    };
+    if !valid_git_identifier(&branch) || !valid_git_identifier(&session_id) || session_id.contains('/') {
+        return ToolResult { success: false, result: None, error: Some("Invalid branch or session identifier".to_string()) };
+    }
+    let target = worktree_root(&repository).join(&session_id);
+    if target.exists() {
+        return ToolResult { success: false, result: None, error: Some(format!("Worktree already exists: {}", target.display())) };
+    }
+    if let Err(error) = fs::create_dir_all(target.parent().unwrap_or(Path::new("."))) {
+        return ToolResult { success: false, result: None, error: Some(error.to_string()) };
+    }
+    let output = Command::new("git")
+        .args(["-C", &repository.to_string_lossy(), "worktree", "add", "-b", &branch, &target.to_string_lossy(), "HEAD"])
+        .output();
+    match output {
+        Ok(out) if out.status.success() => ToolResult {
+            success: true,
+            result: Some(serde_json::json!({ "path": target, "branch": branch })),
+            error: None,
+        },
+        Ok(out) => ToolResult { success: false, result: None, error: Some(String::from_utf8_lossy(&out.stderr).trim().to_string()) },
+        Err(error) => ToolResult { success: false, result: None, error: Some(error.to_string()) },
+    }
+}
+
+#[tauri::command]
+pub fn git_worktree_remove(repository: String, worktree: String) -> ToolResult {
+    let repository = match PathBuf::from(&repository).canonicalize() {
+        Ok(path) if path.is_dir() => path,
+        _ => return ToolResult { success: false, result: None, error: Some("Repository does not exist".to_string()) },
+    };
+    let worktree = PathBuf::from(&worktree);
+    let expected_root = worktree_root(&repository);
+    if !worktree.starts_with(&expected_root) || worktree == repository {
+        return ToolResult { success: false, result: None, error: Some("Invalid worktree path".to_string()) };
+    }
+    let output = Command::new("git")
+        .args(["-C", &repository.to_string_lossy(), "worktree", "remove", "--force", &worktree.to_string_lossy()])
+        .output();
+    match output {
+        Ok(out) if out.status.success() => ToolResult { success: true, result: Some(serde_json::json!({ "removed": true })), error: None },
+        Ok(out) => ToolResult { success: false, result: None, error: Some(String::from_utf8_lossy(&out.stderr).trim().to_string()) },
+        Err(error) => ToolResult { success: false, result: None, error: Some(error.to_string()) },
     }
 }
 

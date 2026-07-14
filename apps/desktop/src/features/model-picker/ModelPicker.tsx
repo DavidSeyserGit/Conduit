@@ -27,10 +27,10 @@ export function ModelPicker({ label, value, onChange, compact, isJudgePicker }: 
   const selected = models.find((model) => model.id === value);
 
   return (
-    <div className="relative">
+    <div className="relative min-w-0">
       {!compact && <label className="block text-xs text-gray-500 mb-1 font-medium">{label}</label>}
-      <button onClick={() => setOpen(!open)} className={compact ? "flex items-center gap-1 px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-full transition-colors font-medium" : "w-full flex items-center justify-between text-left px-3 py-1.5 text-sm bg-gray-50 border border-gray-200 rounded-lg hover:border-gray-300 transition-colors truncate text-gray-700"}>
-        <span className="truncate">{selected?.displayName ?? (compact ? "Model" : "Select model...")}</span>
+      <button onClick={() => setOpen(!open)} className={compact ? "flex min-w-0 max-w-full items-center gap-1 px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-full transition-colors font-medium" : "w-full flex min-w-0 items-center justify-between text-left px-3 py-1.5 text-sm bg-gray-50 border border-gray-200 rounded-lg hover:border-gray-300 transition-colors text-gray-700"}>
+        <span className="min-w-0 truncate">{selected?.displayName ?? (compact ? "Model" : "Select model...")}</span>
         <svg className="w-3 h-3 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="m19 9-7 7-7-7" /></svg>
       </button>
 
@@ -67,13 +67,15 @@ function ProviderIcon({ provider }: { provider: string }) {
 function ModelOption({ model, selected, onSelect, isJudgePicker, codingModelId }: { model: ModelDescriptor; selected: boolean; onSelect: () => void; isJudgePicker?: boolean; codingModelId: string }) {
   const isCodex = model.provider === "codex";
   const isRecommendedJudge = isJudgePicker && codingModelId && isRecommendedJudgeModel(codingModelId, model.id);
+  const supportsCodingTools = isJudgePicker || model.supportsTools;
 
-  return <button onClick={onSelect} className={`w-full text-left px-3 py-2.5 rounded-xl hover:bg-gray-50 transition-colors ${selected ? "bg-fuchsia-50" : ""}`}>
+  return <button onClick={onSelect} disabled={!supportsCodingTools} className={`w-full text-left px-3 py-2.5 rounded-xl transition-colors ${selected ? "bg-fuchsia-50" : supportsCodingTools ? "hover:bg-gray-50" : "opacity-50 cursor-not-allowed"}`}>
     <div className="flex items-center gap-2">
       <span className="w-6 h-6 rounded-md bg-gray-50 text-gray-500 flex items-center justify-center shrink-0"><ProviderIcon provider={model.provider} /></span>
       <span className="text-sm text-gray-900 truncate font-medium flex-1">{model.displayName}</span>
       {isRecommendedJudge && <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded font-medium">Recommended judge</span>}
       {isCodex && <span className="text-[10px] text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded font-medium">Subscription</span>}
+      {!supportsCodingTools && <span className="text-[10px] text-gray-500 bg-gray-100 border border-gray-200 px-1.5 py-0.5 rounded font-medium">No tools</span>}
       {selected && <span className="text-fuchsia-600 text-xs">✓</span>}
     </div>
     <div className="flex items-center gap-2 mt-1 pl-8">

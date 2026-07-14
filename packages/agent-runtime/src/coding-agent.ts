@@ -20,7 +20,10 @@ import {
 } from "./state.js";
 
 const MAX_TOOL_ROUNDS = 30;
-const PI_REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
+// A coding iteration may include several model/tool turns. Keep this longer
+// than the backend command timeout so a healthy long-running agent is not
+// mistaken for a dead server by the browser.
+const PI_REQUEST_TIMEOUT_MS = 20 * 60 * 1000;
 
 export interface CodingAgentConfig {
   goal: string;
@@ -36,6 +39,9 @@ export interface CodingAgentConfig {
   emit: (event: GoalRunEvent) => void;
   signal?: AbortSignal;
   modelApiKey?: string;
+  inputPrice?: number;
+  outputPrice?: number;
+  supportsReasoning?: boolean;
 }
 
 export interface CodingAgentResult {
@@ -46,6 +52,7 @@ export interface CodingAgentResult {
   toolCalls: StoredToolCall[];
   messages: ModelMessage[];
   tokenUsage?: TokenUsage;
+  estimatedCost?: number;
 }
 
 export class CodingAgent {
@@ -73,6 +80,9 @@ export class CodingAgent {
             judgeFeedback: config.judgeFeedback,
             iteration: config.iteration,
             maxIterations: config.maxIterations,
+            inputPrice: config.inputPrice,
+            outputPrice: config.outputPrice,
+            supportsReasoning: config.supportsReasoning,
           }),
           signal: controller.signal,
         });
@@ -86,14 +96,26 @@ export class CodingAgent {
           const decoder = new TextDecoder();
           let buffer = "";
           let result: CodingAgentResult | undefined;
+          let lastStatus = "the agent stream started";
           while (true) {
-            const { done, value } = await reader.read();
+            let chunk: ReadableStreamReadResult<Uint8Array>;
+            try {
+              chunk = await reader.read();
+            } catch (error) {
+              const reason = error instanceof Error ? error.message : String(error);
+              throw new Error(`Agent stream interrupted after ${lastStatus}: ${reason}`);
+            }
+            const { done, value } = chunk;
             armTimeout();
             buffer += decoder.decode(value, { stream: !done });
             for (const line of buffer.split("\n").slice(0, done ? undefined : -1)) {
               if (!line.trim()) continue;
               const packet = JSON.parse(line) as { event?: GoalRunEvent; result?: CodingAgentResult; error?: string };
-              if (packet.event) config.emit(packet.event);
+              if (packet.event) {
+                config.emit(packet.event);
+                if (packet.event.type === "agent_status") lastStatus = `status “${packet.event.message}”`;
+                if (packet.event.type === "tool_started") lastStatus = `tool “${packet.event.toolCall.name}” started`;
+              }
               if (packet.error) throw new Error(packet.error);
               if (packet.result) result = packet.result;
             }
@@ -101,7 +123,7 @@ export class CodingAgent {
             if (done) break;
           }
           if (!result) throw new Error("Pi backend returned no result");
-          return result;
+        return result;
         }
 
         const body = await response.text();
@@ -112,7 +134,10 @@ export class CodingAgent {
         return result.result;
       } catch (error) {
         if (controller.signal.aborted && !config.signal?.aborted) {
-          throw new Error("Coding agent timed out after 5 minutes. Check the model/API connection and try again.");
+          throw new Error("Coding agent timed out after 20 minutes. Check the model/API connection and try again.");
+        }
+        if (error instanceof TypeError && /fetch|network|load failed/i.test(error.message)) {
+          throw new Error("Could not reach the LoopKit agent backend. Check that the Vite/Tauri server is running and try again.");
         }
         throw error;
       } finally {
@@ -230,6 +255,7 @@ export class CodingAgent {
       }
     }
 
+    const estimatedCost = estimateUsageCost(totalUsage, config.inputPrice, config.outputPrice);
     return {
       plan,
       changedFiles: Array.from(changedFiles),
@@ -238,8 +264,14 @@ export class CodingAgent {
       toolCalls,
       messages,
       tokenUsage: totalUsage,
+      estimatedCost,
     };
   }
+}
+
+function estimateUsageCost(usage: TokenUsage | undefined, inputPrice?: number, outputPrice?: number): number | undefined {
+  if (!usage || (inputPrice === undefined && outputPrice === undefined)) return undefined;
+  return (usage.promptTokens / 1_000_000) * (inputPrice ?? 0) + (usage.completionTokens / 1_000_000) * (outputPrice ?? 0);
 }
 
 function accumulateUsage(
@@ -252,5 +284,7 @@ function accumulateUsage(
     promptTokens: current.promptTokens + addition.promptTokens,
     completionTokens: current.completionTokens + addition.completionTokens,
     totalTokens: current.totalTokens + addition.totalTokens,
+    cacheReadTokens: (current.cacheReadTokens || 0) + (addition.cacheReadTokens || 0),
+    cacheWriteTokens: (current.cacheWriteTokens || 0) + (addition.cacheWriteTokens || 0),
   };
 }

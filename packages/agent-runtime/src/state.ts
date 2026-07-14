@@ -102,6 +102,8 @@ export function accumulateTokenUsage(
     promptTokens: current.promptTokens + addition.promptTokens,
     completionTokens: current.completionTokens + addition.completionTokens,
     totalTokens: current.totalTokens + addition.totalTokens,
+    cacheReadTokens: (current.cacheReadTokens || 0) + (addition.cacheReadTokens || 0),
+    cacheWriteTokens: (current.cacheWriteTokens || 0) + (addition.cacheWriteTokens || 0),
   };
 }
 

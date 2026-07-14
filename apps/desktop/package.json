@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "pnpm --dir ../.. --filter @loopkit/shared build && pnpm --dir ../.. --filter @loopkit/tools build && pnpm --dir ../.. --filter @loopkit/model-providers build && pnpm --dir ../.. --filter @loopkit/agent-runtime build",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b --noEmit",
