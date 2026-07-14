@@ -10,6 +10,9 @@ export const ModelDescriptorSchema = z.object({
   supportsTools: z.boolean(),
   supportsStructuredOutput: z.boolean(),
   supportsReasoning: z.boolean().optional(),
+  supportsAsk: z.boolean().optional(),
+  supportsGoal: z.boolean().optional(),
+  supportsJudge: z.boolean().optional(),
   inputPrice: z.number().optional(),
   outputPrice: z.number().optional(),
 });
@@ -31,6 +34,7 @@ export interface ToolCallRequest {
 
 export interface ModelRequest {
   modelId: string;
+  workspacePath?: string;
   messages: ModelMessage[];
   tools?: ToolDefinition[];
   structuredOutput?: { schema: Record<string, unknown>; name: string };
@@ -304,6 +308,16 @@ export interface SessionState {
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
+export type HarnessId = "openrouter" | "codex" | "acp" | "claude-code" | "kilo";
+
+export type QualityLaneId = "fast" | "confidence" | "deep";
+
+export interface QualityLaneDefault {
+  codingModelId?: string;
+  judgeModelId?: string;
+  maxIterations?: number;
+}
+
 export type CommandPermissionMode =
   | "ask_every_time"
   | "auto_approve_safe"
@@ -311,11 +325,16 @@ export type CommandPermissionMode =
 
 export interface AppSettings {
   openRouterApiKey?: string;
+  enabledHarnesses?: Partial<Record<HarnessId, boolean>>;
+  enableOtherProviders?: boolean;
   inputGlowColor: string;
+  askModeColor?: string;
+  goalModeColor?: string;
   commandPermissionMode: CommandPermissionMode;
   defaultCodingModelId?: string;
   defaultJudgeModelId?: string;
   defaultMaxIterations: number;
+  qualityLaneDefaults?: Partial<Record<QualityLaneId, QualityLaneDefault>>;
   acpAgents?: AcpAgentConfig[];
 }
 

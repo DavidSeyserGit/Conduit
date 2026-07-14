@@ -152,6 +152,16 @@ export class GoalLoopRunner {
           addAgentMessage(iteration, "assistant", agentResult.agentSummary);
         }
 
+        if (
+          !agentResult.agentSummary.trim() &&
+          agentResult.toolCalls.length === 0 &&
+          agentResult.changedFiles.length === 0
+        ) {
+          throw new Error(
+            "Coding agent completed without producing a response, tool calls, or changes; the judge was not run."
+          );
+        }
+
         state.tokenUsage = accumulateTokenUsage(
           state.tokenUsage,
           agentResult.tokenUsage

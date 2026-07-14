@@ -1,16 +1,19 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { GoalRunEvent, GoalRunState } from "@loopkit/shared";
 import { downloadRunAsJSON } from "@loopkit/agent-runtime";
 import ReactMarkdown from "react-markdown";
 import { useAppStore } from "@/stores/app-store";
+import { getModeColor } from "@/lib/mode-colors";
 
 export function ChatTimeline() {
   const messages = useAppStore((s) => s.messages);
   const runEvents = useAppStore((s) => s.runEvents);
   const currentRun = useAppStore((s) => s.currentRun);
   const isRunning = useAppStore((s) => s.isRunning);
-  const statusColor = useAppStore((s) => s.settings.inputGlowColor ?? "#3b82f6");
+  const mode = useAppStore((s) => s.mode);
+  const settings = useAppStore((s) => s.settings);
+  const modeStatusColor = getModeColor(settings, mode);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -53,7 +56,7 @@ export function ChatTimeline() {
           if (event.type === "agent_status") {
             return (
               <div key={`status-${i}`} className="flex justify-start">
-                <div className="agent-status text-xs px-1" style={{ "--status-color": statusColor } as CSSProperties}>{event.message}</div>
+                <div className="agent-status text-xs px-1" style={{ "--status-color": modeStatusColor } as CSSProperties}>{event.message}</div>
               </div>
             );
           }
@@ -149,6 +152,7 @@ function RunSummary({
   events: GoalRunEvent[];
 }) {
   const openGitDiff = useAppStore((s) => s.openGitDiff);
+  const models = useAppStore((s) => s.models);
   const elapsed = run.finishedAt
     ? Math.round(
         (new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime()) / 1000
@@ -233,8 +237,94 @@ function RunSummary({
           )}
         </div>
       )}
+
+      <ProofOfWorkCard run={run} models={models} elapsed={elapsed} />
     </div>
   );
+}
+
+function ProofOfWorkCard({
+  run,
+  models,
+  elapsed,
+}: {
+  run: GoalRunState;
+  models: Array<{ id: string; displayName: string }>;
+  elapsed: number;
+}) {
+  const [copied, setCopied] = useState(false);
+  const latestJudge = [...run.iterations].reverse().find((iteration) => iteration.judgeResult)?.judgeResult;
+  const changedFiles = new Set(run.iterations.flatMap((iteration) => iteration.changedFiles));
+  const validationResults = run.iterations.flatMap((iteration) => iteration.validationResults);
+  const passedValidations = validationResults.filter((result) => result.passed).length;
+  const totalTools = run.iterations.reduce((total, iteration) => total + iteration.toolCalls.length, 0);
+  const approved = run.status === "completed" && latestJudge?.approved;
+  const worker = modelName(run.codingModelId, models);
+  const judge = modelName(run.judgeModelId, models);
+  const verdict = approved ? "Ready to review" : run.status === "failed" ? "Run needs attention" : "Not yet approved";
+
+  const receipt = [
+    "LoopKit proof of work",
+    `Verdict: ${verdict}${latestJudge ? ` (${Math.round(latestJudge.confidence * 100)}% judge confidence)` : ""}`,
+    `Goal: ${run.goal}`,
+    `Worker: ${worker}`,
+    `Judge: ${judge}`,
+    `Evidence: ${changedFiles.size} files changed · ${passedValidations}/${validationResults.length} validations passed · ${totalTools} tool calls · ${formatElapsed(elapsed)}`,
+    latestJudge?.summary ? `Judge: ${latestJudge.summary}` : "",
+  ].filter(Boolean).join("\n");
+
+  const copyReceipt = async () => {
+    try {
+      await navigator.clipboard.writeText(receipt);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch {
+      // Clipboard access is browser-policy dependent; the receipt remains visible.
+    }
+  };
+
+  return (
+    <section className="pt-3 border-t border-gray-100">
+      <div className="rounded-xl border border-gray-200 bg-gradient-to-br from-white to-gray-50 p-3.5 space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.12em] font-semibold text-gray-400">Proof of work</div>
+            <div className={`mt-1 text-sm font-semibold ${approved ? "text-emerald-700" : "text-gray-800"}`}>{verdict}</div>
+          </div>
+          <button onClick={() => void copyReceipt()} className="shrink-0 px-2.5 py-1.5 text-[11px] font-medium text-gray-700 bg-white border border-gray-200 hover:border-gray-300 rounded-lg transition-colors">
+            {copied ? "Copied" : "Copy receipt"}
+          </button>
+        </div>
+
+        <p className="text-xs text-gray-700 leading-relaxed line-clamp-2">{run.goal}</p>
+
+        <div className="grid grid-cols-2 gap-2 text-[11px]">
+          <EvidenceItem label="Worker" value={worker} />
+          <EvidenceItem label="Judge" value={judge} />
+          <EvidenceItem label="Evidence" value={`${changedFiles.size} files · ${totalTools} tools`} />
+          <EvidenceItem label="Validation" value={validationResults.length ? `${passedValidations}/${validationResults.length} passed` : "Not run"} />
+        </div>
+
+        <div className="flex items-center justify-between gap-3 pt-0.5 text-[10px] text-gray-400">
+          <span>{formatElapsed(elapsed)} · {run.iteration} iteration{run.iteration === 1 ? "" : "s"}</span>
+          {latestJudge && <span>{Math.round(latestJudge.confidence * 100)}% judge confidence</span>}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function EvidenceItem({ label, value }: { label: string; value: string }) {
+  return <div className="min-w-0 rounded-lg bg-white/80 border border-gray-100 px-2.5 py-2"><div className="text-[9px] uppercase tracking-wide text-gray-400">{label}</div><div className="mt-0.5 truncate text-gray-700 font-medium" title={value}>{value}</div></div>;
+}
+
+function modelName(id: string, models: Array<{ id: string; displayName: string }>): string {
+  return models.find((model) => model.id === id)?.displayName ?? id.split("/").slice(-2).join("/");
+}
+
+function formatElapsed(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
 function formatCost(cost: number): string {

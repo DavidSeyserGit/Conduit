@@ -4,7 +4,7 @@ import tailwindcss from "@tailwindcss/vite";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import os from "node:os";
 import { AuthStorage, ModelRegistry, SessionManager, createAgentSession } from "@mariozechner/pi-coding-agent";
@@ -13,6 +13,7 @@ const githubClientId = process.env.GITHUB_CLIENT_ID || "Ov23liMo1oJoAzSI7573";
 const sessions = new Map<string, { token?: string; device?: { device_code: string; interval: number } }>();
 const execFileAsync = promisify(execFile);
 const workspaceRoot = process.env.LOOPKIT_WORKSPACE_ROOT || path.resolve(process.cwd(), "workspaces");
+const AGENT_TIMEOUT_MS = 20 * 60 * 1000;
 
 async function readJson(req: any) {
   let body = "";
@@ -22,13 +23,117 @@ async function readJson(req: any) {
 
 function createAgentStream(res: any) {
   res.setHeader("Content-Type", "application/x-ndjson");
-  const send = (payload: unknown) => res.write(`${JSON.stringify(payload)}\n`);
+  let closed = false;
+  res.once?.("close", () => { closed = true; });
+  const send = (payload: unknown) => {
+    if (closed || res.writableEnded || res.destroyed) return false;
+    try {
+      return res.write(`${JSON.stringify(payload)}\n`);
+    } catch {
+      closed = true;
+      return false;
+    }
+  };
   const status = (message: string) => send({ event: { type: "agent_status", message } });
   const heartbeat = (message: string) => {
     const timer = setInterval(() => status(message), 30_000);
     return () => clearInterval(timer);
   };
   return { send, status, heartbeat };
+}
+
+function attachRequestAbort(req: any, res: any): { signal: AbortSignal; cleanup: () => void } {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  req.once?.("aborted", abort);
+  res.once?.("close", () => {
+    if (!res.writableEnded) abort();
+  });
+  return {
+    signal: controller.signal,
+    cleanup: () => req.removeListener?.("aborted", abort),
+  };
+}
+
+interface LocalHarnessRun {
+  summary: string;
+  toolCalls: any[];
+}
+
+async function runKiloProcess(
+  root: string,
+  modelId: string,
+  prompt: string,
+  signal: AbortSignal,
+  onStatus: (message: string) => void,
+  onTool: (toolCall: any) => void,
+): Promise<LocalHarnessRun> {
+  const child = spawn("kilo", [
+    "run",
+    "--format", "json",
+    "--dir", root,
+    "--model", modelId,
+    "--auto",
+    "--dangerously-skip-permissions",
+    prompt,
+  ], { cwd: root, env: process.env, stdio: ["ignore", "pipe", "pipe"] });
+  let buffer = "";
+  let stderr = "";
+  let summary = "";
+  const toolCalls = new Map<string, any>();
+
+  const consume = (line: string) => {
+    if (!line.trim()) return;
+    let event: any;
+    try { event = JSON.parse(line); } catch { return; }
+    const part = event.part || event;
+    if (event.type === "step_start") onStatus("Kilo started a step…");
+    if (event.type === "step_finish") onStatus("Kilo finished a step");
+    if (event.type === "text" || part.type === "text") {
+      const text = event.text || part.text || "";
+      if (text) summary += text;
+    }
+    if (event.type === "tool_use" || event.type === "tool_call" || part.type === "tool") {
+      const id = event.callID || event.toolCallId || part.callID || part.id || randomUUID();
+      const toolCall = toolCalls.get(id) || {
+        id,
+        name: event.tool || event.toolName || part.tool || part.name || "tool",
+        arguments: event.input || event.arguments || part.state?.input || part.input || {},
+        status: "running",
+        startedAt: new Date().toISOString(),
+      };
+      if (part.state?.status === "completed" || event.type === "tool_result") {
+        toolCall.status = "completed";
+        toolCall.result = part.state.output || event.result;
+        toolCall.completedAt = new Date().toISOString();
+      }
+      toolCalls.set(id, toolCall);
+      onTool(toolCall);
+    }
+  };
+
+  child.stdout.on("data", (chunk) => {
+    buffer += String(chunk);
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() || "";
+    for (const line of lines) consume(line);
+  });
+  child.stderr.on("data", (chunk) => { stderr += String(chunk); });
+
+  const abortChild = () => child.kill("SIGTERM");
+  signal.addEventListener("abort", abortChild, { once: true });
+  try {
+    const code = await new Promise<number>((resolve, reject) => {
+      child.once("error", reject);
+      child.once("close", (exitCode) => resolve(exitCode ?? 1));
+    });
+    if (buffer.trim()) consume(buffer);
+    if (signal.aborted) throw new Error("Kilo run was cancelled before completion");
+    if (code !== 0) throw new Error(stderr.trim() || `Kilo exited with code ${code}`);
+    return { summary, toolCalls: Array.from(toolCalls.values()) };
+  } finally {
+    signal.removeEventListener("abort", abortChild);
+  }
 }
 
 function workspacePath(workspace: string, relative = ".") {
@@ -58,7 +163,7 @@ function githubApi() {
     name: "github-oauth-api",
     configureServer(server: { middlewares: { use: (handler: (req: any, res: any, next: () => void) => void) => void } }) {
       server.middlewares.use(async (req, res, next) => {
-        if (!req.url?.startsWith("/api/github/") && !req.url?.startsWith("/api/workspace/") && !req.url?.startsWith("/api/agent/") && !req.url?.startsWith("/api/codex/")) return next();
+        if (!req.url?.startsWith("/api/github/") && !req.url?.startsWith("/api/workspace/") && !req.url?.startsWith("/api/agent/") && !req.url?.startsWith("/api/codex/") && !req.url?.startsWith("/api/kilo/")) return next();
         const cookies = Object.fromEntries((req.headers.cookie || "").split(";").filter(Boolean).map((part: string) => part.trim().split("=")));
         const sessionId = cookies.loopkit_session || randomUUID();
         const session = sessions.get(sessionId) || {};
@@ -72,6 +177,17 @@ function githubApi() {
             const cache = JSON.parse(await fs.readFile(cachePath, "utf8"));
             return res.end(JSON.stringify((cache.models || []).filter((model: any) => model.visibility === "list" && model.supported_in_api !== false)));
           } catch (error: any) { res.statusCode = 503; return res.end(JSON.stringify({ error: `Codex model cache unavailable: ${error.message}` })); }
+        }
+
+        if (req.url === "/api/kilo/models" && req.method === "GET") {
+          try {
+            const output = await execFileAsync("kilo", ["models"], { maxBuffer: 20 * 1024 * 1024, timeout: 30_000 });
+            const models = output.stdout.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.startsWith("kilo/")).map((id) => {
+              const name = id.slice("kilo/".length).split("/").slice(-1)[0]?.replace(/[-_]/g, " ") || id;
+              return { id, provider: "kilo", displayName: name.replace(/\b\w/g, (letter) => letter.toUpperCase()), supportsTools: true, supportsStructuredOutput: false, supportsReasoning: true, supportsAsk: true, supportsGoal: true, supportsJudge: true };
+            });
+            return res.end(JSON.stringify(models));
+          } catch (error: any) { res.statusCode = 503; return res.end(JSON.stringify({ error: `Kilo model discovery failed: ${error.message || String(error)}` })); }
         }
 
         if (req.url === "/api/workspace/tool" && req.method === "POST") {
@@ -102,8 +218,8 @@ function githubApi() {
               else { if (name === "create_file") { try { await fs.access(target); throw new Error(`File already exists: ${args.path}`); } catch (e: any) { if (e.code !== "ENOENT") throw e; } } await fs.mkdir(path.dirname(target), { recursive: true }); await fs.writeFile(target, args.content); }
               result = { path: args.path };
             } else if (name === "run_command") {
-              const output = await execFileAsync(process.platform === "win32" ? "cmd" : "sh", process.platform === "win32" ? ["/C", args.command] : ["-c", args.command], { cwd: root, maxBuffer: 10 * 1024 * 1024 }).catch((e: any) => e);
-              result = { command: args.command, exitCode: output.code ?? 0, stdout: output.stdout || "", stderr: output.stderr || "", timedOut: false };
+              const output = await execFileAsync(process.platform === "win32" ? "cmd" : "sh", process.platform === "win32" ? ["/C", args.command] : ["-c", args.command], { cwd: root, maxBuffer: 10 * 1024 * 1024, timeout: AGENT_TIMEOUT_MS }).catch((e: any) => e);
+              result = { command: args.command, exitCode: output.code ?? (output.killed ? 124 : 1), stdout: output.stdout || "", stderr: output.stderr || output.message || "", timedOut: output.code === null && output.killed === true };
             } else if (name === "get_git_diff") {
               const output = await execFileAsync("git", ["diff", ...(args.path ? ["--", args.path] : [])], { cwd: root });
               result = { diff: output.stdout, hasChanges: Boolean(output.stdout) };
@@ -112,7 +228,38 @@ function githubApi() {
           } catch (error: any) { res.statusCode = 400; return res.end(JSON.stringify({ success: false, error: error.message || String(error) })); }
         }
 
+        if (req.url === "/api/agent/kilo-chat" && req.method === "POST") {
+          let cleanupRequest = () => {};
+          try {
+            const { workspace, modelId, messages = [] } = await readJson(req);
+            const root = path.resolve(workspace);
+            const isClone = root.startsWith(`${path.resolve(workspaceRoot)}${path.sep}`);
+            const isGitRepo = await fs.stat(path.join(root, ".git")).then(() => true).catch(() => false);
+            if (!isClone && !isGitRepo) throw new Error("Workspace is not a Git repository");
+            const lifecycle = attachRequestAbort(req, res);
+            cleanupRequest = lifecycle.cleanup;
+            const stream = createAgentStream(res);
+            stream.status("Initializing Kilo agent…");
+            const prompt = messages.map((message: any) => `${message.role}: ${message.content}`).join("\n\n");
+            const kiloModel = String(modelId).replace(/^kilo\/(?=kilo\/)/, "");
+            const run = await runKiloProcess(root, kiloModel, prompt, lifecycle.signal, stream.status, () => {});
+            if (run.summary) stream.send({ event: { type: "content_delta", content: run.summary } });
+            stream.status("Kilo finished");
+            return res.end(JSON.stringify({ result: { content: run.summary, toolCalls: [], finishReason: "stop" } }) + "\n");
+          } catch (error: any) {
+            cleanupRequest();
+            if (res.headersSent && !res.writableEnded && !res.destroyed) {
+              res.write(`${JSON.stringify({ error: error.message || String(error) })}\n`);
+              return res.end();
+            }
+            if (!res.headersSent) res.statusCode = 500;
+            return res.end(JSON.stringify({ error: error.message || String(error) }));
+          }
+        }
+
         if (req.url === "/api/agent/pi-iteration" && req.method === "POST") {
+          let cleanupRequest = () => {};
+          let activeSession: any;
           try {
             const { workspace, goal, modelId, apiKey, previousPlan, judgeFeedback, iteration, maxIterations, inputPrice, outputPrice, supportsReasoning } = await readJson(req);
             const root = path.resolve(workspace);
@@ -120,7 +267,36 @@ function githubApi() {
             const isGitRepo = await fs.stat(path.join(root, ".git")).then(() => true).catch(() => false);
             if (!isClone && !isGitRepo) throw new Error("Workspace is not a Git repository");
 
+            if (String(modelId).startsWith("kilo/")) {
+              const lifecycle = attachRequestAbort(req, res);
+              cleanupRequest = lifecycle.cleanup;
+              const stream = createAgentStream(res);
+              stream.status("Initializing Kilo agent…");
+              const stopHeartbeat = stream.heartbeat("Kilo is still working…");
+              const kiloModel = String(modelId).replace(/^kilo\/(?=kilo\/)/, "");
+              try {
+                stream.status(`Starting Kilo ${kiloModel}…`);
+                const prompt = `Work directly on this repository and complete the goal using your coding tools.\n\nGoal: ${goal}\nIteration: ${iteration} of ${maxIterations}\n${previousPlan ? `Previous plan:\n${JSON.stringify(previousPlan)}` : ""}\n${judgeFeedback?.length ? `Required judge fixes — address every item and validate them:\n${judgeFeedback.map((f, i) => `${i + 1}. ${f}`).join("\n")}` : ""}\nAt the end, briefly summarize verified work completed.`;
+                const toolCalls: any[] = [];
+                const run = await runKiloProcess(root, kiloModel, prompt, lifecycle.signal, stream.status, (toolCall) => {
+                  const existing = toolCalls.find((item) => item.id === toolCall.id);
+                  if (existing) Object.assign(existing, toolCall);
+                  else toolCalls.push(toolCall);
+                  stream.send({ event: { type: toolCall.status === "completed" ? "tool_completed" : "tool_started", toolCall } });
+                });
+                stream.status("Kilo finished; collecting changes…");
+                const diff = await execFileAsync("git", ["diff", "--name-only"], { cwd: root });
+                if (run.summary) stream.send({ event: { type: "agent_message", content: run.summary, messageId: randomUUID() } });
+                return res.end(JSON.stringify({ result: { changedFiles: diff.stdout.split("\n").filter(Boolean), validationResults: [], agentSummary: run.summary, toolCalls: run.toolCalls, messages: [] } }) + "\n");
+              } finally {
+                stopHeartbeat();
+                cleanupRequest();
+              }
+            }
+
             if (String(modelId).startsWith("codex/")) {
+              const lifecycle = attachRequestAbort(req, res);
+              cleanupRequest = lifecycle.cleanup;
               const stream = createAgentStream(res);
               stream.status("Initializing Codex agent…");
               const outputFile = path.join(workspaceRoot, `.loopkit-codex-${randomUUID()}.txt`);
@@ -130,18 +306,24 @@ function githubApi() {
                 const codexModel = String(modelId).replace(/^codex\//, "");
                 stream.status(`Starting Codex ${codexModel}…`);
                 stopHeartbeat = stream.heartbeat("Codex is still working…");
-                await execFileAsync("codex", ["exec", "--json", "--ephemeral", "--skip-git-repo-check", "-C", root, "-m", codexModel, "--dangerously-bypass-approvals-and-sandbox", "-o", outputFile, prompt], { cwd: root, maxBuffer: 20 * 1024 * 1024 });
+                await execFileAsync("codex", ["exec", "--json", "--ephemeral", "--skip-git-repo-check", "-C", root, "-m", codexModel, "--dangerously-bypass-approvals-and-sandbox", "-o", outputFile, prompt], { cwd: root, maxBuffer: 20 * 1024 * 1024, timeout: AGENT_TIMEOUT_MS, signal: lifecycle.signal });
                 stream.status("Codex finished; collecting changes…");
                 const summary = await fs.readFile(outputFile, "utf8").catch(() => "");
                 const diff = await execFileAsync("git", ["diff", "--name-only"], { cwd: root });
                 if (summary) stream.send({ event: { type: "agent_message", content: summary, messageId: randomUUID() } });
                 return res.end(JSON.stringify({ result: { changedFiles: diff.stdout.split("\n").filter(Boolean), validationResults: [], agentSummary: summary, toolCalls: [], messages: [] } }) + "\n");
-              } finally { stopHeartbeat(); await fs.rm(outputFile, { force: true }); }
+              } finally {
+                stopHeartbeat();
+                cleanupRequest();
+                await fs.rm(outputFile, { force: true });
+              }
             }
 
             if (!apiKey) throw new Error("OpenRouter API key is missing");
 
             const stream = createAgentStream(res);
+            const lifecycle = attachRequestAbort(req, res);
+            cleanupRequest = lifecycle.cleanup;
             const { send } = stream;
             const { status } = stream;
             status("Initializing Pi agent…");
@@ -163,6 +345,9 @@ function githubApi() {
             if (!model) throw new Error(`Pi could not load model: ${piModelId}`);
             status("Creating Pi session…");
             const { session } = await createAgentSession({ cwd: root, model, modelRegistry, authStorage, sessionManager: SessionManager.inMemory(root), tools: ["read", "bash", "edit", "write", "grep", "find", "ls"] });
+            activeSession = session;
+            const disposeOnAbort = () => activeSession?.dispose?.();
+            lifecycle.signal.addEventListener("abort", disposeOnAbort, { once: true });
             status("Pi session ready; sending goal…");
             const events: any[] = [];
             const toolCalls = new Map<string, any>();
@@ -211,6 +396,9 @@ function githubApi() {
             }
             status("Pi finished; collecting changes…");
             session.dispose();
+            lifecycle.signal.removeEventListener("abort", disposeOnAbort);
+            activeSession = undefined;
+            cleanupRequest();
             const diff = await execFileAsync("git", ["diff", "--name-only"], { cwd: root });
             const changedFiles = diff.stdout.split("\n").filter(Boolean);
             if (summary) events.push({ type: "agent_message", content: summary, messageId: randomUUID() });
@@ -219,7 +407,20 @@ function githubApi() {
             send({ result });
             return res.end();
           } catch (error: any) {
-            if (res.headersSent) { res.write(`${JSON.stringify({ event: { type: "agent_status", message: `Agent failed: ${error.message || String(error)}` } })}\n`); res.write(`${JSON.stringify({ error: error.message || String(error) })}\n`); return res.end(); }
+            activeSession?.dispose?.();
+            cleanupRequest();
+            if (res.headersSent) {
+              if (!res.writableEnded && !res.destroyed) {
+                try {
+                  res.write(`${JSON.stringify({ event: { type: "agent_status", message: `Agent failed: ${error.message || String(error)}` } })}\n`);
+                  res.write(`${JSON.stringify({ error: error.message || String(error) })}\n`);
+                  return res.end();
+                } catch {
+                  return;
+                }
+              }
+              return;
+            }
             res.statusCode = 500;
             return res.end(JSON.stringify({ error: error.message || String(error) }));
           }
@@ -318,16 +519,22 @@ function githubApi() {
 
 export default defineConfig({
   plugins: [githubApi(), react(), tailwindcss()],
+  // Cloned repositories are agent workspaces, not Vite source. Watching them
+  // can restart the dev server while an agent is editing, which cuts the
+  // shared NDJSON stream for every provider.
+  server: {
+    port: 1420,
+    strictPort: true,
+    watch: {
+      ignored: [path.join(workspaceRoot, "**")],
+    },
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
   },
   clearScreen: false,
-  server: {
-    port: 1420,
-    strictPort: true,
-  },
   envPrefix: ["VITE_", "TAURI_"],
   build: {
     target: "esnext",

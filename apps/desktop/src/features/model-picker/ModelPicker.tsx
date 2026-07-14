@@ -27,10 +27,10 @@ export function ModelPicker({ label, value, onChange, compact, isJudgePicker }: 
   const selected = models.find((model) => model.id === value);
 
   return (
-    <div className="relative">
+    <div className="relative min-w-0">
       {!compact && <label className="block text-xs text-gray-500 mb-1 font-medium">{label}</label>}
-      <button onClick={() => setOpen(!open)} className={compact ? "flex items-center gap-1 px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-full transition-colors font-medium" : "w-full flex items-center justify-between text-left px-3 py-1.5 text-sm bg-gray-50 border border-gray-200 rounded-lg hover:border-gray-300 transition-colors truncate text-gray-700"}>
-        <span className="truncate">{selected?.displayName ?? (compact ? "Model" : "Select model...")}</span>
+      <button onClick={() => setOpen(!open)} className={compact ? "flex min-w-0 max-w-full items-center gap-1 px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-full transition-colors font-medium" : "w-full flex min-w-0 items-center justify-between text-left px-3 py-1.5 text-sm bg-gray-50 border border-gray-200 rounded-lg hover:border-gray-300 transition-colors text-gray-700"}>
+        <span className="min-w-0 truncate">{selected?.displayName ?? (compact ? "Model" : "Select model...")}</span>
         <svg className="w-3 h-3 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="m19 9-7 7-7-7" /></svg>
       </button>
 

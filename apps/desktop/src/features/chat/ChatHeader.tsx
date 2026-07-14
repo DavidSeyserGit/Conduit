@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { ChatMode } from "@loopkit/shared";
 import { useAppStore } from "@/stores/app-store";
+import { getModeColor } from "@/lib/mode-colors";
 
 export function ChatHeader() {
   const workspacePath = useAppStore((s) => s.workspacePath);
@@ -15,6 +16,8 @@ export function ChatHeader() {
   const createWorktree = useAppStore((s) => s.createWorktree);
   const removeWorktree = useAppStore((s) => s.removeWorktree);
   const openGitDiff = useAppStore((s) => s.openGitDiff);
+  const settings = useAppStore((s) => s.settings);
+  const modeColor = getModeColor(settings, mode);
 
   const activeSession = sessions[activeProjectPath]?.find((session) => session.id === activeSessionId);
   const projectName = activeProjectPath
@@ -31,7 +34,7 @@ export function ChatHeader() {
           <span className="truncate font-medium">{projectName}</span>
         </div>
 
-        <ModePicker mode={mode} onChange={setMode} disabled={isRunning} />
+        <ModePicker mode={mode} onChange={setMode} disabled={isRunning} color={modeColor} />
         {activeSession?.branch && <span className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-md" title={workspacePath}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M6 3v18M18 3v18M6 7h12M6 17h12" /><circle cx="6" cy="7" r="2" /><circle cx="18" cy="17" r="2" /></svg>
           <span className="max-w-[180px] truncate">{activeSession.branch}</span>
@@ -97,10 +100,12 @@ function ModePicker({
   mode,
   onChange,
   disabled,
+  color,
 }: {
   mode: ChatMode;
   onChange: (mode: ChatMode) => void;
   disabled: boolean;
+  color: string;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -109,9 +114,10 @@ function ModePicker({
       <button
         onClick={() => !disabled && setOpen(!open)}
         disabled={disabled}
-        className="flex items-center gap-1 px-2.5 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-700 transition-colors disabled:opacity-50 font-medium"
+        className="flex items-center gap-1 px-2.5 py-1.5 text-sm rounded-lg transition-colors disabled:opacity-50 font-medium"
+        style={{ color, backgroundColor: `${color}14`, border: `1px solid ${color}30` }}
       >
-        {mode === "goal" ? "Goal" : "Chat"}
+        {mode === "goal" ? "Goal" : "Ask"}
         <svg className="w-3 h-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
         </svg>
@@ -127,10 +133,11 @@ function ModePicker({
                 setOpen(false);
               }}
               className={`block w-full text-left px-4 py-2.5 hover:bg-gray-50 transition-colors ${
-                m === mode ? "bg-indigo-50 text-indigo-700" : "text-gray-700"
+                m === mode ? "bg-gray-100" : "text-gray-700"
               }`}
+              style={m === mode ? { color } : undefined}
             >
-              <div className="text-sm font-medium">{m === "goal" ? "Goal" : "Chat"}</div>
+              <div className="text-sm font-medium">{m === "goal" ? "Goal" : "Ask"}</div>
               <div className="text-xs text-gray-500 mt-0.5">
                 {m === "goal"
                   ? "Coding agent loop with judge"

@@ -50,6 +50,7 @@ export class AskChatRunner {
       const response = await config.provider.streamResponse(
         {
           modelId: config.modelId,
+          workspacePath: config.workspacePath,
           messages: modelMessages,
           tools,
           temperature: 0.3,

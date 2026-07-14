@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { useAppStore } from "@/stores/app-store";
 import { ModelSelectors } from "@/features/model-picker/ModelPicker";
+import { getModeColor } from "@/lib/mode-colors";
+import { RunRail } from "@/features/goal-run/RunRail";
+import { GoalModelSetup } from "@/features/goal-run/QualityLanes";
 
 export function ChatInput() {
   const [input, setInput] = useState("");
@@ -17,9 +20,13 @@ export function ChatInput() {
   const setGoalDraft = useAppStore((s) => s.setGoalDraft);
   const cancelRun = useAppStore((s) => s.cancelRun);
   const pendingApproval = useAppStore((s) => s.pendingApproval);
+  const runEvents = useAppStore((s) => s.runEvents);
+  const currentRun = useAppStore((s) => s.currentRun);
+  const maxIterations = useAppStore((s) => s.maxIterations);
   const approveCommand = useAppStore((s) => s.approveCommand);
   const rejectCommand = useAppStore((s) => s.rejectCommand);
-  const inputGlowColor = useAppStore((s) => s.settings.inputGlowColor ?? "#3b82f6");
+  const settings = useAppStore((s) => s.settings);
+  const inputGlowColor = getModeColor(settings, mode);
 
   useEffect(() => {
     if (goalDraft) setInput(goalDraft);
@@ -77,8 +84,9 @@ export function ChatInput() {
       )}
 
       <div className="max-w-5xl mx-auto">
-        <div className="flex justify-end mb-2">
-          <ModelSelectors compact />
+        <RunRail events={runEvents} currentRun={currentRun} maxIterations={maxIterations} isRunning={isRunning} />
+        <div className="flex items-center justify-end gap-1.5 mb-2">
+          {mode === "goal" && !isRunning ? <GoalModelSetup /> : <ModelSelectors compact />}
         </div>
         <div
           className="input-glow flex items-center rounded-xl pr-2 transition-all"
@@ -90,7 +98,7 @@ export function ChatInput() {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={
-              mode === "goal" ? "Describe your goal..." : "Message LoopKit..."
+              mode === "goal" ? "Describe your goal..." : "Ask LoopKit anything..."
             }
             disabled={isRunning}
             className="flex-1 bg-transparent px-4 py-7 text-sm text-gray-900 placeholder-gray-400 outline-none disabled:opacity-50"

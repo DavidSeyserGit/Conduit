@@ -19,8 +19,42 @@ export interface ModelProvider {
   ): Promise<ModelResponse>;
 }
 
+export interface LocalHarnessCapabilities {
+  supportsAsk: boolean;
+  supportsGoal: boolean;
+  supportsJudge: boolean;
+  streamsToolEvents: boolean;
+}
+
+/** Shared contract for local CLI harnesses such as Codex and Kilo. */
+export abstract class LocalHarnessProvider implements ModelProvider {
+  abstract readonly id: string;
+  abstract readonly name: string;
+  readonly kind = "local-harness" as const;
+  readonly capabilities: LocalHarnessCapabilities = {
+    supportsAsk: false,
+    supportsGoal: true,
+    supportsJudge: true,
+    streamsToolEvents: true,
+  } as const;
+
+  abstract listModels(): Promise<ModelDescriptor[]>;
+
+  async createResponse(_request: ModelRequest): Promise<ModelResponse> {
+    throw new Error(`${this.name} is executed by the local harness backend`);
+  }
+
+  async streamResponse(
+    _request: ModelRequest,
+    _onEvent: (event: ModelStreamEvent) => void
+  ): Promise<ModelResponse> {
+    throw new Error(`${this.name} streaming is handled by the local harness backend`);
+  }
+}
+
 export interface ProviderRegistry {
   register(provider: ModelProvider): void;
+  unregister(id: string): void;
   get(id: string): ModelProvider | undefined;
   list(): ModelProvider[];
   listAllModels(): Promise<ModelDescriptor[]>;
@@ -31,6 +65,10 @@ export class DefaultProviderRegistry implements ProviderRegistry {
 
   register(provider: ModelProvider): void {
     this.providers.set(provider.id, provider);
+  }
+
+  unregister(id: string): void {
+    this.providers.delete(id);
   }
 
   get(id: string): ModelProvider | undefined {

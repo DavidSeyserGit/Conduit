@@ -16,6 +16,7 @@ import {
   OpenRouterProvider,
   ACPAgentProvider,
   CodexProvider,
+  KiloProvider,
 } from "@loopkit/model-providers";
 import { GoalLoopRunner, AskChatRunner } from "@loopkit/agent-runtime";
 import { createTauriToolExecutor } from "@/lib/tauri-tools";
@@ -411,7 +412,30 @@ export const useAppStore = create<AppState>()(
         try {
           const registry = getRegistry();
           const models = await registry.listAllModels();
-          set({ models, modelsCachedAt: Date.now() });
+          const state = get();
+          const workers = models.filter((model) => model.supportsTools && model.supportsGoal !== false);
+          const judges = models.filter((model) => model.supportsJudge !== false);
+          const currentCodingIsAvailable = models.some((model) => model.id === state.codingModelId);
+          const defaultCodingIsAvailable = models.some((model) => model.id === state.settings.defaultCodingModelId);
+          const codingModelId = currentCodingIsAvailable
+            ? state.codingModelId
+            : defaultCodingIsAvailable
+              ? state.settings.defaultCodingModelId!
+              : workers[0]?.id || "";
+          const currentJudgeIsAvailable = models.some((model) => model.id === state.judgeModelId);
+          const defaultJudgeIsAvailable = models.some((model) => model.id === state.settings.defaultJudgeModelId);
+          const judgeModelId = currentJudgeIsAvailable
+            ? state.judgeModelId
+            : defaultJudgeIsAvailable
+              ? state.settings.defaultJudgeModelId!
+              : judges.find((model) => model.id !== codingModelId)?.id || judges[0]?.id || "";
+          set({
+            models,
+            modelsCachedAt: Date.now(),
+            codingModelId,
+            judgeModelId,
+            maxIterations: !state.codingModelId && !state.judgeModelId ? state.settings.defaultMaxIterations : state.maxIterations,
+          });
         } catch {
           // Keep the cached catalog available when refresh fails.
         } finally {
@@ -518,19 +542,23 @@ export const useAppStore = create<AppState>()(
       initProviders: () => {
         const { settings } = get();
         const registry = getRegistry();
+        const enabled = (id: "openrouter" | "codex" | "acp" | "kilo") => settings.enabledHarnesses?.[id] !== false;
 
-        if (settings.openRouterApiKey) {
+        if (settings.openRouterApiKey && enabled("openrouter")) {
           if (!openRouterProvider) {
             openRouterProvider = new OpenRouterProvider(settings.openRouterApiKey);
             registry.register(openRouterProvider);
           } else {
             openRouterProvider.updateApiKey(settings.openRouterApiKey);
           }
+        } else {
+          registry.unregister("openrouter");
         }
 
         const acpProvider = new ACPAgentProvider(settings.acpAgents ?? []);
-        registry.register(acpProvider);
-        registry.register(new CodexProvider());
+        if (enabled("acp")) registry.register(acpProvider); else registry.unregister("acp");
+        if (enabled("codex")) registry.register(new CodexProvider()); else registry.unregister("codex");
+        if (enabled("kilo")) registry.register(new KiloProvider()); else registry.unregister("kilo");
       },
 
       sendMessage: async (content) => {

@@ -20,7 +20,10 @@ import {
 } from "./state.js";
 
 const MAX_TOOL_ROUNDS = 30;
-const PI_REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
+// A coding iteration may include several model/tool turns. Keep this longer
+// than the backend command timeout so a healthy long-running agent is not
+// mistaken for a dead server by the browser.
+const PI_REQUEST_TIMEOUT_MS = 20 * 60 * 1000;
 
 export interface CodingAgentConfig {
   goal: string;
@@ -93,14 +96,26 @@ export class CodingAgent {
           const decoder = new TextDecoder();
           let buffer = "";
           let result: CodingAgentResult | undefined;
+          let lastStatus = "the agent stream started";
           while (true) {
-            const { done, value } = await reader.read();
+            let chunk: ReadableStreamReadResult<Uint8Array>;
+            try {
+              chunk = await reader.read();
+            } catch (error) {
+              const reason = error instanceof Error ? error.message : String(error);
+              throw new Error(`Agent stream interrupted after ${lastStatus}: ${reason}`);
+            }
+            const { done, value } = chunk;
             armTimeout();
             buffer += decoder.decode(value, { stream: !done });
             for (const line of buffer.split("\n").slice(0, done ? undefined : -1)) {
               if (!line.trim()) continue;
               const packet = JSON.parse(line) as { event?: GoalRunEvent; result?: CodingAgentResult; error?: string };
-              if (packet.event) config.emit(packet.event);
+              if (packet.event) {
+                config.emit(packet.event);
+                if (packet.event.type === "agent_status") lastStatus = `status “${packet.event.message}”`;
+                if (packet.event.type === "tool_started") lastStatus = `tool “${packet.event.toolCall.name}” started`;
+              }
               if (packet.error) throw new Error(packet.error);
               if (packet.result) result = packet.result;
             }
@@ -119,7 +134,7 @@ export class CodingAgent {
         return result.result;
       } catch (error) {
         if (controller.signal.aborted && !config.signal?.aborted) {
-          throw new Error("Coding agent timed out after 5 minutes. Check the model/API connection and try again.");
+          throw new Error("Coding agent timed out after 20 minutes. Check the model/API connection and try again.");
         }
         if (error instanceof TypeError && /fetch|network|load failed/i.test(error.message)) {
           throw new Error("Could not reach the LoopKit agent backend. Check that the Vite/Tauri server is running and try again.");
