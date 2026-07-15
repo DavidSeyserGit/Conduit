@@ -2,10 +2,10 @@ import type {
   ChatMessage,
   ModelMessage,
   TokenUsage,
-} from "@loopkit/shared";
-import type { ToolExecutor } from "@loopkit/tools";
-import type { ModelProvider } from "@loopkit/model-providers";
-import { getToolDefinitions } from "@loopkit/tools";
+} from "@conduit/shared";
+import type { ToolExecutor } from "@conduit/tools";
+import type { ModelProvider } from "@conduit/model-providers";
+import { getToolDefinitions } from "@conduit/tools";
 import { ASK_MODE_SYSTEM_PROMPT } from "./prompts.js";
 import { accumulateTokenUsage } from "./state.js";
 
@@ -46,11 +46,13 @@ export class AskChatRunner {
     while (toolRounds < MAX_TOOL_ROUNDS) {
       if (config.signal?.aborted) break;
       toolRounds++;
+      let streamedUsage: TokenUsage | undefined;
 
       const response = await config.provider.streamResponse(
         {
           modelId: config.modelId,
           workspacePath: config.workspacePath,
+          signal: config.signal,
           messages: modelMessages,
           tools,
           temperature: 0.3,
@@ -62,13 +64,14 @@ export class AskChatRunner {
             config.onStream?.(event.content);
           }
           if (event.usage) {
-            totalUsage = accumulateTokenUsage(totalUsage, event.usage);
+            streamedUsage = event.usage;
           }
         }
       );
 
-      if (response.usage) {
-        totalUsage = accumulateTokenUsage(totalUsage, response.usage);
+      const roundUsage = response.usage ?? streamedUsage;
+      if (roundUsage) {
+        totalUsage = accumulateTokenUsage(totalUsage, roundUsage);
       }
 
       if (!response.toolCalls || response.toolCalls.length === 0) {

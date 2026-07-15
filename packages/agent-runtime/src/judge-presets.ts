@@ -1,4 +1,4 @@
-import type { JudgePreset } from "@loopkit/shared";
+import type { JudgePreset } from "@conduit/shared";
 
 export const JUDGE_PRESETS: JudgePreset[] = [
   {

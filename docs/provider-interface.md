@@ -1,6 +1,6 @@
 # Provider Interface
 
-LoopKit uses a provider-agnostic model interface so the loop runtime does not depend directly on OpenRouter or any specific API.
+Conduit uses a provider-agnostic model interface so the loop runtime does not depend directly on OpenRouter or any specific API.
 
 ## Interface
 
@@ -37,7 +37,10 @@ interface ModelDescriptor {
 
 ```typescript
 interface ModelRequest {
-  modelId: string;
+  modelId: string;        // canonical provider/runtime-id
+  workspacePath?: string;
+  reasoningEffort?: string;
+  signal?: AbortSignal;   // propagated from Goal/Ask cancellation
   messages: ModelMessage[];
   tools?: ToolDefinition[];
   structuredOutput?: { schema: Record<string, unknown>; name: string };
@@ -65,9 +68,18 @@ interface ProviderRegistry {
 }
 ```
 
-Models are identified by `provider/model-id` prefix (e.g. `openrouter/anthropic/claude-sonnet-4`).
+Models are identified by a canonical `provider/runtime-id` prefix (for example,
+`openrouter/anthropic/claude-sonnet-4` or `codex/gpt-5.6-sol`). Providers receive
+the canonical ID and own translation to their runtime format. Routing never sends
+an unknown namespace to a fallback provider.
 
-## OpenRouter (Primary)
+Kilo's native runtime IDs already start with `kilo/`. Conduit keeps both namespaces
+explicit, so native `kilo/kilo-auto/free` is represented canonically as
+`kilo/kilo/kilo-auto/free`.
+
+## Provider Implementations
+
+### OpenRouter
 
 - Fetches model catalog from `https://openrouter.ai/api/v1/models`
 - Caches metadata for 1 hour
@@ -76,6 +88,20 @@ Models are identified by `provider/model-id` prefix (e.g. `openrouter/anthropic/
 - Reports token usage from API response
 
 Configuration: API key via app settings.
+
+### Codex
+
+- Uses the locally authenticated Codex CLI through the desktop backend
+- Uses schema-bound, read-only commands for judges
+- Uses the coding command policy only for Goal implementation iterations
+- Supports cancellation, timeouts, and explicit stdin EOF
+
+### Kilo Code
+
+- Discovers the locally configured Kilo model catalog
+- Uses `ask --pure` for read-only judge/Ask work
+- Uses `code --auto --dangerously-skip-permissions` only for Goal workers
+- Parses Kilo JSON events and propagates CLI stderr failures
 
 ## OpenAI Compatible
 
@@ -95,7 +121,7 @@ new OpenAICompatibleProvider({
 ACP agents are treated as an alternative coding backend, not a model provider:
 
 - Agent runs its own internal loop and model
-- LoopKit's native judge evaluates the workspace changes
+- Conduit's native judge evaluates the workspace changes
 - Session management via `AcpSessionManager` (stub in v0.1)
 
 Example configuration:
@@ -112,3 +138,6 @@ Judge: Gemini through OpenRouter
 3. Model IDs use `your-provider/model-name` format
 4. Support `tools` in requests for coding agent compatibility
 5. Support `structuredOutput` for judge evaluations
+6. Propagate `request.signal` to network or child-process cancellation
+7. Add provider-client, command-policy, error, and live smoke coverage described
+   in [Testing](./testing.md)

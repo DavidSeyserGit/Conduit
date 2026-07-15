@@ -4,10 +4,22 @@ import tailwindcss from "@tailwindcss/vite";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
-import { execFile, spawn } from "node:child_process";
+import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import os from "node:os";
 import { AuthStorage, ModelRegistry, SessionManager, createAgentSession } from "@mariozechner/pi-coding-agent";
+import {
+  buildCodexJudgeArgs,
+  buildCodexWorkerArgs,
+  buildJudgePrompt,
+  buildWorkerPrompt,
+  parseKiloModelCatalog,
+  runCodexProcess,
+  runKiloProcess,
+  toKiloRuntimeModelId,
+  toRuntimeModelId,
+  tryParseStructuredOutput,
+} from "./backend/local-harness.ts";
 
 const githubClientId = process.env.GITHUB_CLIENT_ID || "Ov23liMo1oJoAzSI7573";
 const sessions = new Map<string, { token?: string; device?: { device_code: string; interval: number } }>();
@@ -66,87 +78,6 @@ function attachRequestAbort(req: any, res: any): { signal: AbortSignal; cleanup:
   };
 }
 
-interface LocalHarnessRun {
-  summary: string;
-  toolCalls: any[];
-}
-
-async function runKiloProcess(
-  root: string,
-  modelId: string,
-  prompt: string,
-  signal: AbortSignal,
-  onStatus: (message: string) => void,
-  onTool: (toolCall: any) => void,
-): Promise<LocalHarnessRun> {
-  const child = spawn("kilo", [
-    "run",
-    "--format", "json",
-    "--dir", root,
-    "--model", modelId,
-    "--auto",
-    "--dangerously-skip-permissions",
-    prompt,
-  ], { cwd: root, env: process.env, stdio: ["ignore", "pipe", "pipe"] });
-  let buffer = "";
-  let stderr = "";
-  let summary = "";
-  const toolCalls = new Map<string, any>();
-
-  const consume = (line: string) => {
-    if (!line.trim()) return;
-    let event: any;
-    try { event = JSON.parse(line); } catch { return; }
-    const part = event.part || event;
-    if (event.type === "step_start") onStatus("Kilo started a step…");
-    if (event.type === "step_finish") onStatus("Kilo finished a step");
-    if (event.type === "text" || part.type === "text") {
-      const text = event.text || part.text || "";
-      if (text) summary += text;
-    }
-    if (event.type === "tool_use" || event.type === "tool_call" || part.type === "tool") {
-      const id = event.callID || event.toolCallId || part.callID || part.id || randomUUID();
-      const toolCall = toolCalls.get(id) || {
-        id,
-        name: event.tool || event.toolName || part.tool || part.name || "tool",
-        arguments: event.input || event.arguments || part.state?.input || part.input || {},
-        status: "running",
-        startedAt: new Date().toISOString(),
-      };
-      if (part.state?.status === "completed" || event.type === "tool_result") {
-        toolCall.status = "completed";
-        toolCall.result = part.state.output || event.result;
-        toolCall.completedAt = new Date().toISOString();
-      }
-      toolCalls.set(id, toolCall);
-      onTool(toolCall);
-    }
-  };
-
-  child.stdout.on("data", (chunk) => {
-    buffer += String(chunk);
-    const lines = buffer.split(/\r?\n/);
-    buffer = lines.pop() || "";
-    for (const line of lines) consume(line);
-  });
-  child.stderr.on("data", (chunk) => { stderr += String(chunk); });
-
-  const abortChild = () => child.kill("SIGTERM");
-  signal.addEventListener("abort", abortChild, { once: true });
-  try {
-    const code = await new Promise<number>((resolve, reject) => {
-      child.once("error", reject);
-      child.once("close", (exitCode) => resolve(exitCode ?? 1));
-    });
-    if (buffer.trim()) consume(buffer);
-    if (signal.aborted) throw new Error("Kilo run was cancelled before completion");
-    if (code !== 0) throw new Error(stderr.trim() || `Kilo exited with code ${code}`);
-    return { summary, toolCalls: Array.from(toolCalls.values()) };
-  } finally {
-    signal.removeEventListener("abort", abortChild);
-  }
-}
-
 function workspacePath(workspace: string, relative = ".") {
   const root = path.resolve(workspace);
   const target = path.resolve(root, relative);
@@ -190,13 +121,60 @@ function githubApi() {
           } catch (error: any) { res.statusCode = 503; return res.end(JSON.stringify({ error: `Codex model cache unavailable: ${error.message}` })); }
         }
 
+        if (req.url === "/api/codex/response" && req.method === "POST") {
+          let cleanupRequest = () => {};
+          let outputFile = "";
+          let schemaFile = "";
+          try {
+            const { workspace, workspacePath: requestedWorkspacePath, modelId, reasoningEffort, messages = [], structuredOutput: requestedStructuredOutput } = await readJson(req);
+            const root = path.resolve(workspace || requestedWorkspacePath || workspaceRoot);
+            const isClone = root.startsWith(`${path.resolve(workspaceRoot)}${path.sep}`);
+            const isGitRepo = await fs.stat(path.join(root, ".git")).then(() => true).catch(() => false);
+            if (!isClone && !isGitRepo) throw new Error("Workspace is not a Git repository");
+            if (typeof modelId !== "string" || !modelId.startsWith("codex/")) throw new Error("Invalid Codex model");
+
+            const lifecycle = attachRequestAbort(req, res);
+            cleanupRequest = lifecycle.cleanup;
+            outputFile = path.join(os.tmpdir(), `conduit-codex-response-${randomUUID()}.json`);
+            const schemaArgs: string[] = [];
+            if (requestedStructuredOutput?.schema) {
+              schemaFile = path.join(os.tmpdir(), `conduit-codex-schema-${randomUUID()}.json`);
+              await fs.writeFile(schemaFile, JSON.stringify(requestedStructuredOutput.schema), "utf8");
+              schemaArgs.push("--output-schema", schemaFile);
+            }
+
+            const prompt = buildJudgePrompt(messages, requestedStructuredOutput);
+            const codexModel = toRuntimeModelId("codex", modelId);
+            await runCodexProcess(
+              buildCodexJudgeArgs({
+                root,
+                runtimeModelId: codexModel,
+                prompt,
+                outputFile,
+                schemaFile: schemaFile || undefined,
+                reasoningEffort: typeof reasoningEffort === "string" ? reasoningEffort : undefined,
+              }),
+              root,
+              lifecycle.signal,
+            );
+            const content = await fs.readFile(outputFile, "utf8");
+            let structuredOutput: unknown;
+            try { structuredOutput = JSON.parse(content); } catch { /* The caller will handle an invalid structured response. */ }
+            return res.end(JSON.stringify({ result: { content, structuredOutput, finishReason: "stop" } }));
+          } catch (error: any) {
+            res.statusCode = 500;
+            return res.end(JSON.stringify({ error: error.message || String(error) }));
+          } finally {
+            cleanupRequest();
+            if (outputFile) await fs.rm(outputFile, { force: true });
+            if (schemaFile) await fs.rm(schemaFile, { force: true });
+          }
+        }
+
         if (req.url === "/api/kilo/models" && req.method === "GET") {
           try {
             const output = await execFileAsync("kilo", ["models"], { maxBuffer: 20 * 1024 * 1024, timeout: 30_000 });
-            const models = output.stdout.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.startsWith("kilo/")).map((id) => {
-              const name = id.slice("kilo/".length).split("/").slice(-1)[0]?.replace(/[-_]/g, " ") || id;
-              return { id, provider: "kilo", displayName: name.replace(/\b\w/g, (letter) => letter.toUpperCase()), supportsTools: true, supportsStructuredOutput: false, supportsReasoning: true, supportsAsk: true, supportsGoal: true, supportsJudge: true };
-            });
+            const models = parseKiloModelCatalog(output.stdout);
             return res.end(JSON.stringify(models));
           } catch (error: any) { res.statusCode = 503; return res.end(JSON.stringify({ error: `Kilo model discovery failed: ${error.message || String(error)}` })); }
         }
@@ -242,7 +220,7 @@ function githubApi() {
         if (req.url === "/api/agent/kilo-chat" && req.method === "POST") {
           let cleanupRequest = () => {};
           try {
-            const { workspace, modelId, messages = [] } = await readJson(req);
+            const { workspace, modelId, messages = [], structuredOutput } = await readJson(req);
             const root = path.resolve(workspace);
             const isClone = root.startsWith(`${path.resolve(workspaceRoot)}${path.sep}`);
             const isGitRepo = await fs.stat(path.join(root, ".git")).then(() => true).catch(() => false);
@@ -251,12 +229,24 @@ function githubApi() {
             cleanupRequest = lifecycle.cleanup;
             const stream = createAgentStream(res);
             stream.status("Initializing Kilo agent…");
-            const prompt = messages.map((message: any) => `${message.role}: ${message.content}`).join("\n\n");
-            const kiloModel = String(modelId).replace(/^kilo\/(?=kilo\/)/, "");
-            const run = await runKiloProcess(root, kiloModel, prompt, lifecycle.signal, stream.status, () => {});
+            const prompt = buildJudgePrompt(messages, structuredOutput);
+            const kiloModel = toKiloRuntimeModelId(String(modelId));
+            const run = await runKiloProcess(
+              root,
+              kiloModel,
+              prompt,
+              lifecycle.signal,
+              stream.status,
+              () => {},
+              "judge",
+            );
+            const parsedStructuredOutput = structuredOutput?.schema
+              ? tryParseStructuredOutput(run.summary)
+              : undefined;
             if (run.summary) stream.send({ event: { type: "content_delta", content: run.summary } });
             stream.status("Kilo finished");
-            return res.end(JSON.stringify({ result: { content: run.summary, toolCalls: [], finishReason: "stop" } }) + "\n");
+            cleanupRequest();
+            return res.end(JSON.stringify({ result: { content: run.summary, structuredOutput: parsedStructuredOutput, toolCalls: [], finishReason: "stop" } }) + "\n");
           } catch (error: any) {
             cleanupRequest();
             if (res.headersSent && !res.writableEnded && !res.destroyed) {
@@ -284,17 +274,17 @@ function githubApi() {
               const stream = createAgentStream(res);
               stream.status("Initializing Kilo agent…");
               const stopHeartbeat = stream.heartbeat("Kilo", "process", "Kilo process confirmed alive");
-              const kiloModel = String(modelId).replace(/^kilo\/(?=kilo\/)/, "");
+              const kiloModel = toKiloRuntimeModelId(String(modelId));
               try {
                 stream.status(`Starting Kilo ${kiloModel}…`);
-                const prompt = `Work directly on this repository and complete the goal using your coding tools.\n\nGoal: ${goal}\nIteration: ${iteration} of ${maxIterations}\n${previousPlan ? `Previous plan:\n${JSON.stringify(previousPlan)}` : ""}\n${judgeFeedback?.length ? `Required judge fixes — address every item and validate them:\n${judgeFeedback.map((f, i) => `${i + 1}. ${f}`).join("\n")}` : ""}\nAt the end, briefly summarize verified work completed.`;
+                const prompt = buildWorkerPrompt({ goal, iteration, maxIterations, previousPlan, judgeFeedback });
                 const toolCalls: any[] = [];
                 const run = await runKiloProcess(root, kiloModel, prompt, lifecycle.signal, stream.status, (toolCall) => {
                   const existing = toolCalls.find((item) => item.id === toolCall.id);
                   if (existing) Object.assign(existing, toolCall);
                   else toolCalls.push(toolCall);
                   stream.send({ event: { type: toolCall.status === "completed" ? "tool_completed" : "tool_started", toolCall } });
-                });
+                }, "worker");
                 stream.status("Kilo finished; collecting changes…");
                 const diff = await execFileAsync("git", ["diff", "--name-only"], { cwd: root });
                 if (run.summary) stream.send({ event: { type: "agent_message", content: run.summary, messageId: randomUUID() } });
@@ -311,16 +301,23 @@ function githubApi() {
               const stream = createAgentStream(res);
               stream.status("Initializing Codex agent…");
               const outputFile = path.join(workspaceRoot, `.loopkit-codex-${randomUUID()}.txt`);
-              const prompt = `Work directly on this repository and complete the goal using your coding tools.\n\nGoal: ${goal}\nIteration: ${iteration} of ${maxIterations}\n${previousPlan ? `Previous plan:\n${JSON.stringify(previousPlan)}` : ""}\n${judgeFeedback?.length ? `Required judge fixes — address every item and validate them:\n${judgeFeedback.map((f, i) => `${i + 1}. ${f}`).join("\n")}` : ""}\nAt the end, briefly summarize verified work completed.`;
+              const prompt = buildWorkerPrompt({ goal, iteration, maxIterations, previousPlan, judgeFeedback });
               let stopHeartbeat = () => {};
               try {
-                const codexModel = String(modelId).replace(/^codex\//, "");
-                const reasoningArgs = typeof codingReasoningEffort === "string" && codingReasoningEffort
-                  ? ["-c", `model_reasoning_effort=${JSON.stringify(codingReasoningEffort)}`]
-                  : [];
+                const codexModel = toRuntimeModelId("codex", String(modelId));
                 stream.status(`Starting Codex ${codexModel}…`);
                 stopHeartbeat = stream.heartbeat("Codex", "process", "Codex process confirmed alive");
-                await execFileAsync("codex", ["exec", ...reasoningArgs, "--json", "--ephemeral", "--skip-git-repo-check", "-C", root, "-m", codexModel, "--dangerously-bypass-approvals-and-sandbox", "-o", outputFile, prompt], { cwd: root, maxBuffer: 20 * 1024 * 1024, timeout: AGENT_TIMEOUT_MS, signal: lifecycle.signal });
+                await runCodexProcess(
+                  buildCodexWorkerArgs({
+                    root,
+                    runtimeModelId: codexModel,
+                    prompt,
+                    outputFile,
+                    reasoningEffort: typeof codingReasoningEffort === "string" ? codingReasoningEffort : undefined,
+                  }),
+                  root,
+                  lifecycle.signal,
+                );
                 stream.status("Codex finished; collecting changes…");
                 const summary = await fs.readFile(outputFile, "utf8").catch(() => "");
                 const diff = await execFileAsync("git", ["diff", "--name-only"], { cwd: root });
@@ -352,7 +349,7 @@ function githubApi() {
               api: "openai-completions",
               baseUrl: "https://openrouter.ai/api/v1",
               apiKey,
-              models: [{ id: piModelId, name: piModelId, reasoning: Boolean(supportsReasoning), input: ["text"], cost: { input: inputPricePerToken, output: outputPricePerToken, cacheRead: inputPricePerToken, cacheWrite: inputPricePerToken }, contextWindow: 128000, maxTokens: 16384, headers: { "HTTP-Referer": "https://loopkit.dev", "X-Title": "LoopKit", "User-Agent": "LoopKit/0.1" } }],
+              models: [{ id: piModelId, name: piModelId, reasoning: Boolean(supportsReasoning), input: ["text"], cost: { input: inputPricePerToken, output: outputPricePerToken, cacheRead: inputPricePerToken, cacheWrite: inputPricePerToken }, contextWindow: 128000, maxTokens: 16384, headers: { "HTTP-Referer": "https://github.com/DavidSeyserGit/Conduit", "X-Title": "Conduit", "User-Agent": "Conduit/0.1" } }],
             });
             status(`Loading model ${piModelId}…`);
             const model = modelRegistry.find("openrouter", piModelId);
@@ -494,7 +491,7 @@ function githubApi() {
             const gitRoot = await execFileAsync("git", ["-C", root, "rev-parse", "--show-toplevel"]);
             const resolvedRoot = path.resolve(gitRoot.stdout.trim());
             const validIdentifier = (value: unknown, allowSlash = false) => typeof value === "string" && value.length > 0 && value.length <= 80 && /^[A-Za-z0-9_.\/-]+$/.test(value) && !value.includes("..") && (allowSlash || !value.includes("/"));
-            const worktreeRoot = path.join(path.dirname(resolvedRoot), ".loopkit-worktrees", path.basename(resolvedRoot));
+            const worktreeRoot = path.join(path.dirname(resolvedRoot), ".conduit-worktrees", path.basename(resolvedRoot));
             if (action === "create") {
               if (!validIdentifier(branch, true) || !validIdentifier(sessionId)) throw new Error("Invalid branch or session identifier");
               const target = path.join(worktreeRoot, String(sessionId));
@@ -526,7 +523,9 @@ function githubApi() {
           if (!name || name.includes("/") || name.includes("\\") || repoUrl.hostname !== "github.com") { res.statusCode = 400; return res.end(JSON.stringify({ error: "Invalid repository" })); }
           await fs.mkdir(workspaceRoot, { recursive: true });
           const target = path.join(workspaceRoot, name);
-          try { await fs.access(target); res.statusCode = 409; return res.end(JSON.stringify({ error: `Folder already exists: ${target}` })); } catch { /* target is available */ }
+          const existingGitRepo = await fs.stat(path.join(target, ".git")).then(() => true).catch(() => false);
+          if (existingGitRepo) return res.end(JSON.stringify({ path: target, existing: true }));
+          try { await fs.access(target); res.statusCode = 409; return res.end(JSON.stringify({ error: `Folder already exists and is not a Git repository: ${target}` })); } catch { /* target is available */ }
           const askpass = path.join(workspaceRoot, `.loopkit-askpass-${process.pid}`);
           await fs.writeFile(askpass, "#!/bin/sh\ncase \"$1\" in *Username*) echo x-access-token;; *) echo \"$LOOPKIT_GITHUB_TOKEN\";; esac\n", { mode: 0o700 });
           try {

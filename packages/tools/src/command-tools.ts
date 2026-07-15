@@ -1,7 +1,7 @@
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
-import type { CommandPermissionMode, ValidationResult } from "@loopkit/shared";
-import { ToolError } from "@loopkit/shared";
+import type { CommandPermissionMode, ValidationResult } from "@conduit/shared";
+import { ToolError } from "@conduit/shared";
 import { assertWorkspaceExists, requiresApproval } from "./safety.js";
 
 const execAsync = promisify(exec);

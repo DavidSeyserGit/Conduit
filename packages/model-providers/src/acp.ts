@@ -4,14 +4,14 @@ import type {
   ModelResponse,
   ModelStreamEvent,
   AcpAgentConfig,
-} from "@loopkit/shared";
-import { ProviderError } from "@loopkit/shared";
+} from "@conduit/shared";
+import { ProviderError } from "@conduit/shared";
 import type { ModelProvider } from "./provider.js";
 
 /**
  * Experimental ACP (Agent Client Protocol) adapter.
  * ACP agents run their own internal loop; this adapter bridges
- * ACP sessions to LoopKit's goal loop as an alternative coding backend.
+ * ACP sessions to Conduit's goal loop as an alternative coding backend.
  */
 export class ACPAgentProvider implements ModelProvider {
   readonly id = "acp";

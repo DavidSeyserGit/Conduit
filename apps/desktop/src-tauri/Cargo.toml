@@ -1,12 +1,12 @@
 [package]
-name = "loopkit-desktop"
+name = "conduit-desktop"
 version = "0.1.0"
-description = "LoopKit - Minimal desktop coding chatbot"
-authors = ["LoopKit"]
+description = "Conduit - Minimal desktop coding chatbot"
+authors = ["Conduit"]
 edition = "2021"
 
 [lib]
-name = "loopkit_desktop_lib"
+name = "conduit_desktop_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [build-dependencies]

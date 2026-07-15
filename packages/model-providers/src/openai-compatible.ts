@@ -3,8 +3,8 @@ import type {
   ModelRequest,
   ModelResponse,
   ModelStreamEvent,
-} from "@loopkit/shared";
-import { ProviderError } from "@loopkit/shared";
+} from "@conduit/shared";
+import { ProviderError } from "@conduit/shared";
 import type { ModelProvider } from "./provider.js";
 
 export interface OpenAICompatibleConfig {
@@ -64,6 +64,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
           temperature: request.temperature ?? 0.2,
           max_tokens: request.maxTokens ?? 8192,
         }),
+        signal: request.signal,
       }
     );
 

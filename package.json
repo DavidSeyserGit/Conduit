@@ -1,15 +1,28 @@
 {
-  "name": "loopkit",
+  "name": "conduit",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@11.0.9",
   "description": "Minimal desktop coding chatbot with explicit agent loops",
   "scripts": {
-    "dev": "pnpm --filter @loopkit/desktop dev",
+    "dev": "pnpm --filter @conduit/desktop dev",
     "build": "pnpm -r build",
-    "typecheck": "pnpm -r typecheck",
+    "build:packages": "pnpm --filter @conduit/shared build && pnpm --filter @conduit/tools build && pnpm --filter @conduit/model-providers build && pnpm --filter @conduit/agent-runtime build",
+    "pretypecheck": "pnpm build:packages",
+    "typecheck": "pnpm -r typecheck && tsc -p tsconfig.tests.json",
+    "pretest": "pnpm build:packages",
+    "test": "node scripts/run-tests.mjs",
+    "smoke:harnesses": "node scripts/smoke-local-harnesses.mjs",
+    "release:check": "node scripts/check-release-version.mjs",
+    "verify": "pnpm typecheck && pnpm test && pnpm build",
     "lint": "pnpm -r lint"
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "tsx": "^4.23.1",
+    "typescript": "^5.9.3"
   }
 }

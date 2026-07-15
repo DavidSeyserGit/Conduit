@@ -5,8 +5,8 @@ import type {
   ModelResponse,
   ModelStreamEvent,
   ToolCallRequest,
-} from "@loopkit/shared";
-import { ProviderError } from "@loopkit/shared";
+} from "@conduit/shared";
+import { ProviderError } from "@conduit/shared";
 import type { ModelProvider } from "./provider.js";
 
 const OPENROUTER_API = "https://openrouter.ai/api/v1";
@@ -72,6 +72,7 @@ export class OpenRouterProvider implements ModelProvider {
     const response = await this.fetch(`${OPENROUTER_API}/chat/completions`, {
       method: "POST",
       body: JSON.stringify(body),
+      signal: request.signal,
     });
 
     const data = await response.json();
@@ -91,6 +92,7 @@ export class OpenRouterProvider implements ModelProvider {
     const response = await this.fetch(`${OPENROUTER_API}/chat/completions`, {
       method: "POST",
       body: JSON.stringify(body),
+      signal: request.signal,
     });
 
     if (!response.body) {
@@ -297,9 +299,9 @@ export class OpenRouterProvider implements ModelProvider {
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://loopkit.dev",
-        "X-Title": "LoopKit",
-        "User-Agent": "LoopKit/0.1",
+        "HTTP-Referer": "https://github.com/DavidSeyserGit/Conduit",
+        "X-Title": "Conduit",
+        "User-Agent": "Conduit/0.1",
         ...init?.headers,
       },
     };

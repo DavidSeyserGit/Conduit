@@ -1,4 +1,4 @@
-import type { StoredToolCall } from "@loopkit/shared";
+import type { StoredToolCall } from "@conduit/shared";
 
 export interface ToolCallDisplay {
   action: "Running" | "Ran" | "Failed";

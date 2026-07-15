@@ -1,0 +1,97 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    uses: ./.github/workflows/verify.yml
+
+  publish:
+    name: Build ${{ matrix.label }}
+    needs: verify
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS Apple Silicon
+            platform: macos-latest
+            args: --ci --target aarch64-apple-darwin --bundles app,dmg -- --locked
+            rustTargets: aarch64-apple-darwin
+          - label: macOS Intel
+            platform: macos-latest
+            args: --ci --target x86_64-apple-darwin --bundles app,dmg -- --locked
+            rustTargets: x86_64-apple-darwin
+          - label: Linux x64
+            platform: ubuntu-22.04
+            args: --ci --bundles deb,appimage -- --locked
+            rustTargets: ""
+          - label: Windows x64
+            platform: windows-latest
+            args: --ci --bundles nsis -- --locked
+            rustTargets: ""
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rustTargets }}
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify release tag and application versions
+        run: node scripts/check-release-version.mjs "${{ github.ref_name }}"
+
+      - name: Build workspace packages
+        run: pnpm build:packages
+
+      - name: Build and publish installers
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_SIGNING_IDENTITY: ${{ matrix.platform == 'macos-latest' && '-' || '' }}
+        with:
+          projectPath: apps/desktop
+          tagName: ${{ github.ref_name }}
+          releaseName: Conduit ${{ github.ref_name }}
+          releaseBody: Download the installer for your operating system from the assets below.
+          generateReleaseNotes: true
+          releaseDraft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          retryAttempts: 2
+          args: ${{ matrix.args }}

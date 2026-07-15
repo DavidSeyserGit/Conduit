@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { GoalRunEvent, GoalRunState } from "@loopkit/shared";
-import { downloadRunAsJSON } from "@loopkit/agent-runtime";
+import type { GoalRunEvent, GoalRunState } from "@conduit/shared";
+import { downloadRunAsJSON } from "@conduit/agent-runtime";
 import ReactMarkdown from "react-markdown";
 import { useAppStore } from "@/stores/app-store";
 import { getModeColor } from "@/lib/mode-colors";
@@ -26,7 +26,7 @@ export function ChatTimeline() {
     return (
       <div className="flex-1 min-h-0 overflow-y-auto flex items-center justify-center">
         <div className="text-center max-w-md px-4">
-          <h1 className="text-2xl font-semibold text-gray-900 mb-2">Welcome to LoopKit</h1>
+          <h1 className="text-2xl font-semibold text-gray-900 mb-2">Welcome to Conduit</h1>
           <p className="text-sm text-gray-500">
             Select a project, choose a mode, and start chatting or set a goal.
           </p>
@@ -47,7 +47,7 @@ export function ChatTimeline() {
           <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
             <div className={`max-w-[82%] ${msg.role === "user" ? "items-end" : "items-start"}`}>
               <div className="text-[11px] font-medium text-gray-400 mb-1 px-1">
-                {msg.role === "user" ? "You" : "LoopKit"}
+                {msg.role === "user" ? "You" : "Conduit"}
               </div>
               <div className={`text-sm leading-relaxed prose prose-sm max-w-none px-4 py-3 ${msg.role === "user" ? "bg-gray-900 text-white [&_*]:text-white rounded-2xl rounded-br-md" : "bg-gray-50 border border-gray-200 text-gray-800 rounded-2xl rounded-bl-md"}`}>
                 <div className={`chat-markdown ${msg.role === "user" ? "chat-markdown-user" : ""}`}><ReactMarkdown>{msg.content}</ReactMarkdown></div>
@@ -280,7 +280,7 @@ function ProofOfWorkCard({
   const verdict = approved ? "Ready to review" : run.status === "failed" ? "Run needs attention" : "Not yet approved";
 
   const receipt = [
-    "LoopKit proof of work",
+    "Conduit proof of work",
     `Verdict: ${verdict}${latestJudge ? ` (${Math.round(latestJudge.confidence * 100)}% judge confidence)` : ""}`,
     `Goal: ${run.goal}`,
     `Worker: ${worker}`,

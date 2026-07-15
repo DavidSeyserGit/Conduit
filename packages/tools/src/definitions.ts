@@ -1,4 +1,4 @@
-import type { ToolDefinition } from "@loopkit/shared";
+import type { ToolDefinition } from "@conduit/shared";
 
 export type ToolMode = "ask" | "goal";
 

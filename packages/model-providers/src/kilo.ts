@@ -3,7 +3,7 @@ import type {
   ModelRequest,
   ModelResponse,
   ModelStreamEvent,
-} from "@loopkit/shared";
+} from "@conduit/shared";
 import { LocalHarnessProvider } from "./provider.js";
 
 const KILO_REQUEST_TIMEOUT_MS = 20 * 60 * 1000;
@@ -43,6 +43,10 @@ export class KiloProvider extends LocalHarnessProvider {
     return (await response.json()) as ModelDescriptor[];
   }
 
+  async createResponse(request: ModelRequest): Promise<ModelResponse> {
+    return this.streamResponse(request, () => {});
+  }
+
   async streamResponse(
     request: ModelRequest,
     onEvent: (event: ModelStreamEvent) => void
@@ -59,8 +63,9 @@ export class KiloProvider extends LocalHarnessProvider {
         workspace: request.workspacePath,
         modelId: request.modelId,
         messages: request.messages,
+        structuredOutput: request.structuredOutput,
       }),
-      signal: AbortSignal.timeout(KILO_REQUEST_TIMEOUT_MS),
+      signal: combineWithTimeout(request.signal, KILO_REQUEST_TIMEOUT_MS),
     });
     if (!response.ok) throw new Error((await response.text()) || `Kilo Ask failed (${response.status})`);
     if (!response.body) throw new Error("Kilo Ask returned no response body");
@@ -99,6 +104,11 @@ export class KiloProvider extends LocalHarnessProvider {
   }
 }
 
+function combineWithTimeout(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  return signal ? AbortSignal.any([signal, timeout]) : timeout;
+}
+
 export function parseKiloModels(output: string): ModelDescriptor[] {
   const models: ModelDescriptor[] = [];
   const lines = output.split(/\r?\n/);
@@ -126,9 +136,10 @@ export function parseKiloModels(output: string): ModelDescriptor[] {
     try {
       const payload = JSON.parse(jsonLines.join("\n")) as KiloModelPayload;
       if (payload.providerID && !payload.providerID.startsWith("kilo")) continue;
-      // Prefix with LoopKit's provider namespace while retaining the exact
-      // Kilo runtime model ID after the first slash.
-      const id = header.startsWith("kilo/") ? header : `kilo/${header}`;
+      // Kilo runtime IDs already start with `kilo/`; add Conduit's provider
+      // namespace as a separate segment so routing never has to guess.
+      const runtimeId = header.startsWith("kilo/") ? header : `kilo/${header}`;
+      const id = `kilo/${runtimeId}`;
       models.push({
         id,
         provider: "kilo",
@@ -161,7 +172,7 @@ function dedupeModels(models: ModelDescriptor[]): ModelDescriptor[] {
 
 function fallbackModel(): ModelDescriptor {
   return {
-    id: "kilo/kilo-auto/free",
+    id: "kilo/kilo/kilo-auto/free",
     provider: "kilo",
     displayName: "Kilo Auto (Free)",
     supportsTools: true,

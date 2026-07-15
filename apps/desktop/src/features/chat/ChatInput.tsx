@@ -93,7 +93,7 @@ export function ChatInput() {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={
-              mode === "goal" ? "Describe your goal..." : "Ask LoopKit anything..."
+              mode === "goal" ? "Describe your goal..." : "Ask Conduit anything..."
             }
             disabled={isRunning}
             className="flex-1 bg-transparent px-4 py-7 text-sm text-gray-900 placeholder-gray-400 outline-none disabled:opacity-50"

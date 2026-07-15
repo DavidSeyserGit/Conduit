@@ -1,4 +1,4 @@
-import type { GoalRunState, GoalRunEvent, ExportedRun } from "@loopkit/shared";
+import type { GoalRunState, GoalRunEvent, ExportedRun } from "@conduit/shared";
 import { computeLoopMetrics } from "./metrics.js";
 
 export function exportRunToJSON(
@@ -34,7 +34,7 @@ export function downloadRunAsJSON(
   const blob = new Blob([json], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   
-  const defaultFilename = `loopkit-run-${run.id.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.json`;
+  const defaultFilename = `conduit-run-${run.id.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.json`;
   const a = document.createElement("a");
   a.href = url;
   a.download = filename ?? defaultFilename;

@@ -1,4 +1,4 @@
-import type { HarnessId } from "@loopkit/shared";
+import type { HarnessId } from "@conduit/shared";
 
 export interface HarnessDefinition {
   id: HarnessId;

@@ -44,6 +44,8 @@ export interface ToolCallRequest {
 export interface ModelRequest {
   modelId: string;
   workspacePath?: string;
+  reasoningEffort?: string;
+  signal?: AbortSignal;
   messages: ModelMessage[];
   tools?: ToolDefinition[];
   structuredOutput?: { schema: Record<string, unknown>; name: string };
@@ -213,6 +215,7 @@ export interface GoalRunState {
   codingModelId: string;
   codingReasoningEffort?: string;
   judgeModelId: string;
+  judgeReasoningEffort?: string;
   iteration: number;
   maxIterations: number;
   plan?: AgentPlan;
@@ -257,6 +260,7 @@ export interface GoalRunConfig {
   codingModelId: string;
   codingReasoningEffort?: string;
   judgeModelId: string;
+  judgeReasoningEffort?: string;
   maxIterations: number;
   maxCost?: number;
   modelApiKey?: string;
@@ -344,6 +348,7 @@ export type CommandPermissionMode =
   | "auto_approve_all";
 
 export interface AppSettings {
+  theme?: "light" | "dark";
   openRouterApiKey?: string;
   enabledHarnesses?: Partial<Record<HarnessId, boolean>>;
   enableOtherProviders?: boolean;
@@ -368,32 +373,32 @@ export interface AcpAgentConfig {
 
 // ─── Errors ───────────────────────────────────────────────────────────────────
 
-export class LoopKitError extends Error {
+export class ConduitError extends Error {
   constructor(
     message: string,
     public readonly code: string,
     public readonly recoverable = false
   ) {
     super(message);
-    this.name = "LoopKitError";
+    this.name = "ConduitError";
   }
 }
 
-export class WorkspaceError extends LoopKitError {
+export class WorkspaceError extends ConduitError {
   constructor(message: string) {
     super(message, "WORKSPACE_ERROR", false);
     this.name = "WorkspaceError";
   }
 }
 
-export class ProviderError extends LoopKitError {
+export class ProviderError extends ConduitError {
   constructor(message: string, recoverable = true) {
     super(message, "PROVIDER_ERROR", recoverable);
     this.name = "ProviderError";
   }
 }
 
-export class ToolError extends LoopKitError {
+export class ToolError extends ConduitError {
   constructor(message: string) {
     super(message, "TOOL_ERROR", true);
     this.name = "ToolError";

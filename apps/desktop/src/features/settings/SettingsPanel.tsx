@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { useAppStore } from "@/stores/app-store";
-import { HARNESS_DEFINITIONS } from "@loopkit/model-providers";
-import type { CommandPermissionMode } from "@loopkit/shared";
+import { HARNESS_DEFINITIONS } from "@conduit/model-providers";
+import type { CommandPermissionMode } from "@conduit/shared";
 import { DEFAULT_GOAL_COLOR, getModeColor } from "@/lib/mode-colors";
 import { ModelPicker } from "@/features/model-picker/ModelPicker";
 import { resolveQualityLanes } from "@/lib/quality-lanes";
-import type { QualityLaneId } from "@loopkit/shared";
+import type { QualityLaneId } from "@conduit/shared";
 import { PopoverScope, usePopover } from "@/lib/popover";
 
 const COLORS = [
@@ -54,7 +54,7 @@ export function SettingsPanel() {
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
           <div>
             <h2 className="text-base font-semibold text-gray-900">Settings</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Make LoopKit feel like yours</p>
+            <p className="text-xs text-gray-400 mt-0.5">Make Conduit feel like yours</p>
           </div>
           <button onClick={() => setShowSettings(false)} className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors" aria-label="Close settings">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path d="M6 18L18 6M6 6l12 12" /></svg>

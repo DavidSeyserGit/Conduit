@@ -70,7 +70,7 @@ export function LeftSidebar() {
         <div className="w-7 h-7 bg-gray-950 rounded-full flex items-center justify-center text-white font-semibold text-sm shrink-0">
           L
         </div>
-        <span className={`ml-2 font-semibold text-gray-900 whitespace-nowrap transition-[opacity,transform] duration-200 ${collapsed ? "opacity-0 -translate-x-2 pointer-events-none" : "opacity-100 translate-x-0"}`}>LoopKit</span>
+        <span className={`ml-2 font-semibold text-gray-900 whitespace-nowrap transition-[opacity,transform] duration-200 ${collapsed ? "opacity-0 -translate-x-2 pointer-events-none" : "opacity-100 translate-x-0"}`}>Conduit</span>
         <button
           onClick={() => setCollapsed((value) => !value)}
           className={`absolute top-1/2 -translate-y-1/2 z-10 text-gray-400 bg-white hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-300 ${collapsed ? "right-0.5 p-0.5" : "right-2 p-1"}`}

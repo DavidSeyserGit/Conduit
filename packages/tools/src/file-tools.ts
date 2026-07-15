@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { execSync } from "node:child_process";
-import { ToolError } from "@loopkit/shared";
+import { ToolError } from "@conduit/shared";
 import {
   assertWorkspaceExists,
   isSafeSymlink,

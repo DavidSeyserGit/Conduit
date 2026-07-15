@@ -1,5 +1,5 @@
 {
-  "name": "@loopkit/model-providers",
+  "name": "@conduit/model-providers",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -16,7 +16,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@loopkit/shared": "workspace:*"
+    "@conduit/shared": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.7.2"

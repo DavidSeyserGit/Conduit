@@ -3,7 +3,7 @@ import type {
   ModelRequest,
   ModelResponse,
   ModelStreamEvent,
-} from "@loopkit/shared";
+} from "@conduit/shared";
 
 export interface ModelProvider {
   readonly id: string;
@@ -97,17 +97,16 @@ export function findProviderForModel(
   registry: ProviderRegistry,
   modelId: string
 ): { provider: ModelProvider; modelId: string } | undefined {
-  // Direct provider prefix match: openrouter/..., acp/...
-  for (const provider of registry.list()) {
+  // ModelProvider requests use the canonical namespaced ID. Each provider is
+  // responsible for translating that ID to its own runtime/API representation.
+  const providers = registry.list();
+  for (const provider of providers) {
     if (modelId.startsWith(`${provider.id}/`)) {
-      return { provider, modelId: modelId.slice(provider.id.length + 1) };
+      return { provider, modelId };
     }
   }
 
-  // Try each provider with the full model ID
-  for (const provider of registry.list()) {
-    return { provider, modelId };
-  }
-
+  // Never guess. Persisted IDs are migrated at the catalog boundary; an
+  // unknown namespace must fail before a request reaches the wrong provider.
   return undefined;
 }

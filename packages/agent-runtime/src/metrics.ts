@@ -1,4 +1,4 @@
-import type { GoalRunEvent, LoopMetrics, IterationMetrics } from "@loopkit/shared";
+import type { GoalRunEvent, LoopMetrics, IterationMetrics } from "@conduit/shared";
 
 export function computeLoopMetrics(events: GoalRunEvent[]): LoopMetrics {
   const perIteration = computePerIterationMetrics(events);

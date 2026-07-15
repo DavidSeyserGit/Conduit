@@ -5,10 +5,10 @@ import type {
   AgentPlan,
   TokenUsage,
   ValidationResult,
-} from "@loopkit/shared";
-import type { ToolExecutor, ToolExecutorContext } from "@loopkit/tools";
-import type { ModelProvider } from "@loopkit/model-providers";
-import { getToolDefinitions } from "@loopkit/tools";
+} from "@conduit/shared";
+import type { ToolExecutor, ToolExecutorContext } from "@conduit/tools";
+import type { ModelProvider } from "@conduit/model-providers";
+import { getToolDefinitions } from "@conduit/tools";
 import {
   CODING_AGENT_SYSTEM_PROMPT,
   buildCodingAgentPrompt,
@@ -139,7 +139,7 @@ export class CodingAgent {
           throw new Error("Coding agent timed out after 20 minutes. Check the model/API connection and try again.");
         }
         if (error instanceof TypeError && /fetch|network|load failed/i.test(error.message)) {
-          throw new Error("Could not reach the LoopKit agent backend. Check that the Vite/Tauri server is running and try again.");
+          throw new Error("Could not reach the Conduit agent backend. Check that the Vite/Tauri server is running and try again.");
         }
         throw error;
       } finally {
@@ -180,6 +180,8 @@ export class CodingAgent {
 
       const response = await config.provider.createResponse({
         modelId: config.modelId,
+        workspacePath: config.workspacePath,
+        signal: config.signal,
         messages,
         tools,
         temperature: 0.2,
