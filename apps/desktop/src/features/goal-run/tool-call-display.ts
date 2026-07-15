@@ -86,15 +86,20 @@ function commandContext(command: string): string | undefined {
 }
 
 function structuredToolContext(name: string, args: Record<string, unknown>): string | undefined {
-  const path = stringArg(args, "path");
-  const query = stringArg(args, "query");
+  const normalizedName = name.toLowerCase();
+  const path = stringArg(args, "path") ?? stringArg(args, "file") ?? stringArg(args, "filePath");
+  const query = stringArg(args, "query") ?? stringArg(args, "pattern") ?? stringArg(args, "search");
+  const command = stringArg(args, "command") ?? stringArg(args, "cmd");
 
-  switch (name) {
+  switch (normalizedName) {
     case "list_files":
+    case "list":
       return `in ${quote(path || ".")}`;
     case "search_files":
+    case "grep":
       return `${query ? `for ${quote(query)}` : "for a pattern"}${path ? ` in ${quote(path)}` : ""}`;
     case "read_file":
+    case "read":
       return path ? `at ${quote(path)}` : undefined;
     case "write_file":
     case "create_file":
@@ -105,9 +110,12 @@ function structuredToolContext(name: string, args: Record<string, unknown>): str
     case "get_git_diff":
       return path ? `for ${quote(path)}` : "for the workspace";
     case "run_command": {
-      const command = stringArg(args, "command");
       return command ? commandContext(command) : undefined;
     }
+    case "bash":
+    case "shell":
+    case "execute":
+      return command ? commandContext(command) : "running a workspace command";
     default: {
       const server = stringArg(args, "server");
       const tool = stringArg(args, "tool");
@@ -116,10 +124,31 @@ function structuredToolContext(name: string, args: Record<string, unknown>): str
   }
 }
 
+function readableToolName(name: string): string {
+  switch (name.toLowerCase()) {
+    case "read_file":
+    case "read": return "reading a file";
+    case "search_files":
+    case "grep": return "searching the codebase";
+    case "list_files":
+    case "list": return "inspecting the workspace";
+    case "run_command":
+    case "bash":
+    case "shell":
+    case "execute": return "running a workspace command";
+    case "write_file": return "updating a file";
+    case "create_file": return "creating a file";
+    case "delete_file": return "deleting a file";
+    case "replace_in_file": return "editing a file";
+    case "get_git_diff": return "checking changes";
+    default: return "using a workspace tool";
+  }
+}
+
 export function formatToolCall(tool: StoredToolCall, completed: boolean): ToolCallDisplay {
   const action = completed
     ? tool.status === "failed" ? "Failed" : "Ran"
     : "Running";
   const detail = structuredToolContext(tool.name, tool.arguments);
-  return { action, name: tool.name, detail };
+  return { action, name: readableToolName(tool.name), detail };
 }

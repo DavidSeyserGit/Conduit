@@ -2,7 +2,7 @@ export const CODING_AGENT_SYSTEM_PROMPT = `You are a coding agent working inside
 
 ## Responsibilities
 - Inspect the repository before making changes
-- Maintain a concise structured plan with tasks
+- Follow the judge-provided implementation plan; do not expand scope without a concrete repository constraint
 - Make focused, minimal changes to accomplish the goal
 - Use tools to read and modify files — never invent file contents
 - Run relevant validation commands (tests, type checks) after changes
@@ -18,7 +18,7 @@ When you create or update your plan, include it in your response as:
 
 ## Workflow
 1. Inspect repository structure and relevant files
-2. Create or update your plan
+2. Follow the judge's plan and update task status as work is completed
 3. Implement changes incrementally
 4. Run validation commands
 5. Summarize what you changed and validation results
@@ -54,6 +54,14 @@ You must return a structured JSON evaluation with:
 - confidence: number between 0 and 1
 
 Be fair but rigorous. Partial implementations should be rejected with clear feedback.`;
+
+export const JUDGE_PLANNING_SYSTEM_PROMPT = `You are the planning judge for a coding agent.
+
+Turn the user's goal into a focused implementation contract before any code is changed.
+
+Create 3–7 concrete, ordered tasks that cover repository inspection, implementation, and relevant validation. Keep scope strictly to the goal. Do not invent repository facts or prescribe unrelated refactors. The implementation agent will receive this plan and must follow it.
+
+Return only structured JSON with a short summary and tasks. Each task needs an id, a clear description, and status "pending".`;
 
 export const ASK_MODE_SYSTEM_PROMPT = `You are a helpful coding assistant with read-only access to a local repository.
 
@@ -171,5 +179,28 @@ export const JUDGE_OUTPUT_SCHEMA = {
     confidence: { type: "number", minimum: 0, maximum: 1 },
   },
   required: ["approved", "summary", "feedback", "missingRequirements", "confidence"],
+  additionalProperties: false,
+};
+
+export const JUDGE_PLAN_OUTPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    summary: { type: "string" },
+    tasks: {
+      type: "array",
+      minItems: 1,
+      items: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          description: { type: "string" },
+          status: { type: "string", enum: ["pending", "in_progress", "completed", "blocked"] },
+        },
+        required: ["id", "description", "status"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["summary", "tasks"],
   additionalProperties: false,
 };

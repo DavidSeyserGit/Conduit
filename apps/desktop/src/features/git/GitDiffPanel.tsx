@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useAppStore } from "@/stores/app-store";
+import { PopoverScope, usePopover } from "@/lib/popover";
 
 type DiffFile = {
   path: string;
@@ -27,6 +28,7 @@ export function GitDiffPanel() {
   const open = useAppStore((s) => s.showGitDiff);
   const close = useAppStore((s) => s.closeGitDiff);
   const refresh = useAppStore((s) => s.openGitDiff);
+  const popover = usePopover({ open, onClose: close });
   const files = useMemo(() => parseDiff(diff), [diff]);
   const [selectedPath, setSelectedPath] = useState("");
   const selected = files.find((file) => file.path === selectedPath) || files[0];
@@ -36,8 +38,9 @@ export function GitDiffPanel() {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/20" onMouseDown={(event) => event.target === event.currentTarget && close()}>
-      <section className="w-full max-w-[760px] h-full bg-white border-l border-gray-200 shadow-xl flex flex-col">
+    <PopoverScope popover={popover}>
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/20">
+      <section ref={popover.setBoundary} className="w-full max-w-[760px] h-full bg-white border-l border-gray-200 shadow-xl flex flex-col">
         <header className="px-5 py-4 border-b border-gray-100 flex items-start justify-between gap-4">
           <div>
             <h2 className="text-base font-semibold text-gray-900">Git changes</h2>
@@ -80,5 +83,6 @@ export function GitDiffPanel() {
         )}
       </section>
     </div>
+    </PopoverScope>
   );
 }

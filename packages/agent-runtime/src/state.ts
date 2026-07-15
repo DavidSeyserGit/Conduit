@@ -15,6 +15,7 @@ export function createInitialGoalState(config: GoalRunConfig): GoalRunState {
     workspacePath: config.workspacePath,
     status: "idle",
     codingModelId: config.codingModelId,
+    codingReasoningEffort: config.codingReasoningEffort,
     judgeModelId: config.judgeModelId,
     iteration: 0,
     maxIterations: config.maxIterations,

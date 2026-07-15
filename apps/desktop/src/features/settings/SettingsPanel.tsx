@@ -6,6 +6,7 @@ import { DEFAULT_GOAL_COLOR, getModeColor } from "@/lib/mode-colors";
 import { ModelPicker } from "@/features/model-picker/ModelPicker";
 import { resolveQualityLanes } from "@/lib/quality-lanes";
 import type { QualityLaneId } from "@loopkit/shared";
+import { PopoverScope, usePopover } from "@/lib/popover";
 
 const COLORS = [
   { name: "Blue", value: "#3b82f6" },
@@ -33,6 +34,7 @@ export function SettingsPanel() {
   const setJudgeModelId = useAppStore((s) => s.setJudgeModelId);
   const setMaxIterations = useAppStore((s) => s.setMaxIterations);
   const [tab, setTab] = useState<SettingsTab>("model");
+  const popover = usePopover({ open: showSettings, onClose: () => setShowSettings(false) });
 
   if (!showSettings) return null;
 
@@ -46,8 +48,9 @@ export function SettingsPanel() {
   const goalColor = settings.goalModeColor ?? DEFAULT_GOAL_COLOR;
 
   return (
+    <PopoverScope popover={popover}>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="w-[min(92vw,560px)] h-[min(680px,calc(100vh-32px))] min-h-0 flex flex-col bg-white rounded-2xl shadow-2xl overflow-hidden">
+      <div ref={popover.setBoundary} className="w-[min(92vw,560px)] h-[min(680px,calc(100vh-32px))] min-h-0 flex flex-col bg-white rounded-2xl shadow-2xl overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
           <div>
             <h2 className="text-base font-semibold text-gray-900">Settings</h2>
@@ -80,6 +83,7 @@ export function SettingsPanel() {
         </div>
       </div>
     </div>
+    </PopoverScope>
   );
 }
 

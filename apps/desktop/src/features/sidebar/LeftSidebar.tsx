@@ -2,11 +2,35 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppStore, type Project } from "@/stores/app-store";
 import { GitHubIssues, type GitHubIssue } from "@/features/github/GitHubIssues";
+import { PopoverScope, usePopover } from "@/lib/popover";
 
 type GitHubRepo = { full_name: string; clone_url: string; description?: string; private: boolean };
 type GitHubTokenResponse = { success: boolean; result?: { token?: string | null }; error?: string };
 const inTauri = () => Boolean((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
 const defaultGitHubClientId = "Ov23liMo1oJoAzSI7573";
+
+function nextGitHubPage(link: string | null): string | null {
+  return link?.match(/<([^>]+)>;\s*rel="next"/)?.[1] ?? null;
+}
+
+async function fetchAllGitHubRepos(accessToken: string): Promise<GitHubRepo[]> {
+  const repos: GitHubRepo[] = [];
+  let url: string | null = "https://api.github.com/user/repos?affiliation=owner,collaborator,organization_member&per_page=100";
+
+  while (url) {
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/vnd.github+json" },
+    });
+    if (!response.ok) throw new Error(`GitHub returned ${response.status}`);
+
+    const page = await response.json() as GitHubRepo[];
+    if (!Array.isArray(page)) throw new Error("GitHub returned an invalid repository list");
+    repos.push(...page);
+    url = nextGitHubPage(response.headers.get("link"));
+  }
+
+  return repos;
+}
 
 export function LeftSidebar() {
   const setShowSettings = useAppStore((s) => s.setShowSettings);
@@ -138,6 +162,7 @@ function AddProject({ onClose, onAdded }: { onClose: () => void; onAdded: (proje
   const [authorizing, setAuthorizing] = useState(false);
   const [verification, setVerification] = useState<{ url: string; code: string } | null>(null);
   const [search, setSearch] = useState("");
+  const popover = usePopover({ open: true, onClose });
 
   useEffect(() => {
     if (!inTauri()) {
@@ -159,9 +184,8 @@ function AddProject({ onClose, onAdded }: { onClose: () => void; onAdded: (proje
 
   const loadRepos = async (accessToken: string) => {
     setToken(accessToken);
-    const response = await fetch("https://api.github.com/user/repos?affiliation=owner,collaborator,organization_member&per_page=100", { headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/vnd.github+json" } });
-    if (!response.ok) throw new Error(`GitHub returned ${response.status}`);
-    setRepos(await response.json()); setLoading(false);
+    setRepos(await fetchAllGitHubRepos(accessToken));
+    setLoading(false);
   };
 
   const authorize = async () => {
@@ -237,8 +261,8 @@ function AddProject({ onClose, onAdded }: { onClose: () => void; onAdded: (proje
     } catch (e) { setError(String(e)); setLoading(false); }
   };
 
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-    <div className="w-[420px] max-h-[80vh] bg-white rounded-xl shadow-xl border border-gray-200 p-4 flex flex-col">
+  return <PopoverScope popover={popover}><div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20">
+    <div ref={popover.setBoundary} className="w-[420px] max-h-[80vh] bg-white rounded-xl shadow-xl border border-gray-200 p-4 flex flex-col">
       <div className="flex items-center justify-between mb-3"><h2 className="font-semibold">Add GitHub repository</h2><button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-xl">×</button></div>
       <p className="text-xs text-gray-500 mb-3">Authorize GitHub to access repositories you own or collaborate on.</p>
       {!token && !loading && <button onClick={authorize} disabled={authorizing} className="w-full mb-3 px-3 py-2 text-sm bg-gray-900 text-white rounded-lg disabled:bg-gray-300">{authorizing ? "Waiting for GitHub…" : "Connect GitHub"}</button>}
@@ -254,5 +278,5 @@ function AddProject({ onClose, onAdded }: { onClose: () => void; onAdded: (proje
       {error && repos.length > 0 && <p className="text-xs text-red-600 mt-2">{error}</p>}
       <div className="flex justify-end gap-2 mt-4"><button onClick={onClose} className="px-3 py-1.5 text-sm text-gray-600">Cancel</button><button onClick={clone} disabled={!selected || loading} className="px-3 py-1.5 text-sm bg-gray-900 text-white rounded-lg disabled:bg-gray-300">Clone repository</button></div>
     </div>
-  </div>;
+  </div></PopoverScope>;
 }

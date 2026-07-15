@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { ChatMode } from "@loopkit/shared";
 import { useAppStore } from "@/stores/app-store";
 import { getModeColor } from "@/lib/mode-colors";
+import { PopoverScope, usePopover } from "@/lib/popover";
 
 export function ChatHeader() {
   const workspacePath = useAppStore((s) => s.workspacePath);
@@ -108,9 +109,11 @@ function ModePicker({
   color: string;
 }) {
   const [open, setOpen] = useState(false);
+  const popover = usePopover({ open, onClose: () => setOpen(false) });
 
   return (
-    <div className="relative shrink-0">
+    <PopoverScope popover={popover}>
+    <div ref={popover.setBoundary} className="relative shrink-0">
       <button
         onClick={() => !disabled && setOpen(!open)}
         disabled={disabled}
@@ -148,5 +151,6 @@ function ModePicker({
         </div>
       )}
     </div>
+    </PopoverScope>
   );
 }

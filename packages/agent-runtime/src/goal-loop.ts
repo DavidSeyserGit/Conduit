@@ -77,7 +77,7 @@ export class GoalLoopRunner {
       return { ...finalState, metrics };
     };
 
-    emit({ type: "run_started", runId: state.id });
+    emit({ type: "run_started", runId: state.id, startedAt: state.startedAt });
 
     const codingProviderInfo = findProviderForModel(
       this.registry,
@@ -108,6 +108,27 @@ export class GoalLoopRunner {
       config.judgeModelId,
       emit
     );
+
+    if (!state.plan) {
+      try {
+        emit({ type: "agent_status", message: "Judge is writing the implementation plan…" });
+        const planning = await judge.createImplementationPlan(state.goal);
+        state.plan = planning.plan;
+        state.tokenUsage = accumulateTokenUsage(state.tokenUsage, planning.tokenUsage);
+        state.judgeTokenUsage = accumulateTokenUsage(state.judgeTokenUsage, planning.tokenUsage);
+        state.judgeCost = updateCost(config.judgeModelId, state.judgeTokenUsage, config.judgeInputPrice, config.judgeOutputPrice);
+        state.estimatedCost = (state.codingCost?.totalCost || 0) + (state.judgeCost?.totalCost || 0);
+        emit({ type: "plan_updated", plan: planning.plan });
+        emit({ type: "agent_status", message: "Judge plan ready; starting implementation…" });
+      } catch (err) {
+        const error = `Judge could not create an implementation plan: ${err instanceof Error ? err.message : String(err)}`;
+        state.status = "failed";
+        state.finishedAt = new Date().toISOString();
+        const finalState = finalizeState(state);
+        emit({ type: "run_failed", error });
+        return { status: "failed", state: finalState, error };
+      }
+    }
 
     while (state.iteration < config.maxIterations) {
       if (this.cancelled) {
@@ -141,9 +162,12 @@ export class GoalLoopRunner {
           inputPrice: config.codingInputPrice,
           outputPrice: config.codingOutputPrice,
           supportsReasoning: config.codingSupportsReasoning,
+          codingReasoningEffort: config.codingReasoningEffort,
         });
 
-        state.plan = agentResult.plan ?? state.plan;
+        // The judge owns the implementation contract. Worker plans may only
+        // supply a fallback for legacy/resumed runs that have no judge plan.
+        state.plan = state.plan ?? agentResult.plan;
         iteration.toolCalls = agentResult.toolCalls;
         iteration.changedFiles = agentResult.changedFiles;
         iteration.validationResults = agentResult.validationResults;
@@ -244,7 +268,7 @@ function applyEventToState(
 ): GoalRunState {
   switch (event.type) {
     case "plan_updated":
-      return { ...state, plan: event.plan };
+      return state.plan ? state : { ...state, plan: event.plan };
     default:
       return state;
   }

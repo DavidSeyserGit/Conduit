@@ -22,6 +22,9 @@ pub fn run() {
             commands::git_clone_repo,
             commands::git_worktree_create,
             commands::git_worktree_remove,
+            commands::git_handoff_status,
+            commands::git_commit_changes,
+            commands::git_push_branch,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

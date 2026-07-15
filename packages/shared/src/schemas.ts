@@ -2,6 +2,13 @@ import { z } from "zod";
 
 // ─── Model Provider ───────────────────────────────────────────────────────────
 
+export const ModelReasoningLevelSchema = z.object({
+  effort: z.string(),
+  description: z.string().optional(),
+});
+
+export type ModelReasoningLevel = z.infer<typeof ModelReasoningLevelSchema>;
+
 export const ModelDescriptorSchema = z.object({
   id: z.string(),
   provider: z.string(),
@@ -10,6 +17,8 @@ export const ModelDescriptorSchema = z.object({
   supportsTools: z.boolean(),
   supportsStructuredOutput: z.boolean(),
   supportsReasoning: z.boolean().optional(),
+  defaultReasoningLevel: z.string().optional(),
+  supportedReasoningLevels: z.array(ModelReasoningLevelSchema).optional(),
   supportsAsk: z.boolean().optional(),
   supportsGoal: z.boolean().optional(),
   supportsJudge: z.boolean().optional(),
@@ -202,6 +211,7 @@ export interface GoalRunState {
   workspacePath: string;
   status: GoalRunStatus;
   codingModelId: string;
+  codingReasoningEffort?: string;
   judgeModelId: string;
   iteration: number;
   maxIterations: number;
@@ -245,6 +255,7 @@ export interface GoalRunConfig {
   goal: string;
   workspacePath: string;
   codingModelId: string;
+  codingReasoningEffort?: string;
   judgeModelId: string;
   maxIterations: number;
   maxCost?: number;
@@ -266,9 +277,18 @@ export interface GoalRunResult {
 // ─── Events ───────────────────────────────────────────────────────────────────
 
 export type GoalRunEvent =
-  | { type: "run_started"; runId: string }
+  | { type: "run_started"; runId: string; startedAt: string }
   | { type: "iteration_started"; iteration: number }
   | { type: "agent_status"; message: string }
+  | {
+      type: "agent_heartbeat";
+      provider: string;
+      at: string;
+      startedAt: string;
+      phase: "planning" | "coding" | "judging" | "validating";
+      source: "process" | "network";
+      detail?: string;
+    }
   | { type: "agent_message"; content: string; messageId: string }
   | { type: "plan_updated"; plan: AgentPlan }
   | { type: "tool_started"; toolCall: StoredToolCall }

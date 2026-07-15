@@ -632,6 +632,73 @@ pub fn git_worktree_remove(repository: String, worktree: String) -> ToolResult {
     }
 }
 
+fn git_command(workspace: &str, args: &[&str]) -> Result<String, String> {
+    let root = PathBuf::from(workspace).canonicalize().map_err(|_| "Workspace does not exist".to_string())?;
+    let output = Command::new("git").arg("-C").arg(root).args(args).output().map_err(|e| e.to_string())?;
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
+fn github_repo_from_remote(remote: &str) -> Option<String> {
+    let remote = remote.trim().trim_end_matches(".git");
+    remote.strip_prefix("https://github.com/")
+        .or_else(|| remote.strip_prefix("http://github.com/"))
+        .or_else(|| remote.strip_prefix("git@github.com:"))
+        .filter(|repo| repo.split('/').count() == 2)
+        .map(String::from)
+}
+
+#[tauri::command]
+pub fn git_handoff_status(workspace: String) -> ToolResult {
+    let branch = match git_command(&workspace, &["rev-parse", "--abbrev-ref", "HEAD"]) { Ok(value) => value, Err(error) => return ToolResult { success: false, result: None, error: Some(error) } };
+    let changed = match git_command(&workspace, &["status", "--porcelain"]) { Ok(value) => !value.is_empty(), Err(error) => return ToolResult { success: false, result: None, error: Some(error) } };
+    let remote = git_command(&workspace, &["remote", "get-url", "origin"]).ok();
+    let base = git_command(&workspace, &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])
+        .ok()
+        .and_then(|value| value.strip_prefix("origin/").map(String::from))
+        .unwrap_or_else(|| "main".to_string());
+    ToolResult { success: true, result: Some(serde_json::json!({ "branch": branch, "changed": changed, "remote": remote, "githubRepo": remote.as_deref().and_then(github_repo_from_remote), "base": base })), error: None }
+}
+
+#[tauri::command]
+pub fn git_commit_changes(workspace: String, message: String) -> ToolResult {
+    let message = message.trim();
+    if message.is_empty() || message.len() > 500 { return ToolResult { success: false, result: None, error: Some("Commit message must be between 1 and 500 characters".to_string()) }; }
+    if let Err(error) = git_command(&workspace, &["add", "-A"]) { return ToolResult { success: false, result: None, error: Some(error) }; }
+    let staged = match git_command(&workspace, &["diff", "--cached", "--quiet"]) { Ok(_) => false, Err(_) => true };
+    if !staged { return ToolResult { success: false, result: None, error: Some("There are no changes to commit".to_string()) }; }
+    match git_command(&workspace, &["commit", "-m", message]) {
+        Ok(_) => ToolResult { success: true, result: Some(serde_json::json!({ "committed": true })), error: None },
+        Err(error) => ToolResult { success: false, result: None, error: Some(error) },
+    }
+}
+
+#[tauri::command]
+pub fn git_push_branch(workspace: String) -> ToolResult {
+    let branch = match git_command(&workspace, &["rev-parse", "--abbrev-ref", "HEAD"]) { Ok(value) => value, Err(error) => return ToolResult { success: false, result: None, error: Some(error) } };
+    let remote = match git_command(&workspace, &["remote", "get-url", "origin"]) { Ok(value) => value, Err(error) => return ToolResult { success: false, result: None, error: Some(error) } };
+    let root = match PathBuf::from(&workspace).canonicalize() { Ok(path) => path, Err(_) => return ToolResult { success: false, result: None, error: Some("Workspace does not exist".to_string()) } };
+    let token = github_entry().and_then(|entry| entry.get_password().map_err(|e| e.to_string())).ok();
+    let askpass = std::env::temp_dir().join(format!("loopkit-git-push-{}", std::process::id()));
+    if let Some(token) = token.as_ref() {
+        let _ = std::fs::write(&askpass, "#!/bin/sh\ncase \"$1\" in *Username*) echo x-access-token;; *) echo \"$LOOPKIT_GITHUB_TOKEN\";; esac\n");
+        #[cfg(unix)] { use std::os::unix::fs::PermissionsExt; let _ = fs::set_permissions(&askpass, fs::Permissions::from_mode(0o700)); }
+        let output = Command::new("git").args(["-C", &root.to_string_lossy(), "push", "-u", "origin", &branch]).env("GIT_ASKPASS", &askpass).env("GIT_TERMINAL_PROMPT", "0").env("LOOPKIT_GITHUB_TOKEN", token).output();
+        let _ = fs::remove_file(&askpass);
+        match output {
+            Ok(out) if out.status.success() => {},
+            Ok(out) => return ToolResult { success: false, result: None, error: Some(String::from_utf8_lossy(&out.stderr).trim().to_string()) },
+            Err(error) => return ToolResult { success: false, result: None, error: Some(error.to_string()) },
+        }
+    } else if let Err(error) = git_command(&workspace, &["push", "-u", "origin", &branch]) { return ToolResult { success: false, result: None, error: Some(error) }; }
+    let base = git_command(&workspace, &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]).ok().and_then(|value| value.strip_prefix("origin/").map(String::from)).unwrap_or_else(|| "main".to_string());
+    let pull_request_url = github_repo_from_remote(&remote).map(|repo| format!("https://github.com/{repo}/compare/{base}...{branch}?expand=1"));
+    ToolResult { success: true, result: Some(serde_json::json!({ "branch": branch, "pullRequestUrl": pull_request_url })), error: None }
+}
+
 #[tauri::command]
 pub fn tool_execute(
     workspace: String,

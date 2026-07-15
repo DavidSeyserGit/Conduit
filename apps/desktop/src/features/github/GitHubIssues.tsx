@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Project } from "@/stores/app-store";
+import { PopoverScope, usePopover } from "@/lib/popover";
 
 export interface GitHubIssue {
   number: number;
@@ -24,6 +25,7 @@ export function GitHubIssues({ project, onClose, onUseAsGoal }: Props) {
   const [issues, setIssues] = useState<GitHubIssue[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const popover = usePopover({ open: true, onClose });
 
   useEffect(() => {
     let active = true;
@@ -62,8 +64,9 @@ export function GitHubIssues({ project, onClose, onUseAsGoal }: Props) {
   }, [project.remote]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div className="w-[520px] max-h-[80vh] bg-white rounded-xl shadow-xl border border-gray-200 p-4 flex flex-col">
+    <PopoverScope popover={popover}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20">
+      <div ref={popover.setBoundary} className="w-[520px] max-h-[80vh] bg-white rounded-xl shadow-xl border border-gray-200 p-4 flex flex-col">
         <div className="flex items-center justify-between mb-3">
           <div>
             <h2 className="font-semibold text-gray-900">GitHub issues</h2>
@@ -91,5 +94,6 @@ export function GitHubIssues({ project, onClose, onUseAsGoal }: Props) {
         <div className="flex justify-end mt-4"><button onClick={onClose} className="px-3 py-1.5 text-sm text-gray-600">Close</button></div>
       </div>
     </div>
+    </PopoverScope>
   );
 }
