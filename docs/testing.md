@@ -18,8 +18,8 @@ Run the complete local gate with:
 pnpm verify
 ```
 
-The same command runs in `.github/workflows/verify.yml` for every branch push and
-pull request. A second CI job builds a real Debian Tauri installer, covering the
+The same command runs in `.github/workflows/verify.yml` for every pull request and
+push to `main`. A second CI job builds a real Debian Tauri installer, covering the
 Rust backend and native packaging path before a release tag is accepted.
 Authenticated Codex/Kilo smoke tests remain the local gate below because they
 depend on locally logged-in CLIs.

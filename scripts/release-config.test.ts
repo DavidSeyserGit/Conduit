@@ -33,11 +33,11 @@ test("all application version sources stay aligned", async () => {
   assert.match(mismatch.stderr, /does not match release tag v99\.99\.99/);
 });
 
-test("CI is reusable without running a duplicate tag workflow", async () => {
+test("CI is reusable without duplicate feature-branch or tag workflows", async () => {
   const workflow = await readFile(".github/workflows/verify.yml", "utf8");
 
   assert.match(workflow, /workflow_call:/);
-  assert.match(workflow, /push:\n\s+branches:/);
+  assert.match(workflow, /push:\n\s+branches:\n\s+- main/);
   assert.doesNotMatch(workflow, /push:\n\s+tags:/);
   assert.match(workflow, /run: pnpm verify/);
   assert.match(workflow, /tauri build --ci --bundles deb -- --locked/);

@@ -2,16 +2,17 @@
 
 ## Continuous Integration
 
-`.github/workflows/verify.yml` runs for every branch push and pull request and is
-also reused by the release workflow. It installs from the lockfile and runs:
+`.github/workflows/verify.yml` runs for every pull request and push to `main` and
+is also reused by the release workflow. It installs from the lockfile and runs:
 
 ```bash
 pnpm verify
 ```
 
 In parallel, CI compiles the Rust backend and builds a real Debian installer.
-Both gates must pass before any release build begins. Tag pushes do not start a
-second standalone CI run; the release workflow calls the same CI workflow once.
+Both gates must pass before any release build begins. Feature branches run once
+through their pull request, and tag pushes do not start a second standalone CI
+run; the release workflow calls the same CI workflow once.
 
 ## Continuous Delivery
 
