@@ -3,7 +3,6 @@ import type { CSSProperties } from "react";
 import { useAppStore } from "@/stores/app-store";
 import { ModelSelectors } from "@/features/model-picker/ModelPicker";
 import { getModeColor } from "@/lib/mode-colors";
-import { RunRail } from "@/features/goal-run/RunRail";
 import { GoalModelSetup } from "@/features/goal-run/QualityLanes";
 
 export function ChatInput() {
@@ -20,9 +19,6 @@ export function ChatInput() {
   const setGoalDraft = useAppStore((s) => s.setGoalDraft);
   const cancelRun = useAppStore((s) => s.cancelRun);
   const pendingApproval = useAppStore((s) => s.pendingApproval);
-  const runEvents = useAppStore((s) => s.runEvents);
-  const currentRun = useAppStore((s) => s.currentRun);
-  const maxIterations = useAppStore((s) => s.maxIterations);
   const approveCommand = useAppStore((s) => s.approveCommand);
   const rejectCommand = useAppStore((s) => s.rejectCommand);
   const settings = useAppStore((s) => s.settings);
@@ -84,7 +80,6 @@ export function ChatInput() {
       )}
 
       <div className="max-w-5xl mx-auto">
-        <RunRail events={runEvents} currentRun={currentRun} maxIterations={maxIterations} isRunning={isRunning} />
         <div className="flex items-center justify-end gap-1.5 mb-2">
           {mode === "goal" && !isRunning ? <GoalModelSetup /> : <ModelSelectors compact />}
         </div>

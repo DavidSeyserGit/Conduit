@@ -6,13 +6,15 @@ import type {
   AgentPlan,
   TokenUsage,
 } from "@loopkit/shared";
-import { JudgeResultSchema } from "@loopkit/shared";
+import { AgentPlanSchema, JudgeResultSchema } from "@loopkit/shared";
 import type { ModelProvider } from "@loopkit/model-providers";
 import type { ToolCallResult } from "@loopkit/tools";
 import {
   JUDGE_SYSTEM_PROMPT,
+  JUDGE_PLANNING_SYSTEM_PROMPT,
   buildJudgePrompt,
   JUDGE_OUTPUT_SCHEMA,
+  JUDGE_PLAN_OUTPUT_SCHEMA,
 } from "./prompts.js";
 
 export interface JudgeContext {
@@ -28,6 +30,11 @@ export interface JudgeContext {
 
 export interface JudgeReviewResult {
   result: JudgeResult;
+  tokenUsage?: TokenUsage;
+}
+
+export interface JudgePlanResult {
+  plan: AgentPlan;
   tokenUsage?: TokenUsage;
 }
 
@@ -65,7 +72,7 @@ export class Judge {
     let tokenUsage: TokenUsage | undefined;
 
     try {
-      const response = await this.provider.createResponse({
+      const response = await this.createResponseWithLiveness({
         modelId: this.modelId,
         messages,
         structuredOutput: {
@@ -74,7 +81,7 @@ export class Judge {
         },
         temperature: 0.1,
         maxTokens: 4096,
-      });
+      }, "judging");
 
       tokenUsage = response.usage;
 
@@ -95,7 +102,7 @@ export class Judge {
           },
         ];
 
-        const retryResponse = await this.provider.createResponse({
+        const retryResponse = await this.createResponseWithLiveness({
           modelId: this.modelId,
           messages: repairMessages,
           structuredOutput: {
@@ -104,7 +111,7 @@ export class Judge {
           },
           temperature: 0.1,
           maxTokens: 4096,
-        });
+        }, "judging");
 
         tokenUsage = addUsage(tokenUsage, retryResponse.usage);
 
@@ -126,6 +133,45 @@ export class Judge {
 
     this.emit({ type: "judge_completed", result });
     return { result, tokenUsage };
+  }
+
+  async createImplementationPlan(goal: string): Promise<JudgePlanResult> {
+    const response = await this.createResponseWithLiveness({
+      modelId: this.modelId,
+      messages: [
+        { role: "system", content: JUDGE_PLANNING_SYSTEM_PROMPT },
+        { role: "user", content: `## Goal\n${goal}\n\nWrite the implementation plan now.` },
+      ],
+      structuredOutput: { name: "implementation_plan", schema: JUDGE_PLAN_OUTPUT_SCHEMA },
+      temperature: 0.1,
+      maxTokens: 2048,
+    }, "planning");
+    const raw = response.structuredOutput ?? response.content;
+    const parsed = typeof raw === "string" ? JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] || raw) : raw;
+    return { plan: AgentPlanSchema.parse(parsed), tokenUsage: response.usage };
+  }
+
+  private async createResponseWithLiveness(
+    request: Parameters<ModelProvider["createResponse"]>[0],
+    phase: "planning" | "judging",
+  ) {
+    const startedAt = new Date().toISOString();
+    const emitHeartbeat = () => this.emit({
+      type: "agent_heartbeat",
+      provider: this.provider.name,
+      at: new Date().toISOString(),
+      startedAt,
+      phase,
+      source: "network",
+      detail: phase === "planning" ? "Judge plan request remains open" : "Judge request remains open",
+    });
+    emitHeartbeat();
+    const timer = setInterval(emitHeartbeat, 10_000);
+    try {
+      return await this.provider.createResponse(request);
+    } finally {
+      clearInterval(timer);
+    }
   }
 
   private parseJudgeResponse(raw: unknown): JudgeResult {

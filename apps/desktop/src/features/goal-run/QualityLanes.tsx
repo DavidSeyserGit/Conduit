@@ -3,6 +3,7 @@ import type { ModelDescriptor } from "@loopkit/shared";
 import { useAppStore } from "@/stores/app-store";
 import { ModelPicker } from "@/features/model-picker/ModelPicker";
 import { resolveQualityLanes } from "@/lib/quality-lanes";
+import { PopoverScope, usePopover } from "@/lib/popover";
 
 export function GoalModelSetup() {
   const models = useAppStore((state) => state.models);
@@ -14,6 +15,7 @@ export function GoalModelSetup() {
   const setMaxIterations = useAppStore((state) => state.setMaxIterations);
   const settings = useAppStore((state) => state.settings);
   const [open, setOpen] = useState(false);
+  const popover = usePopover({ open, onClose: () => setOpen(false) });
 
   const lanes = useMemo(
     () => resolveQualityLanes(models, settings.qualityLaneDefaults, settings.defaultCodingModelId, settings.defaultJudgeModelId),
@@ -27,7 +29,8 @@ export function GoalModelSetup() {
   if (!lanes.length) return null;
 
   return (
-    <div className="relative">
+    <PopoverScope popover={popover}>
+    <div ref={popover.setBoundary} className="relative">
       <button
         onClick={() => setOpen((value) => !value)}
         className="flex items-center gap-2 max-w-[430px] px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-full transition-colors font-medium"
@@ -74,6 +77,7 @@ export function GoalModelSetup() {
         </div>
       )}
     </div>
+    </PopoverScope>
   );
 }
 

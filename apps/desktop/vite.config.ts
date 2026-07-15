@@ -15,6 +15,10 @@ const execFileAsync = promisify(execFile);
 const workspaceRoot = process.env.LOOPKIT_WORKSPACE_ROOT || path.resolve(process.cwd(), "workspaces");
 const AGENT_TIMEOUT_MS = 20 * 60 * 1000;
 
+function nextGitHubPage(link: string | null): string | null {
+  return link?.match(/<([^>]+)>;\s*rel="next"/)?.[1] ?? null;
+}
+
 async function readJson(req: any) {
   let body = "";
   for await (const chunk of req) body += chunk;
@@ -35,8 +39,15 @@ function createAgentStream(res: any) {
     }
   };
   const status = (message: string) => send({ event: { type: "agent_status", message } });
-  const heartbeat = (message: string) => {
-    const timer = setInterval(() => status(message), 30_000);
+  const heartbeat = (
+    provider: string,
+    source: "process" | "network",
+    detail: string,
+  ) => {
+    const startedAt = new Date().toISOString();
+    const sendHeartbeat = () => send({ event: { type: "agent_heartbeat", provider, at: new Date().toISOString(), startedAt, phase: "coding", source, detail } });
+    sendHeartbeat();
+    const timer = setInterval(sendHeartbeat, 10_000);
     return () => clearInterval(timer);
   };
   return { send, status, heartbeat };
@@ -261,7 +272,7 @@ function githubApi() {
           let cleanupRequest = () => {};
           let activeSession: any;
           try {
-            const { workspace, goal, modelId, apiKey, previousPlan, judgeFeedback, iteration, maxIterations, inputPrice, outputPrice, supportsReasoning } = await readJson(req);
+            const { workspace, goal, modelId, apiKey, previousPlan, judgeFeedback, iteration, maxIterations, inputPrice, outputPrice, supportsReasoning, codingReasoningEffort } = await readJson(req);
             const root = path.resolve(workspace);
             const isClone = root.startsWith(`${path.resolve(workspaceRoot)}${path.sep}`);
             const isGitRepo = await fs.stat(path.join(root, ".git")).then(() => true).catch(() => false);
@@ -272,7 +283,7 @@ function githubApi() {
               cleanupRequest = lifecycle.cleanup;
               const stream = createAgentStream(res);
               stream.status("Initializing Kilo agent…");
-              const stopHeartbeat = stream.heartbeat("Kilo is still working…");
+              const stopHeartbeat = stream.heartbeat("Kilo", "process", "Kilo process confirmed alive");
               const kiloModel = String(modelId).replace(/^kilo\/(?=kilo\/)/, "");
               try {
                 stream.status(`Starting Kilo ${kiloModel}…`);
@@ -304,9 +315,12 @@ function githubApi() {
               let stopHeartbeat = () => {};
               try {
                 const codexModel = String(modelId).replace(/^codex\//, "");
+                const reasoningArgs = typeof codingReasoningEffort === "string" && codingReasoningEffort
+                  ? ["-c", `model_reasoning_effort=${JSON.stringify(codingReasoningEffort)}`]
+                  : [];
                 stream.status(`Starting Codex ${codexModel}…`);
-                stopHeartbeat = stream.heartbeat("Codex is still working…");
-                await execFileAsync("codex", ["exec", "--json", "--ephemeral", "--skip-git-repo-check", "-C", root, "-m", codexModel, "--dangerously-bypass-approvals-and-sandbox", "-o", outputFile, prompt], { cwd: root, maxBuffer: 20 * 1024 * 1024, timeout: AGENT_TIMEOUT_MS, signal: lifecycle.signal });
+                stopHeartbeat = stream.heartbeat("Codex", "process", "Codex process confirmed alive");
+                await execFileAsync("codex", ["exec", ...reasoningArgs, "--json", "--ephemeral", "--skip-git-repo-check", "-C", root, "-m", codexModel, "--dangerously-bypass-approvals-and-sandbox", "-o", outputFile, prompt], { cwd: root, maxBuffer: 20 * 1024 * 1024, timeout: AGENT_TIMEOUT_MS, signal: lifecycle.signal });
                 stream.status("Codex finished; collecting changes…");
                 const summary = await fs.readFile(outputFile, "utf8").catch(() => "");
                 const diff = await execFileAsync("git", ["diff", "--name-only"], { cwd: root });
@@ -375,7 +389,7 @@ function githubApi() {
               }
             });
             status(judgeFeedback?.length ? "Applying judge feedback and revisiting the repository…" : "Pi is working through the repository…");
-            const stopHeartbeat = stream.heartbeat("Pi is still working…");
+            const stopHeartbeat = stream.heartbeat("OpenRouter", "network", "Coding request remains open");
             try {
               const prompt = `Work directly on this repository and complete the goal using your tools.\n\nGoal: ${goal}\nIteration: ${iteration} of ${maxIterations}\n${previousPlan ? `Previous plan:\n${JSON.stringify(previousPlan)}` : ""}\n${judgeFeedback?.length ? `Judge feedback:\n${judgeFeedback.join("\n")}` : ""}\nAt the end, briefly summarize verified work completed.`;
               let completed = false;
@@ -444,9 +458,23 @@ function githubApi() {
 
         if (req.url === "/api/github/repos" && req.method === "GET") {
           if (!session.token) { res.statusCode = 401; return res.end(JSON.stringify({ error: "Not authorized" })); }
-          const response = await fetch("https://api.github.com/user/repos?affiliation=owner,collaborator,organization_member&per_page=100", { headers: { Authorization: `Bearer ${session.token}`, Accept: "application/vnd.github+json" } });
-          res.statusCode = response.status;
-          return res.end(await response.text());
+          const repos: unknown[] = [];
+          let url: string | null = "https://api.github.com/user/repos?affiliation=owner,collaborator,organization_member&per_page=100";
+          while (url) {
+            const response = await fetch(url, { headers: { Authorization: `Bearer ${session.token}`, Accept: "application/vnd.github+json" } });
+            if (!response.ok) {
+              res.statusCode = response.status;
+              return res.end(await response.text());
+            }
+            const page = await response.json();
+            if (!Array.isArray(page)) {
+              res.statusCode = 502;
+              return res.end(JSON.stringify({ error: "GitHub returned an invalid repository list" }));
+            }
+            repos.push(...page);
+            url = nextGitHubPage(response.headers.get("link"));
+          }
+          return res.end(JSON.stringify(repos));
         }
 
         if (req.url?.startsWith("/api/github/issues") && req.method === "GET") {

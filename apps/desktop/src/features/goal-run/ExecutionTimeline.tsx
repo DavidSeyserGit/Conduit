@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import type { CSSProperties } from "react";
 import type { GoalRunEvent, GoalRunState } from "@loopkit/shared";
 import { downloadRunAsJSON } from "@loopkit/agent-runtime";
 import ReactMarkdown from "react-markdown";
 import { useAppStore } from "@/stores/app-store";
 import { getModeColor } from "@/lib/mode-colors";
+import { GoalCanvasOverlay } from "@/features/goal-run/GoalCanvasOverlay";
+import { formatToolCall } from "@/features/goal-run/tool-call-display";
+import { GitHandoff } from "@/features/git/GitHandoff";
 
 export function ChatTimeline() {
   const messages = useAppStore((s) => s.messages);
@@ -34,7 +36,12 @@ export function ChatTimeline() {
   }
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto px-6 py-6">
+    <div className="relative flex-1 min-h-0 overflow-y-auto px-6 py-6">
+      <div className="sticky top-1/2 z-20 h-0 -translate-y-1/2 pointer-events-none">
+        <div className="flex w-full justify-end pr-10">
+          <GoalCanvasOverlay />
+        </div>
+      </div>
       <div className="max-w-6xl mx-auto space-y-6">
         {messages.map((msg) => (
           <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
@@ -54,9 +61,10 @@ export function ChatTimeline() {
 
         {runEvents.map((event, i) => {
           if (event.type === "agent_status") {
+            if (/^(Kilo|Codex|Pi) (started|finished) a step|^(Kilo|Codex|Pi) is still working/i.test(event.message)) return null;
             return (
               <div key={`status-${i}`} className="flex justify-start">
-                <div className="agent-status text-xs px-1" style={{ "--status-color": modeStatusColor } as CSSProperties}>{event.message}</div>
+                <div className="text-xs px-1 text-gray-400">{event.message}</div>
               </div>
             );
           }
@@ -107,13 +115,20 @@ export function ChatTimeline() {
           if (event.type === "tool_started" || event.type === "tool_completed") {
             const tool = event.toolCall;
             const completed = event.type === "tool_completed";
+            const display = formatToolCall(tool, completed);
             return (
               <div key={`tool-${i}`} className="flex justify-start">
                 <div className="text-xs text-gray-500 px-1">
                   <span className={completed && tool.status === "failed" ? "text-red-500" : "text-emerald-500"}>
                     {completed ? (tool.status === "failed" ? "✗" : "✓") : "⋯"}
                   </span>{" "}
-                  {completed ? "Finished" : "Running"} <code className="font-mono">{tool.name}</code>
+                  <span style={{ color: completed && tool.status === "failed" ? undefined : modeStatusColor }}>
+                    {completed
+                      ? tool.status === "failed" ? "Could not complete" : "Finished"
+                      : `${display.name.charAt(0).toUpperCase()}${display.name.slice(1)}`}
+                    {completed ? ` ${display.name}` : null}
+                  </span>
+                  {display.detail ? <span className="text-gray-400"> {display.detail}</span> : null}
                 </div>
               </div>
             );
@@ -239,6 +254,7 @@ function RunSummary({
       )}
 
       <ProofOfWorkCard run={run} models={models} elapsed={elapsed} />
+      <GitHandoff workspacePath={run.workspacePath} goal={run.goal} />
     </div>
   );
 }

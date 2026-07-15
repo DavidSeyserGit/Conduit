@@ -88,9 +88,11 @@ interface AppState {
 
   // Model selection
   codingModelId: string;
+  codexReasoningEfforts: Record<string, string>;
   judgeModelId: string;
   maxIterations: number;
   setCodingModelId: (id: string) => void;
+  setCodexReasoningEffort: (modelId: string, effort: string) => void;
   setJudgeModelId: (id: string) => void;
   setMaxIterations: (n: number) => void;
 
@@ -189,6 +191,15 @@ function estimateModelCost(usage: TokenUsage | undefined, model: ModelDescriptor
     + (usage.completionTokens / 1_000_000) * (model.outputPrice || 0)
     + ((usage.cacheReadTokens || 0) / 1_000_000) * (model.inputPrice || 0)
     + ((usage.cacheWriteTokens || 0) / 1_000_000) * (model.inputPrice || 0);
+}
+
+function resolveCodexReasoningEffort(model: ModelDescriptor | undefined, configuredEfforts: Record<string, string>): string | undefined {
+  if (!model || model.provider !== "codex") return undefined;
+  const levels = model.supportedReasoningLevels ?? [];
+  const configured = configuredEfforts[model.id];
+  if (configured && levels.some((level) => level.effort === configured)) return configured;
+  if (model.defaultReasoningLevel && levels.some((level) => level.effort === model.defaultReasoningLevel)) return model.defaultReasoningLevel;
+  return levels[0]?.effort;
 }
 
 function snapshotSession(state: AppState): ChatSession {
@@ -402,7 +413,10 @@ export const useAppStore = create<AppState>()(
       modelsLoading: false,
       loadModels: async () => {
         const state = get();
-        const needsCapabilityRefresh = state.models.some((model) => model.provider === "openrouter" && !("supportsReasoning" in model));
+        const needsCapabilityRefresh = state.models.some((model) =>
+          (model.provider === "openrouter" && !("supportsReasoning" in model))
+          || (model.provider === "codex" && !("supportedReasoningLevels" in model))
+        );
         if (!needsCapabilityRefresh && state.models.length > 0 && state.modelsCachedAt && Date.now() - state.modelsCachedAt < MODEL_CACHE_TTL_MS) return;
         await get().refreshModels();
       },
@@ -504,9 +518,13 @@ export const useAppStore = create<AppState>()(
       setGoalDraft: (draft) => set({ goalDraft: draft }),
 
       codingModelId: "",
+      codexReasoningEfforts: {},
       judgeModelId: "",
       maxIterations: 3,
       setCodingModelId: (id) => set({ codingModelId: id }),
+      setCodexReasoningEffort: (modelId, effort) => set((state) => ({
+        codexReasoningEfforts: { ...state.codexReasoningEfforts, [modelId]: effort },
+      })),
       setJudgeModelId: (id) => set({ judgeModelId: id }),
       setMaxIterations: (n) => set({ maxIterations: Math.min(10, Math.max(1, n)) }),
 
@@ -632,6 +650,8 @@ export const useAppStore = create<AppState>()(
         const judgeModelId = resumeState?.judgeModelId || state.judgeModelId;
         const codingModel = state.models.find((model) => model.id === codingModelId);
         const judgeModel = state.models.find((model) => model.id === judgeModelId);
+        const codingReasoningEffort = resumeState?.codingReasoningEffort
+          ?? resolveCodexReasoningEffort(codingModel, state.codexReasoningEfforts);
         if (!workspacePath || !codingModelId || !judgeModelId) return;
 
         if (!resumeState) {
@@ -664,6 +684,7 @@ export const useAppStore = create<AppState>()(
               goal,
               workspacePath,
               codingModelId,
+              codingReasoningEffort,
               judgeModelId,
               maxIterations: resumeState?.maxIterations || state.maxIterations,
               modelApiKey: state.settings.openRouterApiKey,
@@ -781,6 +802,7 @@ export const useAppStore = create<AppState>()(
         models: state.models,
         modelsCachedAt: state.modelsCachedAt,
         codingModelId: state.codingModelId,
+        codexReasoningEfforts: state.codexReasoningEfforts,
         judgeModelId: state.judgeModelId,
         maxIterations: state.maxIterations,
         mode: state.mode,

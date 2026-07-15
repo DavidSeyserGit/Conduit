@@ -42,6 +42,7 @@ export interface CodingAgentConfig {
   inputPrice?: number;
   outputPrice?: number;
   supportsReasoning?: boolean;
+  codingReasoningEffort?: string;
 }
 
 export interface CodingAgentResult {
@@ -83,6 +84,7 @@ export class CodingAgent {
             inputPrice: config.inputPrice,
             outputPrice: config.outputPrice,
             supportsReasoning: config.supportsReasoning,
+            codingReasoningEffort: config.codingReasoningEffort,
           }),
           signal: controller.signal,
         });
