@@ -638,6 +638,15 @@ fn run_process_with_options(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    // Packaged builds inherit a minimal PATH (launchd on macOS), so script
+    // CLIs with `#!/usr/bin/env node` shebangs cannot find their runtime.
+    let mut child_path: Vec<PathBuf> = env::var_os("PATH")
+        .map(|path| env::split_paths(&path).collect())
+        .unwrap_or_default();
+    child_path.extend(extra_executable_dirs());
+    if let Ok(child_path) = env::join_paths(child_path) {
+        command.env("PATH", child_path);
+    }
     if let Some(environment) = environment {
         command.envs(environment);
     }
@@ -789,14 +798,8 @@ fn terminate_process_tree(child: &mut Child) {
     let _ = child.wait();
 }
 
-fn resolve_executable(program: &str) -> Result<PathBuf, String> {
-    let candidate = Path::new(program);
-    if candidate.components().count() > 1 && candidate.is_file() {
-        return Ok(candidate.to_path_buf());
-    }
-    let mut directories: Vec<PathBuf> = env::var_os("PATH")
-        .map(|path| env::split_paths(&path).collect())
-        .unwrap_or_default();
+fn extra_executable_dirs() -> Vec<PathBuf> {
+    let mut directories = Vec::new();
     if let Some(home) = dirs::home_dir() {
         directories.extend([
             home.join(".local/bin"),
@@ -808,6 +811,18 @@ fn resolve_executable(program: &str) -> Result<PathBuf, String> {
         PathBuf::from("/opt/homebrew/bin"),
         PathBuf::from("/usr/local/bin"),
     ]);
+    directories
+}
+
+fn resolve_executable(program: &str) -> Result<PathBuf, String> {
+    let candidate = Path::new(program);
+    if candidate.components().count() > 1 && candidate.is_file() {
+        return Ok(candidate.to_path_buf());
+    }
+    let mut directories: Vec<PathBuf> = env::var_os("PATH")
+        .map(|path| env::split_paths(&path).collect())
+        .unwrap_or_default();
+    directories.extend(extra_executable_dirs());
     for directory in directories {
         let path = directory.join(program);
         if path.is_file() {

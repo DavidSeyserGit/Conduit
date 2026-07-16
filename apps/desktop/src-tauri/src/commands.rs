@@ -765,46 +765,78 @@ pub fn openrouter_get_key() -> ToolResult {
                 result: Some(serde_json::json!({ "key": key })),
                 error: None,
             },
-            Err(keyring::Error::NoEntry) => ToolResult {
+            Err(keyring::Error::NoEntry) => {
+                if let Some(key) = read_fallback_token("openrouter-api-key") {
+                    let _ = openrouter_entry().and_then(|e| e.set_password(&key).map_err(|er| er.to_string()));
+                    return ToolResult {
+                        success: true,
+                        result: Some(serde_json::json!({ "key": key })),
+                        error: None,
+                    };
+                }
+                ToolResult {
+                    success: true,
+                    result: Some(serde_json::json!({ "key": null })),
+                    error: None,
+                }
+            },
+            Err(_) => {
+                if let Some(key) = read_fallback_token("openrouter-api-key") {
+                    return ToolResult {
+                        success: true,
+                        result: Some(serde_json::json!({ "key": key })),
+                        error: None,
+                    };
+                }
+                ToolResult {
+                    success: true,
+                    result: Some(serde_json::json!({ "key": null })),
+                    error: None,
+                }
+            }
+        },
+        Err(_) => {
+            if let Some(key) = read_fallback_token("openrouter-api-key") {
+                return ToolResult {
+                    success: true,
+                    result: Some(serde_json::json!({ "key": key })),
+                    error: None,
+                };
+            }
+            ToolResult {
                 success: true,
                 result: Some(serde_json::json!({ "key": null })),
                 error: None,
-            },
-            Err(error) => ToolResult {
-                success: false,
-                result: None,
-                error: Some(error.to_string()),
-            },
-        },
-        Err(error) => ToolResult {
-            success: false,
-            result: None,
-            error: Some(error),
+            }
         },
     }
 }
 
 #[tauri::command]
 pub fn openrouter_store_key(key: String) -> ToolResult {
-    let result = if key.trim().is_empty() {
-        openrouter_entry()
-            .and_then(|entry| entry.delete_credential().map_err(|error| error.to_string()))
-    } else {
-        openrouter_entry()
-            .and_then(|entry| entry.set_password(&key).map_err(|error| error.to_string()))
-    };
-    match result {
-        Ok(()) => ToolResult {
-            success: true,
-            result: None,
-            error: None,
-        },
-        Err(error) => ToolResult {
+    let key = key.trim().to_string();
+    if key.is_empty() {
+        if let Ok(entry) = openrouter_entry() {
+            let _ = entry.delete_credential();
+        }
+        let _ = std::fs::remove_file(keychain_fallback_path("openrouter-api-key"));
+        return ToolResult { success: true, result: None, error: None };
+    }
+    let file_result = write_fallback_token("openrouter-api-key", &key);
+    let keychain_result =
+        openrouter_entry().and_then(|entry| entry.set_password(&key).map_err(|e| e.to_string()));
+    if keychain_result.is_err() && file_result.is_err() {
+        return ToolResult {
             success: false,
             result: None,
-            error: Some(error),
-        },
+            error: Some(format!(
+                "could not store key (keychain: {}; file: {})",
+                keychain_result.unwrap_err(),
+                file_result.unwrap_err()
+            )),
+        };
     }
+    ToolResult { success: true, result: None, error: None }
 }
 
 #[tauri::command]
