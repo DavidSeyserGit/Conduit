@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppStore, type Project } from "@/stores/app-store";
 import { GitHubIssues, type GitHubIssue } from "@/features/github/GitHubIssues";
@@ -44,6 +44,8 @@ export function LeftSidebar() {
   const openSession = useAppStore((s) => s.openSession);
   const newChat = useAppStore((s) => s.newChat);
   const deleteChat = useAppStore((s) => s.deleteChat);
+  const renameChat = useAppStore((s) => s.renameChat);
+  const toggleChatPin = useAppStore((s) => s.toggleChatPin);
   const setMode = useAppStore((s) => s.setMode);
   const setGoalDraft = useAppStore((s) => s.setGoalDraft);
   const runHistory = useAppStore((s) => s.runHistory);
@@ -52,6 +54,9 @@ export function LeftSidebar() {
   const [showAdd, setShowAdd] = useState(false);
   const [issuesProject, setIssuesProject] = useState<Project | null>(null);
   const [collapsed, setCollapsed] = useState(false);
+  const [sessionQuery, setSessionQuery] = useState("");
+  const normalizedQuery = sessionQuery.trim().toLowerCase();
+  const filteredProjects = useMemo(() => projects.filter((project) => !normalizedQuery || project.name.toLowerCase().includes(normalizedQuery) || (sessions[project.path] || []).some((session) => session.title.toLowerCase().includes(normalizedQuery))), [normalizedQuery, projects, sessions]);
 
   const useIssueAsGoal = (issue: GitHubIssue) => {
     setMode("goal");
@@ -82,12 +87,21 @@ export function LeftSidebar() {
       </div>
 
       <nav className="flex-1 px-2 py-1 space-y-0.5 overflow-y-auto">
+        {!collapsed && <div className="px-2 pt-2 pb-1">
+          <label className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-gray-50 border border-gray-100">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-400 shrink-0"><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></svg>
+            <input value={sessionQuery} onChange={(event) => setSessionQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent text-xs text-gray-900 placeholder-gray-400 outline-none" placeholder="Search chats" aria-label="Search chats" />
+          </label>
+        </div>}
         <div className={`flex items-center justify-between px-3 pt-5 pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400 ${collapsed ? "hidden" : ""}`}>
           <span>Projects</span>
           <button onClick={() => setShowAdd(true)} className="p-1 rounded hover:bg-gray-100 text-gray-500" title="Add GitHub repository" aria-label="Add GitHub repository">+</button>
         </div>
-        {projects.map((project) => (
-          <div key={project.path} className={collapsed ? "hidden" : ""}>
+        {filteredProjects.map((project) => {
+          const projectSessions = [...(sessions[project.path] || [])]
+            .filter((session) => !normalizedQuery || session.title.toLowerCase().includes(normalizedQuery))
+            .sort((a, b) => Number(b.pinned) - Number(a.pinned) || (b.updatedAt || "").localeCompare(a.updatedAt || ""));
+          return <div key={project.path} className={collapsed ? "hidden" : ""}>
             <div className={`group w-full flex items-center gap-1 rounded-lg text-sm ${activeProjectPath === project.path ? "bg-gray-100" : "hover:bg-gray-50"}`}>
             <button onClick={() => setWorkspacePath(project.path)} className="min-w-0 flex-1 flex items-center gap-2 px-3 py-1.5 text-left truncate text-gray-600" title={project.path}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="text-gray-400 shrink-0"><path d="M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6Z" /></svg>
@@ -100,10 +114,14 @@ export function LeftSidebar() {
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M9 12h6M9 16h4M7 3h10a2 2 0 0 1 2 2v14l-4-3-4 3-4-3-4 3V5a2 2 0 0 1 2-2h2Z" /></svg>
             </button>}
             </div>
-            {activeProjectPath === project.path && sessions[project.path]?.map((session) => (
+            {(activeProjectPath === project.path || Boolean(normalizedQuery)) && projectSessions.map((session) => (
               <div key={session.id} className={`group/session w-full flex items-center gap-1 pl-8 pr-1 py-1 text-xs ${activeSessionId === session.id ? "text-gray-900 font-medium" : "text-gray-500"}`}>
                 <button onClick={() => openSession(project.path, session.id)} className="min-w-0 flex-1 flex items-center gap-2 text-left truncate hover:text-gray-800" title={session.title}>
-                  <span className="text-gray-300">›</span><span className="truncate">{session.title}</span>
+                  <span className={session.pinned ? "text-amber-500" : "text-gray-300"}>{session.pinned ? "★" : "›"}</span><span className="truncate">{session.title}</span>
+                </button>
+                <button onClick={() => toggleChatPin(project.path, session.id)} className={`p-1 rounded ${session.pinned ? "text-amber-500" : "text-gray-300 hover:text-amber-500 opacity-0 group-hover/session:opacity-100"}`} title={session.pinned ? "Unpin chat" : "Pin chat"} aria-label={session.pinned ? `Unpin ${session.title}` : `Pin ${session.title}`}>★</button>
+                <button onClick={() => { const title = window.prompt("Rename chat", session.title); if (title) renameChat(project.path, session.id, title); }} className="p-1 text-gray-300 hover:text-gray-900 opacity-0 group-hover/session:opacity-100 rounded" title="Rename chat" aria-label={`Rename chat ${session.title}`}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m4 16.5-.8 3.3 3.3-.8L18 7.5 15.5 5 4 16.5Z" /><path d="m14.5 6 2.5 2.5" /></svg>
                 </button>
                 <button
                   onClick={() => {
@@ -117,8 +135,8 @@ export function LeftSidebar() {
                 </button>
               </div>
             ))}
-          </div>
-        ))}
+          </div>;
+        })}
         {runHistory.length > 0 && <>
           <div className={`flex items-center justify-between px-3 pt-5 pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400 ${collapsed ? "hidden" : ""}`}><span>Run history</span><span>{runHistory.length}</span></div>
           {runHistory.slice(0, 8).map((entry) => {
