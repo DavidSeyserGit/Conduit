@@ -9,3 +9,5 @@ target/
 *.db
 *.sqlite
 *.tsbuildinfo
+apps/desktop/src-tauri/gen/
+apps/desktop/workspaces/

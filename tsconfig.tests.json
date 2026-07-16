@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "declaration": false,
+    "declarationMap": false,
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": [
+    "apps/**/*.test.ts",
+    "packages/**/*.test.ts",
+    "scripts/**/*.test.ts"
+  ],
+  "exclude": [
+    "apps/desktop/workspaces/**",
+    "**/dist/**",
+    "**/node_modules/**"
+  ]
+}

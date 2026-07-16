@@ -1,4 +1,4 @@
-import type { AppSettings, ChatMode } from "@loopkit/shared";
+import type { AppSettings, ChatMode } from "@conduit/shared";
 
 export const DEFAULT_ASK_COLOR = "#3b82f6";
 export const DEFAULT_GOAL_COLOR = "#8b5cf6";

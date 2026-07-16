@@ -1,5 +1,5 @@
 {
-  "name": "@loopkit/tools",
+  "name": "@conduit/tools",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -20,7 +20,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@loopkit/shared": "workspace:*"
+    "@conduit/shared": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

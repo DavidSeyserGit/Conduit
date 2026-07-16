@@ -1,6 +1,6 @@
 import * as path from "node:path";
 import * as fs from "node:fs";
-import { WorkspaceError } from "@loopkit/shared";
+import { WorkspaceError } from "@conduit/shared";
 
 const PROTECTED_PATHS = [
   "/etc",

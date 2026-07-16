@@ -1,6 +1,6 @@
 # Goal Loop
 
-The goal loop is LoopKit's core mechanism: a coding agent implements changes, then an independent judge evaluates the result.
+The goal loop is Conduit's core mechanism: a coding agent implements changes, then an independent judge evaluates the result.
 
 ## Pseudocode
 

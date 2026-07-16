@@ -1,5 +1,5 @@
-import type { ModelDescriptor, QualityLaneDefault, QualityLaneId } from "@loopkit/shared";
-import { isRecommendedJudgeModel } from "@loopkit/agent-runtime";
+import type { ModelDescriptor, QualityLaneDefault, QualityLaneId } from "@conduit/shared";
+import { isRecommendedJudgeModel } from "@conduit/agent-runtime";
 
 export interface ResolvedQualityLane {
   id: QualityLaneId;

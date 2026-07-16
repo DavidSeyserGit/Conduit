@@ -26,6 +26,80 @@ body {
   background-color: #f5f5f5;
 }
 
+html.dark {
+  color-scheme: dark;
+}
+
+.dark body {
+  background-color: #17191f;
+}
+
+/* The interface relies on Tailwind's neutral palette. These token-level overrides
+   keep every surface, popup, and form control legible in the dark theme. */
+.dark .bg-white { background-color: #1d2026; }
+.dark .bg-gray-50 { background-color: #24272e; }
+.dark .bg-gray-100 { background-color: #2c3038; }
+.dark .bg-gray-200 { background-color: #3a404a; }
+.dark .bg-gray-50\/70 { background-color: rgb(36 39 46 / 0.7); }
+.dark .bg-indigo-50 { background-color: #292b40; }
+.dark .bg-fuchsia-50 { background-color: #302b3b; }
+.dark .bg-emerald-50 { background-color: #163b31; }
+.dark .bg-amber-50 { background-color: #443518; }
+
+.dark .border-gray-100 { border-color: #363b44; }
+.dark .border-gray-200 { border-color: #494f5a; }
+.dark .border-gray-300 { border-color: #626a77; }
+.dark .border-indigo-100, .dark .border-indigo-200 { border-color: #5868a6; }
+.dark .border-emerald-100, .dark .border-emerald-200 { border-color: #28735a; }
+.dark .border-amber-200 { border-color: #80652c; }
+
+.dark .text-gray-900 { color: #f8fafc; }
+.dark .text-gray-800 { color: #e2e8f0; }
+.dark .text-gray-700 { color: #cbd5e1; }
+.dark .text-gray-600 { color: #b2bfd0; }
+.dark .text-gray-500 { color: #a4b1c3; }
+.dark .text-gray-400 { color: #91a0b5; }
+.dark .text-gray-300 { color: #7e8da2; }
+.dark .text-emerald-700 { color: #6ee7b7; }
+.dark .text-amber-800 { color: #fde68a; }
+.dark .text-amber-700 { color: #fcd34d; }
+.dark .text-indigo-950, .dark .text-indigo-900, .dark .text-indigo-800,
+.dark .text-indigo-700, .dark .text-indigo-600, .dark .text-indigo-500,
+.dark .text-indigo-400 { color: #a5b4fc; }
+.dark .text-fuchsia-600 { color: #e879f9; }
+.dark .text-emerald-600 { color: #5eead4; }
+
+.dark .hover\:bg-gray-50:hover { background-color: #2c3038; }
+.dark .hover\:bg-gray-100:hover { background-color: #353a44; }
+.dark .hover\:bg-gray-200:hover { background-color: #494f5a; }
+.dark .hover\:text-gray-900:hover, .dark .hover\:text-gray-800:hover, .dark .hover\:text-gray-700:hover { color: #f8fafc; }
+
+.dark .input-glow {
+  background:
+    linear-gradient(#24272e, #24272e) padding-box,
+    conic-gradient(
+      from var(--glow-angle),
+      color-mix(in srgb, var(--glow-color) 28%, #24272e),
+      color-mix(in srgb, var(--glow-color) 28%, #24272e) 72%,
+      var(--glow-color) 86%,
+      color-mix(in srgb, var(--glow-color) 65%, #24272e) 92%,
+      color-mix(in srgb, var(--glow-color) 28%, #24272e)
+    ) border-box;
+}
+
+.dark .input-glow:focus-within {
+  background:
+    linear-gradient(#2c3038, #2c3038) padding-box,
+    conic-gradient(
+      from var(--glow-angle),
+      color-mix(in srgb, var(--glow-color) 45%, #24272e),
+      color-mix(in srgb, var(--glow-color) 45%, #24272e) 72%,
+      color-mix(in srgb, var(--glow-color) 90%, black) 86%,
+      color-mix(in srgb, var(--glow-color) 70%, #24272e) 92%,
+      color-mix(in srgb, var(--glow-color) 45%, #24272e)
+    ) border-box;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -110,6 +184,9 @@ body {
   background: #9ca3af;
 }
 
+.dark ::-webkit-scrollbar-thumb { background: #3d4654; }
+.dark ::-webkit-scrollbar-thumb:hover { background: #566171; }
+
 /* Prose overrides for light theme */
 .prose {
   color: #1f2937;
@@ -159,3 +236,10 @@ body {
 .chat-markdown pre code { background: transparent; color: #e5e7eb; padding: 0; }
 .chat-markdown-user h1, .chat-markdown-user h2, .chat-markdown-user h3, .chat-markdown-user blockquote, .chat-markdown-user a { color: inherit; }
 .chat-markdown-user code { background: rgb(255 255 255 / 0.14); color: inherit; }
+
+.dark .prose, .dark .chat-markdown { color: #d8dde5; }
+.dark .prose h1, .dark .prose h2, .dark .prose h3, .dark .prose h4,
+.dark .chat-markdown h1, .dark .chat-markdown h2, .dark .chat-markdown h3 { color: #f3f4f6; }
+.dark .prose strong { color: #f3f4f6; }
+.dark .prose code, .dark .chat-markdown code { background-color: #20242c; color: #a5b4fc; }
+.dark .chat-markdown blockquote { border-color: #4b5563; color: #aab4c2; }

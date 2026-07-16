@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "LoopKit",
+  "productName": "Conduit",
   "version": "0.1.0",
-  "identifier": "dev.loopkit.desktop",
+  "identifier": "dev.conduit.desktop",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "LoopKit",
+        "title": "Conduit",
         "width": 1100,
         "height": 750,
         "minWidth": 800,
@@ -34,7 +34,10 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "macOS": {
+      "signingIdentity": "-"
+    }
   },
   "plugins": {
     "dialog": {},

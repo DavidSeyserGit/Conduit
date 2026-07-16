@@ -4,10 +4,10 @@ import type {
   GoalRunState,
   GoalRunEvent,
   ModelCostBreakdown,
-} from "@loopkit/shared";
-import type { ProviderRegistry } from "@loopkit/model-providers";
-import type { ToolExecutor, ToolExecutorContext } from "@loopkit/tools";
-import { findProviderForModel } from "@loopkit/model-providers";
+} from "@conduit/shared";
+import type { ProviderRegistry } from "@conduit/model-providers";
+import type { ToolExecutor, ToolExecutorContext } from "@conduit/tools";
+import { findProviderForModel } from "@conduit/model-providers";
 import { CodingAgent } from "./coding-agent.js";
 import { Judge } from "./judge.js";
 import {
@@ -106,12 +106,18 @@ export class GoalLoopRunner {
     const judge = new Judge(
       judgeProviderInfo.provider,
       config.judgeModelId,
-      emit
+      state.workspacePath,
+      config.judgeReasoningEffort,
+      emit,
+      this.abortController.signal,
     );
 
     if (!state.plan) {
       try {
-        emit({ type: "agent_status", message: "Judge is writing the implementation plan…" });
+        const reasoningLabel = config.judgeReasoningEffort
+          ? ` (${config.judgeReasoningEffort.replace(/[-_]/g, " ")} reasoning)`
+          : "";
+        emit({ type: "agent_status", message: `Judge is writing the implementation plan${reasoningLabel}…` });
         const planning = await judge.createImplementationPlan(state.goal);
         state.plan = planning.plan;
         state.tokenUsage = accumulateTokenUsage(state.tokenUsage, planning.tokenUsage);
@@ -121,6 +127,14 @@ export class GoalLoopRunner {
         emit({ type: "plan_updated", plan: planning.plan });
         emit({ type: "agent_status", message: "Judge plan ready; starting implementation…" });
       } catch (err) {
+        if (this.cancelled || this.abortController?.signal.aborted) {
+          state.status = "cancelled";
+          state.finishedAt = new Date().toISOString();
+          const finalState = finalizeState(state);
+          const result: GoalRunResult = { status: "cancelled", state: finalState };
+          emit({ type: "run_completed", result });
+          return result;
+        }
         const error = `Judge could not create an implementation plan: ${err instanceof Error ? err.message : String(err)}`;
         state.status = "failed";
         state.finishedAt = new Date().toISOString();
@@ -240,6 +254,15 @@ export class GoalLoopRunner {
           message: `Judge rejected iteration ${state.iteration}; sending ${state.lastJudgeFeedback.length} required fix${state.lastJudgeFeedback.length === 1 ? "" : "es"} to the coding agent…`,
         });
       } catch (err) {
+        if (this.cancelled || this.abortController?.signal.aborted) {
+          state.status = "cancelled";
+          state.finishedAt = new Date().toISOString();
+          state.iterations.push(iteration);
+          const finalState = finalizeState(state);
+          const result: GoalRunResult = { status: "cancelled", state: finalState };
+          emit({ type: "run_completed", result });
+          return result;
+        }
         const error = err instanceof Error ? err.message : String(err);
         state.status = "failed";
         state.finishedAt = new Date().toISOString();

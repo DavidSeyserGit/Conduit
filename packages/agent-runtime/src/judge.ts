@@ -5,10 +5,10 @@ import type {
   ValidationResult,
   AgentPlan,
   TokenUsage,
-} from "@loopkit/shared";
-import { AgentPlanSchema, JudgeResultSchema } from "@loopkit/shared";
-import type { ModelProvider } from "@loopkit/model-providers";
-import type { ToolCallResult } from "@loopkit/tools";
+} from "@conduit/shared";
+import { AgentPlanSchema, JudgeResultSchema } from "@conduit/shared";
+import type { ModelProvider } from "@conduit/model-providers";
+import type { ToolCallResult } from "@conduit/tools";
 import {
   JUDGE_SYSTEM_PROMPT,
   JUDGE_PLANNING_SYSTEM_PROMPT,
@@ -42,7 +42,10 @@ export class Judge {
   constructor(
     private provider: ModelProvider,
     private modelId: string,
-    private emit: (event: GoalRunEvent) => void
+    private workspacePath: string,
+    private reasoningEffort: string | undefined,
+    private emit: (event: GoalRunEvent) => void,
+    private signal?: AbortSignal,
   ) {}
 
   async review(ctx: JudgeContext): Promise<JudgeReviewResult> {
@@ -79,6 +82,8 @@ export class Judge {
           name: "judge_evaluation",
           schema: JUDGE_OUTPUT_SCHEMA,
         },
+        workspacePath: this.workspacePath,
+        reasoningEffort: this.reasoningEffort,
         temperature: 0.1,
         maxTokens: 4096,
       }, "judging");
@@ -109,6 +114,8 @@ export class Judge {
             name: "judge_evaluation",
             schema: JUDGE_OUTPUT_SCHEMA,
           },
+          workspacePath: this.workspacePath,
+          reasoningEffort: this.reasoningEffort,
           temperature: 0.1,
           maxTokens: 4096,
         }, "judging");
@@ -143,6 +150,8 @@ export class Judge {
         { role: "user", content: `## Goal\n${goal}\n\nWrite the implementation plan now.` },
       ],
       structuredOutput: { name: "implementation_plan", schema: JUDGE_PLAN_OUTPUT_SCHEMA },
+      workspacePath: this.workspacePath,
+      reasoningEffort: this.reasoningEffort,
       temperature: 0.1,
       maxTokens: 2048,
     }, "planning");
@@ -168,7 +177,7 @@ export class Judge {
     emitHeartbeat();
     const timer = setInterval(emitHeartbeat, 10_000);
     try {
-      return await this.provider.createResponse(request);
+      return await this.provider.createResponse({ ...request, signal: this.signal });
     } finally {
       clearInterval(timer);
     }

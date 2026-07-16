@@ -1,5 +1,5 @@
 {
-  "name": "@loopkit/agent-runtime",
+  "name": "@conduit/agent-runtime",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -16,9 +16,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@loopkit/shared": "workspace:*",
-    "@loopkit/tools": "workspace:*",
-    "@loopkit/model-providers": "workspace:*"
+    "@conduit/shared": "workspace:*",
+    "@conduit/tools": "workspace:*",
+    "@conduit/model-providers": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.7.2"

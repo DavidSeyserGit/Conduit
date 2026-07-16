@@ -523,7 +523,10 @@ pub fn git_clone_repo(url: String, destination: String, name: String) -> ToolRes
     }
     let target = destination.join(&name);
     if target.exists() {
-        return ToolResult { success: false, result: None, error: Some(format!("Folder already exists: {}", target.display())) };
+        if target.join(".git").exists() {
+            return ToolResult { success: true, result: Some(serde_json::json!({ "path": target })), error: None };
+        }
+        return ToolResult { success: false, result: None, error: Some(format!("Folder already exists and is not a Git repository: {}", target.display())) };
     }
 
     let token = match github_entry().and_then(|entry| entry.get_password().map_err(|e| e.to_string())) {
@@ -570,7 +573,7 @@ fn worktree_root(repository: &Path) -> PathBuf {
     repository
         .parent()
         .unwrap_or_else(|| Path::new("."))
-        .join(".loopkit-worktrees")
+        .join(".conduit-worktrees")
         .join(repository.file_name().unwrap_or_default())
 }
 

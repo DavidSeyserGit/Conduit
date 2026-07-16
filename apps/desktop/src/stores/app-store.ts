@@ -10,17 +10,18 @@ import type {
   ModelDescriptor,
   SessionUsage,
   TokenUsage,
-} from "@loopkit/shared";
+} from "@conduit/shared";
 import {
   DefaultProviderRegistry,
   OpenRouterProvider,
   ACPAgentProvider,
   CodexProvider,
   KiloProvider,
-} from "@loopkit/model-providers";
-import { GoalLoopRunner, AskChatRunner } from "@loopkit/agent-runtime";
+} from "@conduit/model-providers";
+import { GoalLoopRunner, AskChatRunner } from "@conduit/agent-runtime";
 import { createTauriToolExecutor } from "@/lib/tauri-tools";
 import { createChatWorktree, removeChatWorktree } from "@/lib/git-workflow";
+import { catalogNeedsMigration, normalizePersistedModelId } from "@/lib/model-catalog";
 
 export interface Project {
   name: string;
@@ -126,6 +127,7 @@ interface AppState {
 }
 
 const defaultSettings: AppSettings = {
+  theme: "light",
   inputGlowColor: "#3b82f6",
   commandPermissionMode: "auto_approve_safe",
   defaultMaxIterations: 3,
@@ -155,6 +157,13 @@ function createChatSession(): ChatSession {
     usage: emptySessionUsage(),
     updatedAt: new Date().toISOString(),
   };
+}
+
+function sessionWorkspace(projectPath: string, session: ChatSession): string {
+  // A session normally runs in its project's root. Only an explicit worktree
+  // may override it; persisted workspacePath values from older sessions can
+  // otherwise point at a stale, non-repository directory.
+  return session.worktreePath || projectPath;
 }
 
 function emptySessionUsage(): SessionUsage {
@@ -244,7 +253,7 @@ export const useAppStore = create<AppState>()(
         const projectSessions = state.sessions[path] || [];
         const nextSession = projectSessions[0] || createChatSession();
         set({
-          workspacePath: nextSession.workspacePath || path,
+          workspacePath: sessionWorkspace(path, nextSession),
           activeProjectPath: path,
           activeSessionId: nextSession.id,
           messages: nextSession.messages,
@@ -271,7 +280,7 @@ export const useAppStore = create<AppState>()(
         if (!nextSession) return;
         const currentSession = state.workspacePath ? snapshotSession(state) : null;
         set({
-          workspacePath: nextSession.workspacePath || path,
+          workspacePath: sessionWorkspace(path, nextSession),
           activeProjectPath: path,
           activeSessionId: nextSession.id,
           messages: nextSession.messages,
@@ -300,7 +309,7 @@ export const useAppStore = create<AppState>()(
         const currentSession = state.workspacePath ? snapshotSession(state) : null;
         set({
           projects: [...state.projects.filter((p) => p.path !== project.path), project],
-          workspacePath: nextSession.workspacePath || project.path,
+          workspacePath: sessionWorkspace(project.path, nextSession),
           activeProjectPath: project.path,
           activeSessionId: nextSession.id,
           messages: nextSession.messages,
@@ -360,7 +369,7 @@ export const useAppStore = create<AppState>()(
 
         const nextSession = remaining[0] || { ...createChatSession(), workspacePath: path };
         set({
-          workspacePath: nextSession.workspacePath || path,
+          workspacePath: sessionWorkspace(path, nextSession),
           activeProjectPath: path,
           activeSessionId: nextSession.id,
           messages: nextSession.messages,
@@ -376,7 +385,7 @@ export const useAppStore = create<AppState>()(
         if (state.isRunning || !state.activeProjectPath || !state.activeSessionId) return;
         const current = snapshotSession(state);
         if (current.worktreePath) return;
-        const branch = `loopkit/chat-${current.id.replace(/[^A-Za-z0-9]/g, "").slice(0, 12)}`;
+        const branch = `conduit/chat-${current.id.replace(/[^A-Za-z0-9]/g, "").slice(0, 12)}`;
         const result = await createChatWorktree(state.activeProjectPath, branch, current.id.replace(/[^A-Za-z0-9]/g, "").slice(0, 32));
         const updated = { ...current, workspacePath: result.path, worktreePath: result.path, branch: result.branch };
         set({
@@ -412,16 +421,28 @@ export const useAppStore = create<AppState>()(
       modelsCachedAt: null,
       modelsLoading: false,
       loadModels: async () => {
+        // Provider modules can be replaced during Vite hot reload while the
+        // persisted model catalog survives. Rehydrate the runtime registry
+        // before trusting cached model selections.
+        get().initProviders();
         const state = get();
+        const registeredCatalogProviders = getRegistry()
+          .list()
+          .filter((provider) => provider.id === "codex" || provider.id === "kilo" || provider.id === "openrouter");
+        const needsProviderRefresh = registeredCatalogProviders.some(
+          (provider) => !state.models.some((model) => model.provider === provider.id)
+        );
         const needsCapabilityRefresh = state.models.some((model) =>
           (model.provider === "openrouter" && !("supportsReasoning" in model))
           || (model.provider === "codex" && !("supportedReasoningLevels" in model))
         );
-        if (!needsCapabilityRefresh && state.models.length > 0 && state.modelsCachedAt && Date.now() - state.modelsCachedAt < MODEL_CACHE_TTL_MS) return;
+        const needsCatalogMigration = catalogNeedsMigration(state.models);
+        if (!needsProviderRefresh && !needsCapabilityRefresh && !needsCatalogMigration && state.models.length > 0 && state.modelsCachedAt && Date.now() - state.modelsCachedAt < MODEL_CACHE_TTL_MS) return;
         await get().refreshModels();
       },
       refreshModels: async () => {
         if (get().modelsLoading) return;
+        get().initProviders();
         set({ modelsLoading: true });
         try {
           const registry = getRegistry();
@@ -429,19 +450,23 @@ export const useAppStore = create<AppState>()(
           const state = get();
           const workers = models.filter((model) => model.supportsTools && model.supportsGoal !== false);
           const judges = models.filter((model) => model.supportsJudge !== false);
-          const currentCodingIsAvailable = models.some((model) => model.id === state.codingModelId);
-          const defaultCodingIsAvailable = models.some((model) => model.id === state.settings.defaultCodingModelId);
+          const normalizedCodingModelId = normalizePersistedModelId(state.codingModelId);
+          const normalizedJudgeModelId = normalizePersistedModelId(state.judgeModelId);
+          const normalizedDefaultCodingModelId = normalizePersistedModelId(state.settings.defaultCodingModelId || "");
+          const normalizedDefaultJudgeModelId = normalizePersistedModelId(state.settings.defaultJudgeModelId || "");
+          const currentCodingIsAvailable = models.some((model) => model.id === normalizedCodingModelId);
+          const defaultCodingIsAvailable = models.some((model) => model.id === normalizedDefaultCodingModelId);
           const codingModelId = currentCodingIsAvailable
-            ? state.codingModelId
+            ? normalizedCodingModelId
             : defaultCodingIsAvailable
-              ? state.settings.defaultCodingModelId!
+              ? normalizedDefaultCodingModelId
               : workers[0]?.id || "";
-          const currentJudgeIsAvailable = models.some((model) => model.id === state.judgeModelId);
-          const defaultJudgeIsAvailable = models.some((model) => model.id === state.settings.defaultJudgeModelId);
+          const currentJudgeIsAvailable = models.some((model) => model.id === normalizedJudgeModelId);
+          const defaultJudgeIsAvailable = models.some((model) => model.id === normalizedDefaultJudgeModelId);
           const judgeModelId = currentJudgeIsAvailable
-            ? state.judgeModelId
+            ? normalizedJudgeModelId
             : defaultJudgeIsAvailable
-              ? state.settings.defaultJudgeModelId!
+              ? normalizedDefaultJudgeModelId
               : judges.find((model) => model.id !== codingModelId)?.id || judges[0]?.id || "";
           set({
             models,
@@ -582,6 +607,7 @@ export const useAppStore = create<AppState>()(
       sendMessage: async (content) => {
         const state = get();
         if (!state.workspacePath || !state.codingModelId) return;
+        state.initProviders();
 
         const userMessage: ChatMessage = {
           id: crypto.randomUUID(),
@@ -645,13 +671,18 @@ export const useAppStore = create<AppState>()(
 
       startGoalRun: async (goal, resumeState) => {
         const state = get();
-        const workspacePath = resumeState?.workspacePath || state.workspacePath;
+        state.initProviders();
+        const activeSession = state.sessions[state.activeProjectPath]?.find((session) => session.id === state.activeSessionId);
+        const workspacePath = resumeState?.workspacePath
+          || (activeSession ? sessionWorkspace(state.activeProjectPath, activeSession) : state.activeProjectPath || state.workspacePath);
         const codingModelId = resumeState?.codingModelId || state.codingModelId;
         const judgeModelId = resumeState?.judgeModelId || state.judgeModelId;
         const codingModel = state.models.find((model) => model.id === codingModelId);
         const judgeModel = state.models.find((model) => model.id === judgeModelId);
         const codingReasoningEffort = resumeState?.codingReasoningEffort
           ?? resolveCodexReasoningEffort(codingModel, state.codexReasoningEfforts);
+        const judgeReasoningEffort = resumeState?.judgeReasoningEffort
+          ?? resolveCodexReasoningEffort(judgeModel, state.codexReasoningEfforts);
         if (!workspacePath || !codingModelId || !judgeModelId) return;
 
         if (!resumeState) {
@@ -686,6 +717,7 @@ export const useAppStore = create<AppState>()(
               codingModelId,
               codingReasoningEffort,
               judgeModelId,
+              judgeReasoningEffort,
               maxIterations: resumeState?.maxIterations || state.maxIterations,
               modelApiKey: state.settings.openRouterApiKey,
               resumeState,
@@ -743,8 +775,11 @@ export const useAppStore = create<AppState>()(
       openRun: (runId) => {
         const entry = get().runHistory.find((item) => item.run.id === runId);
         if (!entry) return;
+        const projectPath = get().projects.find((project) => project.path === entry.run.workspacePath)?.path
+          || entry.run.workspacePath;
         set({
           workspacePath: entry.run.workspacePath,
+          activeProjectPath: projectPath,
           currentRun: entry.run,
           runEvents: entry.events,
           mode: "goal",
@@ -759,8 +794,11 @@ export const useAppStore = create<AppState>()(
           ...entry.run,
           maxIterations: entry.run.iteration + get().maxIterations,
         };
+        const projectPath = get().projects.find((project) => project.path === resumeState.workspacePath)?.path
+          || resumeState.workspacePath;
         set({
           workspacePath: resumeState.workspacePath,
+          activeProjectPath: projectPath,
           currentRun: resumeState,
           runEvents: entry.events,
           mode: "goal",

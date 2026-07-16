@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { getModeColor, DEFAULT_ASK_COLOR, DEFAULT_GOAL_COLOR, FALLBACK_GOAL_COLOR } from "./mode-colors.ts";
-import type { AppSettings } from "@loopkit/shared";
+import type { AppSettings } from "@conduit/shared";
 
 function makeSettings(overrides: Partial<AppSettings> = {}): AppSettings {
 	return {

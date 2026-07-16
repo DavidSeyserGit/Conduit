@@ -1,4 +1,4 @@
-import type { GoalRunEvent, GoalRunState } from "@loopkit/shared";
+import type { GoalRunEvent, GoalRunState } from "@conduit/shared";
 
 export function RunRail({
   events,

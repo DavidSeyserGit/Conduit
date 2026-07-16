@@ -6,7 +6,7 @@ import type {
   StoredToolCall,
   AgentPlan,
   TokenUsage,
-} from "@loopkit/shared";
+} from "@conduit/shared";
 
 export function createInitialGoalState(config: GoalRunConfig): GoalRunState {
   return {
@@ -17,6 +17,7 @@ export function createInitialGoalState(config: GoalRunConfig): GoalRunState {
     codingModelId: config.codingModelId,
     codingReasoningEffort: config.codingReasoningEffort,
     judgeModelId: config.judgeModelId,
+    judgeReasoningEffort: config.judgeReasoningEffort,
     iteration: 0,
     maxIterations: config.maxIterations,
     iterations: [],

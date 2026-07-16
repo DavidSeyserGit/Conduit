@@ -11,6 +11,11 @@ export default function App() {
   const initProviders = useAppStore((s) => s.initProviders);
   const loadModels = useAppStore((s) => s.loadModels);
   const hydrateOpenRouterKey = useAppStore((s) => s.hydrateOpenRouterKey);
+  const theme = useAppStore((s) => s.settings.theme ?? "light");
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", theme === "dark");
+  }, [theme]);
 
   useEffect(() => {
     void (async () => {

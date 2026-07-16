@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { ToolExecutor, ToolMode, ToolCallResult, ToolExecutorContext } from "@loopkit/tools";
-import { GOAL_ONLY_TOOLS, WRITE_TOOLS } from "@loopkit/tools";
+import type { ToolExecutor, ToolMode, ToolCallResult, ToolExecutorContext } from "@conduit/tools";
+import { GOAL_ONLY_TOOLS, WRITE_TOOLS } from "@conduit/tools";
 
 interface TauriToolResult {
   success: boolean;

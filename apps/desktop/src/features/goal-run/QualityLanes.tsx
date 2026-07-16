@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { ModelDescriptor } from "@loopkit/shared";
+import type { ModelDescriptor } from "@conduit/shared";
 import { useAppStore } from "@/stores/app-store";
 import { ModelPicker } from "@/features/model-picker/ModelPicker";
 import { resolveQualityLanes } from "@/lib/quality-lanes";

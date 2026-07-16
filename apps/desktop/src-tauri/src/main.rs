@@ -1,3 +1,3 @@
 fn main() {
-    loopkit_desktop_lib::run()
+    conduit_desktop_lib::run()
 }

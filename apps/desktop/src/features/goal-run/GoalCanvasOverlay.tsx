@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { AgentPlan, GoalRunEvent, GoalRunState } from "@loopkit/shared";
+import type { AgentPlan, GoalRunEvent, GoalRunState } from "@conduit/shared";
 import { useAppStore } from "@/stores/app-store";
 
 function latestEvent<T extends GoalRunEvent["type"]>(

@@ -1,4 +1,4 @@
-import type { CommandPermissionMode } from "@loopkit/shared";
+import type { CommandPermissionMode } from "@conduit/shared";
 import type { ToolExecutor, ToolMode, ToolCallResult, ToolExecutorContext } from "../definitions.js";
 import { GOAL_ONLY_TOOLS } from "../definitions.js";
 import {
