@@ -71,7 +71,7 @@ pub fn tool_list_files(
     match normalize_path(&workspace, &rel) {
         Ok(abs) => {
             let mut entries = Vec::new();
-            collect_entries(&workspace, &abs, &rel, &mut entries, 0, max_depth);
+            collect_entries(&abs, &rel, &mut entries, 0, max_depth);
             ToolResult {
                 success: true,
                 result: Some(serde_json::json!({ "path": rel, "entries": entries })),
@@ -87,7 +87,6 @@ pub fn tool_list_files(
 }
 
 fn collect_entries(
-    workspace: &str,
     abs: &Path,
     rel: &str,
     entries: &mut Vec<FileEntry>,
@@ -128,14 +127,7 @@ fn collect_entries(
                 entry_type: "directory".to_string(),
                 size: None,
             });
-            collect_entries(
-                workspace,
-                &entry.path(),
-                &entry_rel,
-                entries,
-                depth + 1,
-                max_depth,
-            );
+            collect_entries(&entry.path(), &entry_rel, entries, depth + 1, max_depth);
         } else if ft.is_file() {
             let size = entry.metadata().ok().map(|m| m.len());
             entries.push(FileEntry {
@@ -399,6 +391,7 @@ pub fn tool_search_files(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn search_dir(
     workspace: &Path,
     dir: &Path,
@@ -739,7 +732,10 @@ fn openrouter_entry() -> Result<keyring::Entry, String> {
 }
 
 fn read_fallback_token(name: &str) -> Option<String> {
-    std::fs::read_to_string(keychain_fallback_path(name)).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+    std::fs::read_to_string(keychain_fallback_path(name))
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 fn write_fallback_token(name: &str, token: &str) -> Result<(), String> {
@@ -767,7 +763,8 @@ pub fn openrouter_get_key() -> ToolResult {
             },
             Err(keyring::Error::NoEntry) => {
                 if let Some(key) = read_fallback_token("openrouter-api-key") {
-                    let _ = openrouter_entry().and_then(|e| e.set_password(&key).map_err(|er| er.to_string()));
+                    let _ = openrouter_entry()
+                        .and_then(|e| e.set_password(&key).map_err(|er| er.to_string()));
                     return ToolResult {
                         success: true,
                         result: Some(serde_json::json!({ "key": key })),
@@ -779,7 +776,7 @@ pub fn openrouter_get_key() -> ToolResult {
                     result: Some(serde_json::json!({ "key": null })),
                     error: None,
                 }
-            },
+            }
             Err(_) => {
                 if let Some(key) = read_fallback_token("openrouter-api-key") {
                     return ToolResult {
@@ -808,7 +805,7 @@ pub fn openrouter_get_key() -> ToolResult {
                 result: Some(serde_json::json!({ "key": null })),
                 error: None,
             }
-        },
+        }
     }
 }
 
@@ -820,23 +817,29 @@ pub fn openrouter_store_key(key: String) -> ToolResult {
             let _ = entry.delete_credential();
         }
         let _ = std::fs::remove_file(keychain_fallback_path("openrouter-api-key"));
-        return ToolResult { success: true, result: None, error: None };
+        return ToolResult {
+            success: true,
+            result: None,
+            error: None,
+        };
     }
     let file_result = write_fallback_token("openrouter-api-key", &key);
     let keychain_result =
         openrouter_entry().and_then(|entry| entry.set_password(&key).map_err(|e| e.to_string()));
-    if keychain_result.is_err() && file_result.is_err() {
+    if let (Err(keychain_error), Err(file_error)) = (&keychain_result, &file_result) {
         return ToolResult {
             success: false,
             result: None,
             error: Some(format!(
-                "could not store key (keychain: {}; file: {})",
-                keychain_result.unwrap_err(),
-                file_result.unwrap_err()
+                "could not store key (keychain: {keychain_error}; file: {file_error})"
             )),
         };
     }
-    ToolResult { success: true, result: None, error: None }
+    ToolResult {
+        success: true,
+        result: None,
+        error: None,
+    }
 }
 
 #[tauri::command]
@@ -855,7 +858,8 @@ pub fn github_get_token() -> ToolResult {
             },
             Err(keyring::Error::NoEntry) => {
                 if let Some(token) = read_fallback_token("github-token") {
-                    let _ = github_entry().and_then(|e| e.set_password(&token).map_err(|er| er.to_string()));
+                    let _ = github_entry()
+                        .and_then(|e| e.set_password(&token).map_err(|er| er.to_string()));
                     return ToolResult {
                         success: true,
                         result: Some(serde_json::json!({ "token": token })),
@@ -867,7 +871,7 @@ pub fn github_get_token() -> ToolResult {
                     result: Some(serde_json::json!({ "token": null })),
                     error: None,
                 }
-            },
+            }
             Err(_) => {
                 if let Some(token) = read_fallback_token("github-token") {
                     return ToolResult {
@@ -896,7 +900,7 @@ pub fn github_get_token() -> ToolResult {
                 result: Some(serde_json::json!({ "token": null })),
                 error: None,
             }
-        },
+        }
     }
 }
 
@@ -908,37 +912,73 @@ pub fn github_store_token(token: String) -> ToolResult {
             let _ = entry.delete_credential();
         }
         let _ = std::fs::remove_file(keychain_fallback_path("github-token"));
-        return ToolResult { success: true, result: None, error: None };
+        return ToolResult {
+            success: true,
+            result: None,
+            error: None,
+        };
     }
     let _ = write_fallback_token("github-token", &token);
     match github_entry().and_then(|entry| entry.set_password(&token).map_err(|e| e.to_string())) {
-        Ok(()) => ToolResult { success: true, result: None, error: None },
-        Err(_) => ToolResult { success: true, result: None, error: None },
+        Ok(()) => ToolResult {
+            success: true,
+            result: None,
+            error: None,
+        },
+        Err(_) => ToolResult {
+            success: true,
+            result: None,
+            error: None,
+        },
     }
 }
 
 #[tauri::command]
 pub fn github_device_start(client_id: String) -> ToolResult {
-    let client_id = if client_id.trim().is_empty() { github_client_id() } else { client_id };
+    let client_id = if client_id.trim().is_empty() {
+        github_client_id()
+    } else {
+        client_id
+    };
     let response = ureq::post("https://github.com/login/device/code")
         .set("Accept", "application/json")
         .send_form(&[("client_id", client_id.as_str()), ("scope", "repo")]);
     match response {
         Ok(resp) => match resp.into_json::<serde_json::Value>() {
-            Ok(json) => ToolResult { success: true, result: Some(json), error: None },
-            Err(e) => ToolResult { success: false, result: None, error: Some(format!("Failed to parse device flow response: {e}")) },
+            Ok(json) => ToolResult {
+                success: true,
+                result: Some(json),
+                error: None,
+            },
+            Err(e) => ToolResult {
+                success: false,
+                result: None,
+                error: Some(format!("Failed to parse device flow response: {e}")),
+            },
         },
         Err(ureq::Error::Status(code, resp)) => {
             let body = resp.into_string().unwrap_or_default();
-            ToolResult { success: false, result: None, error: Some(format!("GitHub device flow failed ({code}): {body}")) }
+            ToolResult {
+                success: false,
+                result: None,
+                error: Some(format!("GitHub device flow failed ({code}): {body}")),
+            }
         }
-        Err(e) => ToolResult { success: false, result: None, error: Some(format!("GitHub device flow request failed: {e}")) },
+        Err(e) => ToolResult {
+            success: false,
+            result: None,
+            error: Some(format!("GitHub device flow request failed: {e}")),
+        },
     }
 }
 
 #[tauri::command]
 pub fn github_device_poll(client_id: String, device_code: String) -> ToolResult {
-    let client_id = if client_id.trim().is_empty() { github_client_id() } else { client_id };
+    let client_id = if client_id.trim().is_empty() {
+        github_client_id()
+    } else {
+        client_id
+    };
     let response = ureq::post("https://github.com/login/oauth/access_token")
         .set("Accept", "application/json")
         .send_form(&[
@@ -951,19 +991,38 @@ pub fn github_device_poll(client_id: String, device_code: String) -> ToolResult 
             Ok(json) => {
                 if let Some(token) = json.get("access_token").and_then(|v| v.as_str()) {
                     let _ = write_fallback_token("github-token", token);
-                    let _ = github_entry().and_then(|entry| entry.set_password(token).map_err(|e| e.to_string()));
+                    let _ = github_entry()
+                        .and_then(|entry| entry.set_password(token).map_err(|e| e.to_string()));
                 }
-                ToolResult { success: true, result: Some(json), error: None }
-            },
-            Err(e) => ToolResult { success: false, result: None, error: Some(format!("Failed to parse access token response: {e}")) },
-        },
-        Err(ureq::Error::Status(_, resp)) => {
-            match resp.into_json::<serde_json::Value>() {
-                Ok(json) => ToolResult { success: true, result: Some(json), error: None },
-                Err(_) => ToolResult { success: true, result: Some(serde_json::json!({"error":"authorization_pending"})), error: None },
+                ToolResult {
+                    success: true,
+                    result: Some(json),
+                    error: None,
+                }
             }
-        }
-        Err(e) => ToolResult { success: false, result: None, error: Some(format!("GitHub poll failed: {e}")) },
+            Err(e) => ToolResult {
+                success: false,
+                result: None,
+                error: Some(format!("Failed to parse access token response: {e}")),
+            },
+        },
+        Err(ureq::Error::Status(_, resp)) => match resp.into_json::<serde_json::Value>() {
+            Ok(json) => ToolResult {
+                success: true,
+                result: Some(json),
+                error: None,
+            },
+            Err(_) => ToolResult {
+                success: true,
+                result: Some(serde_json::json!({"error":"authorization_pending"})),
+                error: None,
+            },
+        },
+        Err(e) => ToolResult {
+            success: false,
+            result: None,
+            error: Some(format!("GitHub poll failed: {e}")),
+        },
     }
 }
 
@@ -1048,20 +1107,22 @@ pub fn git_clone_repo(url: String, destination: String, name: String) -> ToolRes
         };
     }
 
-    let token = match github_entry().and_then(|entry| entry.get_password().map_err(|e| e.to_string())) {
-            Ok(t) => t,
-            Err(_) => {
-                if let Some(fb) = read_fallback_token("github-token") {
-                    fb
-                } else {
-                    return ToolResult {
+    let token = match github_entry()
+        .and_then(|entry| entry.get_password().map_err(|e| e.to_string()))
+    {
+        Ok(t) => t,
+        Err(_) => {
+            if let Some(fb) = read_fallback_token("github-token") {
+                fb
+            } else {
+                return ToolResult {
                         success: false,
                         result: None,
                         error: Some("GitHub authorization is required: No matching entry found in secure storage. Please reconnect GitHub.".to_string()),
-                    }
-                }
+                    };
             }
-        };
+        }
+    };
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_nanos())
@@ -1337,10 +1398,7 @@ pub fn git_commit_changes(workspace: String, message: String) -> ToolResult {
             error: Some(error),
         };
     }
-    let staged = match git_command(&workspace, &["diff", "--cached", "--quiet"]) {
-        Ok(_) => false,
-        Err(_) => true,
-    };
+    let staged = git_command(&workspace, &["diff", "--cached", "--quiet"]).is_err();
     if !staged {
         return ToolResult {
             success: false,
