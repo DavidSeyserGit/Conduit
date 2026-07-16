@@ -12,6 +12,7 @@ import {
 } from "../file-tools.js";
 import { searchFiles } from "../search-tools.js";
 import { CommandExecutor } from "../command-tools.js";
+import { captureGitSnapshot, getScopedGitDiff } from "../git-snapshot.js";
 
 export function createNodeToolExecutor(
   workspacePath: string,
@@ -112,7 +113,17 @@ async function dispatchNodeTool(
       });
 
     case "get_git_diff":
+      if (args.baselineTree) {
+        return getScopedGitDiff(
+          workspacePath,
+          args.baselineTree as string,
+          args.path as string,
+        );
+      }
       return getGitDiff(workspacePath, args.path as string);
+
+    case "capture_git_snapshot":
+      return captureGitSnapshot(workspacePath);
 
     default:
       throw new Error(`Unknown tool: ${name}`);

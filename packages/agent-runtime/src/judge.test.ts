@@ -39,6 +39,7 @@ test("planning judge sends a schema-bound, workspace-aware request", async () =>
           { id: "1", description: "Inspect the relevant files", status: "pending" },
           { id: "2", description: "Implement and validate", status: "pending" },
         ],
+        validation: { strategy: "commands", rationale: "Run the repository test suite.", commands: ["pnpm test"] },
       },
     }], requests),
     "fake/model",
@@ -59,6 +60,41 @@ test("planning judge sends a schema-bound, workspace-aware request", async () =>
   assert.equal(requests[0]?.structuredOutput?.name, "implementation_plan");
   assert.equal(requests[0]?.tools, undefined);
   assert.equal(events.some((event) => event.type === "agent_heartbeat"), true);
+});
+
+test("judge approves an evidence-only objection rather than creating a coding repair loop", async () => {
+  const judge = new Judge(
+    fakeProvider([{
+      content: "",
+      structuredOutput: {
+        approved: false,
+        summary: "More confirmation would be useful.",
+        feedback: ["Consider checking the release notes."],
+        missingRequirements: [],
+        repairFeedback: [],
+        evidenceRequests: ["Confirm the deployed version."],
+        followUps: [],
+        confidence: 0.65,
+      },
+    }], []),
+    "fake/model",
+    "/repo",
+    undefined,
+    () => {},
+  );
+
+  const review = await judge.review({
+    goal: "Rename the title",
+    changedFiles: ["src/title.ts"],
+    validationResults: [],
+    iteration: 1,
+    workspacePath: "/repo",
+    diff: "+Conduit",
+  });
+
+  assert.equal(review.result.approved, true);
+  assert.deepEqual(review.result.repairFeedback, []);
+  assert.deepEqual(review.result.followUps, ["Consider checking the release notes."]);
 });
 
 test("judge review retries malformed output once with an explicit repair request", async () => {
@@ -88,7 +124,7 @@ test("judge review retries malformed output once with an explicit repair request
     }],
     iteration: 1,
     workspacePath: "/repo",
-    getDiff: async () => ({ success: true, result: { diff: "+FarmBot" } }),
+    diff: "+FarmBot",
   });
 
   assert.equal(review.result.approved, true);
@@ -112,5 +148,27 @@ test("planning judge rejects schema-invalid plans before implementation begins",
   await assert.rejects(
     judge.createImplementationPlan("Rename the title"),
     /Invalid option|Invalid enum|status/,
+  );
+});
+
+test("planning judge requires commands when the validation contract calls for them", async () => {
+  const judge = new Judge(
+    fakeProvider([{
+      content: "",
+      structuredOutput: {
+        summary: "Incomplete validation contract",
+        tasks: [{ id: "1", description: "Implement the change", status: "pending" }],
+        validation: { strategy: "commands", rationale: "A test should be run.", commands: [] },
+      },
+    }], []),
+    "fake/model",
+    "/repo",
+    undefined,
+    () => {},
+  );
+
+  await assert.rejects(
+    judge.createImplementationPlan("Rename the title"),
+    /Command validation requires at least one command/,
   );
 });

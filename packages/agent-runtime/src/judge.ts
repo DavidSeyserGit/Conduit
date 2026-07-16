@@ -8,7 +8,6 @@ import type {
 } from "@conduit/shared";
 import { AgentPlanSchema, JudgeResultSchema } from "@conduit/shared";
 import type { ModelProvider } from "@conduit/model-providers";
-import type { ToolCallResult } from "@conduit/tools";
 import {
   JUDGE_SYSTEM_PROMPT,
   JUDGE_PLANNING_SYSTEM_PROMPT,
@@ -25,7 +24,7 @@ export interface JudgeContext {
   iteration: number;
   agentSummary?: string;
   workspacePath: string;
-  getDiff: () => Promise<ToolCallResult>;
+  diff: string;
 }
 
 export interface JudgeReviewResult {
@@ -51,16 +50,11 @@ export class Judge {
   async review(ctx: JudgeContext): Promise<JudgeReviewResult> {
     this.emit({ type: "judge_started", iteration: ctx.iteration });
 
-    const diffResult = await ctx.getDiff();
-    const diff =
-      diffResult.success && diffResult.result
-        ? (diffResult.result as { diff: string }).diff
-        : "";
     const prompt = buildJudgePrompt({
       goal: ctx.goal,
       plan: ctx.plan ? JSON.stringify(ctx.plan, null, 2) : undefined,
       changedFiles: ctx.changedFiles,
-      diff,
+      diff: ctx.diff,
       validationResults: ctx.validationResults,
       iteration: ctx.iteration,
       agentSummary: ctx.agentSummary,
@@ -91,6 +85,7 @@ export class Judge {
       tokenUsage = response.usage;
 
       result = this.parseJudgeResponse(response.structuredOutput ?? response.content);
+      result = this.normalizeEvidenceOnlyRejection(result, ctx.validationResults);
     } catch (firstError) {
       // Retry once with repair prompt
       try {
@@ -122,9 +117,9 @@ export class Judge {
 
         tokenUsage = addUsage(tokenUsage, retryResponse.usage);
 
-        result = this.parseJudgeResponse(
+        result = this.normalizeEvidenceOnlyRejection(this.parseJudgeResponse(
           retryResponse.structuredOutput ?? retryResponse.content
-        );
+        ), ctx.validationResults);
       } catch {
         result = {
           approved: false,
@@ -133,6 +128,9 @@ export class Judge {
             `Raw judge error: ${firstError instanceof Error ? firstError.message : String(firstError)}`,
           ],
           missingRequirements: ["Unable to evaluate — judge response was malformed"],
+          repairFeedback: ["Restore a valid judge evaluation response before continuing."],
+          evidenceRequests: [],
+          followUps: [],
           confidence: 0,
         };
       }
@@ -195,6 +193,30 @@ export class Judge {
 
     const parsed = JudgeResultSchema.parse(raw);
     return parsed;
+  }
+
+  private normalizeEvidenceOnlyRejection(
+    result: JudgeResult,
+    validationResults: ValidationResult[],
+  ): JudgeResult {
+    if (result.approved) return result;
+    const repairFeedback = Array.from(new Set([
+      ...result.repairFeedback,
+      ...result.missingRequirements,
+    ]));
+    const failedCommands = validationResults.filter((validation) => !validation.passed).map((validation) => validation.command);
+    if (failedCommands.length > 0 && repairFeedback.length === 0) {
+      repairFeedback.push(`Make required validation pass: ${failedCommands.join(", ")}`);
+    }
+    if (repairFeedback.length > 0) return { ...result, repairFeedback };
+
+    return {
+      ...result,
+      approved: true,
+      feedback: [],
+      followUps: Array.from(new Set([...result.followUps, ...result.feedback])),
+      summary: `${result.summary} No unmet original-goal requirement was identified.`,
+    };
   }
 }
 

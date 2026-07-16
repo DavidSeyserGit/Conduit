@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { AgentPlan, GoalRunEvent, GoalRunState } from "@conduit/shared";
+import type { GoalRunEvent, GoalRunState } from "@conduit/shared";
 import { useAppStore } from "@/stores/app-store";
 
 function latestEvent<T extends GoalRunEvent["type"]>(
@@ -9,7 +9,7 @@ function latestEvent<T extends GoalRunEvent["type"]>(
   return [...events].reverse().find((event): event is Extract<GoalRunEvent, { type: T }> => event.type === type);
 }
 
-function planForRun(events: GoalRunEvent[], run: GoalRunState | null): AgentPlan | undefined {
+function planForRun(events: GoalRunEvent[], run: GoalRunState | null) {
   return latestEvent(events, "plan_updated")?.plan ?? run?.plan;
 }
 
@@ -17,13 +17,11 @@ export function GoalCanvasOverlay() {
   const mode = useAppStore((state) => state.mode);
   const runEvents = useAppStore((state) => state.runEvents);
   const currentRun = useAppStore((state) => state.currentRun);
-  const workspacePath = useAppStore((state) => state.workspacePath);
-  const activeProjectPath = useAppStore((state) => state.activeProjectPath);
   const isRunning = useAppStore((state) => state.isRunning);
   const maxIterations = useAppStore((state) => state.maxIterations);
 
   const plan = planForRun(runEvents, currentRun);
-  const isWorktree = Boolean(activeProjectPath && workspacePath && workspacePath !== activeProjectPath);
+  const [showPlan, setShowPlan] = useState(false);
   const started = latestEvent(runEvents, "run_started");
   const hasRun = Boolean(started || currentRun);
   const hasTerminalEvent = runEvents.some((event) => event.type === "run_completed" || event.type === "run_failed");
@@ -39,6 +37,10 @@ export function GoalCanvasOverlay() {
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, [isRunActive, startedAt]);
+
+  useEffect(() => {
+    if (!plan?.tasks.length) setShowPlan(false);
+  }, [plan?.tasks.length]);
 
   if (mode !== "goal" || !hasRun || hasTerminalEvent) return null;
 
@@ -60,14 +62,14 @@ export function GoalCanvasOverlay() {
       : "bg-amber-500 animate-pulse";
 
   return (
-    <aside className="pointer-events-auto w-[220px] py-1 text-gray-500">
-      <header className="px-1 pb-2">
-        <div className="flex items-center gap-2 min-w-0">
+    <section className="rounded-xl border border-gray-200 bg-white/95 px-3 text-gray-500 shadow-sm backdrop-blur">
+      <div className="flex h-11 items-center gap-4 whitespace-nowrap">
+        <header className="flex items-center gap-3 min-w-0">
           <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${runIndicatorClass}`} />
-          <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-gray-500">Run</span>
-          <span className="truncate text-[11px] text-gray-400">{formatElapsed(elapsedSeconds)}</span>
-        </div>
-        <div className="mt-2 flex items-center gap-1">
+          <span className="text-xs font-semibold text-gray-700">Run in progress</span>
+          <span className="text-[11px] text-gray-400">{formatElapsed(elapsedSeconds)}</span>
+        </header>
+        <div className="flex items-center gap-1">
           {Array.from({ length: totalIterations }, (_, index) => {
             const iteration = index + 1;
             const complete = iteration <= completedIterations;
@@ -76,44 +78,32 @@ export function GoalCanvasOverlay() {
           })}
           <span className="ml-1 text-[10px] text-gray-400">Iteration {currentIteration}/{totalIterations}</span>
         </div>
-      </header>
-
-      <div className="space-y-1 border-t border-gray-200/60 px-1 pt-2 text-[10px] text-gray-400">
-        <div>{toolCalls} tool calls</div>
-        <div>{changedFiles} changed files</div>
+        <div className="flex items-center gap-3 text-[11px] text-gray-400">
+          <span>{toolCalls} tools</span>
+          <span>{changedFiles} files changed</span>
+        </div>
+        {isRunActive && <div className={`flex min-w-0 flex-1 items-center gap-1.5 text-[11px] ${heartbeatFresh ? "text-emerald-700" : "text-amber-700"}`}>
+          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${heartbeatFresh ? "bg-emerald-500" : "bg-amber-500"}`} />
+          <span className="truncate">{heartbeat
+            ? heartbeatFresh
+              ? heartbeat.source === "process"
+                ? `${heartbeat.provider} process confirmed alive ${formatAgo(heartbeatAge!)} ago`
+                : `Waiting for ${heartbeat.provider} ${heartbeat.phase === "planning" ? "plan" : heartbeat.phase === "judging" ? "judge response" : "response"} · open ${formatAgo(requestAge!)} `
+              : `No recent ${heartbeat.provider} confirmation · last ${formatAgo(heartbeatAge!)} ago`
+            : "Waiting for agent confirmation…"}</span>
+        </div>}
+        {plan?.tasks.length ? <button type="button" onClick={() => setShowPlan((value) => !value)} className="flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900" aria-expanded={showPlan}>
+          Plan {plan.tasks.filter((task) => task.status === "completed").length}/{plan.tasks.length}
+          <svg className={`h-3 w-3 transition-transform ${showPlan ? "rotate-180" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 9 6 6 6-6" /></svg>
+        </button> : null}
       </div>
-
-      {isRunActive && <div className={`mt-2 flex items-center gap-1.5 px-1 text-[10px] ${heartbeatFresh ? "text-emerald-700" : "text-amber-700"}`}>
-        <span className={`h-1.5 w-1.5 rounded-full ${heartbeatFresh ? "bg-emerald-500" : "bg-amber-500"}`} />
-        {heartbeat
-          ? heartbeatFresh
-            ? heartbeat.source === "process"
-              ? `${heartbeat.provider} process confirmed alive ${formatAgo(heartbeatAge!)} ago`
-              : `Waiting for ${heartbeat.provider} ${heartbeat.phase === "planning" ? "plan" : heartbeat.phase === "judging" ? "judge response" : "response"} · open ${formatAgo(requestAge!)} `
-            : `No recent ${heartbeat.provider} confirmation · last ${formatAgo(heartbeatAge!)} ago`
-          : "Waiting for agent confirmation…"}
-      </div>}
-
-      {plan?.tasks.length ? <section className="mt-3 border-t border-gray-200/60 pt-2.5">
-        <div className="flex items-center justify-between gap-2 px-1 pb-1">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-gray-400">Plan</span>
-          <span className="text-[10px] text-gray-400">{plan.tasks.filter((task) => task.status === "completed").length}/{plan.tasks.length}</span>
-        </div>
-        <div className="space-y-1">
-          {plan.tasks.slice(0, 6).map((task) => (
-            <div key={task.id} className={`flex items-start gap-2 rounded-md px-1 py-1 text-[11px] leading-snug ${task.status === "in_progress" ? "bg-white/55 text-indigo-700 backdrop-blur-sm" : "text-gray-500"}`}>
-              <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${task.status === "completed" ? "bg-emerald-500" : task.status === "in_progress" ? "bg-indigo-500" : task.status === "blocked" ? "bg-amber-500" : "bg-gray-300"}`} />
-              <span className={task.status === "completed" ? "text-gray-400 line-through" : ""}>{task.description}</span>
-            </div>
-          ))}
-        </div>
-      </section> : null}
-
-      <footer className="mt-3 border-t border-gray-200/60 px-1 pt-2 text-[10px]">
-        <div className="font-semibold uppercase tracking-[0.12em] text-gray-400">Workspace</div>
-        <div className={`mt-1 ${isWorktree ? "text-emerald-700" : "text-gray-500"}`}>{isWorktree ? "isolated worktree" : "project root"}</div>
-      </footer>
-    </aside>
+      {showPlan && plan?.tasks.length ? <div className="grid gap-1 border-t border-gray-200/60 py-2 sm:grid-cols-2 lg:grid-cols-3">
+        {plan.tasks.map((task) => <div key={task.id} title={task.description} className={`flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-[11px] ${task.status === "in_progress" ? "bg-indigo-50 text-indigo-700" : "bg-gray-50 text-gray-600"}`}>
+          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${task.status === "completed" ? "bg-emerald-500" : task.status === "in_progress" ? "bg-indigo-500" : task.status === "blocked" ? "bg-amber-500" : "bg-gray-300"}`} />
+          <span className={`truncate ${task.status === "completed" ? "text-gray-400 line-through" : ""}`}>{task.description}</span>
+        </div>)}
+      </div> : null}
+    </section>
   );
 }
 

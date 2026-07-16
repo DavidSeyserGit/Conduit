@@ -7,6 +7,8 @@ import fs from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import os from "node:os";
+import { runWorkspaceCommand } from "./dev-server/workspace-command.ts";
+import { captureGitSnapshot, getScopedGitDiff } from "@conduit/tools/node";
 import { AuthStorage, ModelRegistry, SessionManager, createAgentSession } from "@mariozechner/pi-coding-agent";
 import {
   buildCodexJudgeArgs,
@@ -182,7 +184,7 @@ function githubApi() {
         if (req.url === "/api/workspace/tool" && req.method === "POST") {
           try {
             const { workspace, name, args = {}, mode } = await readJson(req);
-            if (mode === "ask" && ["write_file", "replace_in_file", "create_file", "delete_file", "run_command", "get_git_diff"].includes(name)) throw new Error(`${name} is not available in Ask mode`);
+            if (mode === "ask" && ["write_file", "replace_in_file", "create_file", "delete_file", "run_command", "get_git_diff", "capture_git_snapshot"].includes(name)) throw new Error(`${name} is not available in Ask mode`);
             const root = path.resolve(workspace);
             const isClone = root.startsWith(`${path.resolve(workspaceRoot)}${path.sep}`);
             const isGitRepo = await fs.stat(path.join(root, ".git")).then(() => true).catch(() => false);
@@ -207,11 +209,15 @@ function githubApi() {
               else { if (name === "create_file") { try { await fs.access(target); throw new Error(`File already exists: ${args.path}`); } catch (e: any) { if (e.code !== "ENOENT") throw e; } } await fs.mkdir(path.dirname(target), { recursive: true }); await fs.writeFile(target, args.content); }
               result = { path: args.path };
             } else if (name === "run_command") {
-              const output = await execFileAsync(process.platform === "win32" ? "cmd" : "sh", process.platform === "win32" ? ["/C", args.command] : ["-c", args.command], { cwd: root, maxBuffer: 10 * 1024 * 1024, timeout: AGENT_TIMEOUT_MS }).catch((e: any) => e);
-              result = { command: args.command, exitCode: output.code ?? (output.killed ? 124 : 1), stdout: output.stdout || "", stderr: output.stderr || output.message || "", timedOut: output.code === null && output.killed === true };
+              result = await runWorkspaceCommand(args.command, root);
             } else if (name === "get_git_diff") {
-              const output = await execFileAsync("git", ["diff", ...(args.path ? ["--", args.path] : [])], { cwd: root });
-              result = { diff: output.stdout, hasChanges: Boolean(output.stdout) };
+              if (args.baselineTree) result = getScopedGitDiff(root, args.baselineTree, args.path);
+              else {
+                const output = await execFileAsync("git", ["diff", ...(args.path ? ["--", args.path] : [])], { cwd: root });
+                result = { diff: output.stdout, hasChanges: Boolean(output.stdout) };
+              }
+            } else if (name === "capture_git_snapshot") {
+              result = captureGitSnapshot(root);
             } else throw new Error(`Unknown tool: ${name}`);
             return res.end(JSON.stringify({ success: true, result }));
           } catch (error: any) { res.statusCode = 400; return res.end(JSON.stringify({ success: false, error: error.message || String(error) })); }
@@ -388,7 +394,7 @@ function githubApi() {
             status(judgeFeedback?.length ? "Applying judge feedback and revisiting the repository…" : "Pi is working through the repository…");
             const stopHeartbeat = stream.heartbeat("OpenRouter", "network", "Coding request remains open");
             try {
-              const prompt = `Work directly on this repository and complete the goal using your tools.\n\nGoal: ${goal}\nIteration: ${iteration} of ${maxIterations}\n${previousPlan ? `Previous plan:\n${JSON.stringify(previousPlan)}` : ""}\n${judgeFeedback?.length ? `Judge feedback:\n${judgeFeedback.join("\n")}` : ""}\nAt the end, briefly summarize verified work completed.`;
+              const prompt = `Work directly on this repository and complete the goal using your tools.\nPreserve pre-existing workspace changes from earlier goals. Do not treat a dirty worktree as part of the current goal; Conduit scopes review evidence to this run.\n\nGoal: ${goal}\nIteration: ${iteration} of ${maxIterations}\n${previousPlan ? `Previous plan:\n${JSON.stringify(previousPlan)}` : ""}\n${judgeFeedback?.length ? `Judge feedback:\n${judgeFeedback.join("\n")}` : ""}\nAt the end, briefly summarize verified work completed.`;
               let completed = false;
               for (let attempt = 0; attempt < 3 && !completed; attempt++) {
                 try {

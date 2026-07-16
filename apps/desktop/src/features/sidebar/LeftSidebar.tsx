@@ -229,20 +229,30 @@ function AddProject({ onClose, onAdded }: { onClose: () => void; onAdded: (proje
       }
       const clientId = inTauri() ? await invoke<string>("github_client_id") : (import.meta.env.VITE_GITHUB_CLIENT_ID || defaultGitHubClientId);
       if (!clientId) throw new Error("Set GITHUB_CLIENT_ID before starting the app.");
-      const response = await fetch("https://github.com/login/device/code", { method: "POST", headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ client_id: clientId, scope: "repo" }) });
-      const device = await response.json();
-      if (!response.ok) throw new Error(device.error_description || "GitHub authorization failed");
-      setVerification({ url: device.verification_uri, code: device.user_code });
+      const startRes = await invoke<{ success: boolean; result?: any; error?: string }>("github_device_start", { clientId });
+      if (!startRes.success || !startRes.result) throw new Error(startRes.error || "GitHub device flow failed");
+      const device = startRes.result;
+      if (device.error) throw new Error(device.error_description || device.error);
+      const verifUrl = device.verification_uri || "https://github.com/login/device";
+      setVerification({ url: verifUrl, code: device.user_code });
+      if (inTauri()) {
+        try {
+          const { openUrl } = await import("@tauri-apps/plugin-opener");
+          await openUrl(verifUrl);
+        } catch (err) { console.error("auto open failed", err); }
+      } else {
+        window.open(verifUrl, "_blank");
+      }
       for (let i = 0; i < 60; i++) {
         await new Promise((resolve) => setTimeout(resolve, (device.interval || 5) * 1000));
-        const poll = await fetch("https://github.com/login/oauth/access_token", { method: "POST", headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ client_id: clientId, device_code: device.device_code, grant_type: "urn:ietf:params:oauth:grant-type:device_code" }) });
-        const result = await poll.json();
+        const pollRes = await invoke<{ success: boolean; result?: any; error?: string }>("github_device_poll", { clientId, deviceCode: device.device_code });
+        if (!pollRes.success) throw new Error(pollRes.error || "GitHub authorization failed");
+        const result = pollRes.result;
+        if (!result) throw new Error("Empty poll response");
         if (result.access_token) {
-          if (inTauri()) await invoke("github_store_token", { token: result.access_token });
-          else localStorage.setItem("loopkit-github-token", result.access_token);
           await loadRepos(result.access_token); return;
         }
-        if (result.error !== "authorization_pending" && result.error !== "slow_down") throw new Error(result.error_description || result.error);
+        if (result.error && result.error !== "authorization_pending" && result.error !== "slow_down") throw new Error(result.error_description || result.error);
       }
       throw new Error("GitHub authorization timed out");
     } catch (e) { setError(String(e)); setLoading(false); } finally { setAuthorizing(false); setVerification(null); }
@@ -286,7 +296,44 @@ function AddProject({ onClose, onAdded }: { onClose: () => void; onAdded: (proje
       <div className="flex items-center justify-between mb-3"><h2 className="font-semibold">Add GitHub repository</h2><button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-xl">×</button></div>
       <p className="text-xs text-gray-500 mb-3">Authorize GitHub to access repositories you own or collaborate on.</p>
       {!token && !loading && <button onClick={authorize} disabled={authorizing} className="w-full mb-3 px-3 py-2 text-sm bg-gray-900 text-white rounded-lg disabled:bg-gray-300">{authorizing ? "Waiting for GitHub…" : "Connect GitHub"}</button>}
-      {verification && <div className="mb-3 rounded-lg bg-indigo-50 p-3 text-sm text-indigo-900"><div>Open GitHub and enter this code:</div><code className="block text-lg font-semibold tracking-widest my-1">{verification.code}</code><a href={verification.url} target="_blank" rel="noreferrer" className="font-medium underline">Open GitHub authorization</a></div>}
+      {verification && <div className="mb-3 rounded-lg bg-indigo-50 p-3 text-sm text-indigo-900">
+        <div>Device code (auto-opens GitHub):</div>
+        <code className="block text-lg font-semibold tracking-widest my-1 select-all cursor-text">{verification.code}</code>
+        <div className="text-xs opacity-70 break-all mb-2">{verification.url}</div>
+        <div className="flex items-center gap-2 mt-1">
+          <button
+            type="button"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={async (e) => {
+              e.preventDefault(); e.stopPropagation();
+              const url = verification.url;
+              console.log("[Conduit] opening", url);
+              try {
+                if (inTauri()) {
+                  const { openUrl } = await import("@tauri-apps/plugin-opener");
+                  await openUrl(url);
+                } else {
+                  window.open(url, "_blank", "noopener");
+                }
+              } catch (err) {
+                console.error("[Conduit] openUrl failed, fallback window.open", err);
+                window.open(url, "_blank");
+              }
+            }}
+            className="font-medium underline text-left px-2 py-1 bg-indigo-200 rounded"
+          >
+            Open GitHub authorization →
+          </button>
+          <button
+            type="button"
+            onClick={async () => { try { await navigator.clipboard.writeText(verification.code); } catch {} }}
+            className="text-xs px-2 py-1 bg-white border rounded hover:bg-indigo-50"
+            title="Copy code"
+          >
+            Copy code
+          </button>
+        </div>
+      </div>}
       {repos.length > 0 && <div className="mb-2 flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-400"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
         <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search repositories" className="min-w-0 flex-1 bg-transparent text-sm outline-none text-gray-900 placeholder-gray-400" />
