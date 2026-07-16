@@ -1,0 +1,25 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "Minimum native access required by the Conduit main window.",
+  "windows": ["main"],
+  "permissions": [
+    "dialog:allow-open",
+    "allow-tool-execute",
+    "allow-github-client-id",
+    "allow-github-get-token",
+    "allow-github-store-token",
+    "allow-openrouter-get-key",
+    "allow-openrouter-store-key",
+    "allow-git-clone-repo",
+    "allow-git-worktree-create",
+    "allow-git-worktree-remove",
+    "allow-git-handoff-status",
+    "allow-git-commit-changes",
+    "allow-git-push-branch",
+    "allow-local-harness-models",
+    "allow-local-harness-response",
+    "allow-local-harness-coding-iteration",
+    "allow-local-harness-cancel"
+  ]
+}

@@ -262,7 +262,7 @@ function githubApi() {
           let cleanupRequest = () => {};
           let activeSession: any;
           try {
-            const { workspace, goal, modelId, apiKey, previousPlan, judgeFeedback, iteration, maxIterations, inputPrice, outputPrice, supportsReasoning, codingReasoningEffort } = await readJson(req);
+            const { workspace, goal, modelId, apiKey, previousPlan, judgeFeedback, iteration, maxIterations, inputPrice, outputPrice, supportsReasoning, codingReasoningEffort, permissionMode } = await readJson(req);
             const root = path.resolve(workspace);
             const isClone = root.startsWith(`${path.resolve(workspaceRoot)}${path.sep}`);
             const isGitRepo = await fs.stat(path.join(root, ".git")).then(() => true).catch(() => false);
@@ -284,7 +284,7 @@ function githubApi() {
                   if (existing) Object.assign(existing, toolCall);
                   else toolCalls.push(toolCall);
                   stream.send({ event: { type: toolCall.status === "completed" ? "tool_completed" : "tool_started", toolCall } });
-                }, "worker");
+                }, "worker", permissionMode);
                 stream.status("Kilo finished; collecting changes…");
                 const diff = await execFileAsync("git", ["diff", "--name-only"], { cwd: root });
                 if (run.summary) stream.send({ event: { type: "agent_message", content: run.summary, messageId: randomUUID() } });

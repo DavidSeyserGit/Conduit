@@ -63,9 +63,10 @@ Tauri desktop shell with React frontend:
 - **Tailwind CSS** for styling
 - **react-markdown** for message rendering
 - **`backend/local-harness.ts`** for Codex/Kilo process policy, command construction,
-  model-ID translation, event parsing, timeouts, and child-process cleanup
-- **`vite.config.ts`** for HTTP/NDJSON transport and route composition only; it must
-  not duplicate provider-specific command or parsing rules
+  model-ID translation, event parsing, timeouts, and child-process cleanup in browser development
+- **`src-tauri/src/local_harness.rs`** for the equivalent packaged-app process boundary
+- **`src/lib/local-harness-transport.ts`** for typed, cancellable Tauri IPC
+- **`vite.config.ts`** for development HTTP/NDJSON transport and route composition
 
 ## Local Harness Boundaries
 
@@ -73,13 +74,13 @@ Local coding harnesses cross four deliberately separate layers:
 
 1. `GoalLoopRunner`, `Judge`, and `CodingAgent` decide **when** planning,
    implementation, validation, and review happen.
-2. `CodexProvider` and `KiloProvider` translate provider-agnostic model requests
-   into desktop HTTP calls. They do not spawn processes.
-3. `apps/desktop/backend/local-harness.ts` decides **how** each CLI is invoked.
-   Judge roles are read-only; worker roles are autonomous. It also owns process
-   timeout, cancellation, stdout parsing, stderr failures, and forced cleanup.
-4. Vite middleware validates the workspace and streams status/result packets. It
-   does not construct CLI permission flags or parse provider event formats.
+2. `CodexProvider` and `KiloProvider` use the `LocalHarnessTransport` contract.
+   They do not know whether HTTP development transport or packaged Tauri IPC is active.
+3. `apps/desktop/backend/local-harness.ts` owns development CLI execution, while
+   `src-tauri/src/local_harness.rs` owns packaged execution. Both enforce the same
+   role, timeout, cancellation, output-limit, and model-ID contracts.
+4. HTTP middleware and Tauri commands validate the workspace and carry typed
+   status/result events. Provider code never spawns a local process directly.
 
 The following invariants are enforced by tests:
 
@@ -88,7 +89,10 @@ The following invariants are enforced by tests:
 - Provider routing never guesses an unknown or legacy namespace.
 - Persisted legacy Kilo selections are migrated at the model-catalog boundary.
 - Judges receive no tools and use read-only CLI roles.
-- Workers receive coding roles and report changed files and validation.
+- Codex workers run with `workspace-write` sandboxing and never use the bypass flag.
+- Kilo workers receive an injected, fail-closed permission policy; macOS/Linux
+  workers also use Kilo's filesystem sandbox with outbound command network denied.
+- Workers report changed files and validation while cancellation terminates their process tree.
 - Structured output is schema-bound and parsed before entering the Goal loop.
 - A Goal cancellation reaches provider fetches and local child processes.
 - Codex stdin is closed explicitly so the CLI cannot wait forever for more prompt.
@@ -116,7 +120,9 @@ Execution Timeline (React)
 
 ## Security Model
 
-1. **Workspace isolation** — All file paths normalized and validated against workspace root
-2. **Command permissions** — Three modes: ask every time, auto-approve safe, auto-approve all
-3. **API key storage** — Local storage via Zustand persist; OS credential store via Tauri plugin (planned)
-4. **Judge isolation** — Judge model has no tool access; evaluates only observable artifacts
+1. **Workspace isolation** — Rust canonicalizes every existing path component, rejects symlink escapes, and caps file/search inputs.
+2. **Command permissions** — Rust independently validates the mode and command policy, uses a native approval dialog, and caps command time/output.
+3. **Harness isolation** — Judges are read-only; Codex uses its workspace sandbox; Kilo receives per-run permissions and OS sandbox policy.
+4. **Native least privilege** — A restrictive CSP and one explicit Tauri capability expose only high-level commands; shell/store plugins and raw tool commands are not exposed.
+5. **Credential storage** — GitHub and OpenRouter secrets use the operating-system keychain in the packaged app.
+6. **Process lifecycle** — Local harness work has request-scoped cancellation, process-tree termination, timeouts, and bounded output.

@@ -1,9 +1,38 @@
 import type {
+  AgentPlan,
   ModelDescriptor,
+  ModelMessage,
   ModelRequest,
   ModelResponse,
   ModelStreamEvent,
+  StoredToolCall,
+  TokenUsage,
+  ValidationResult,
+  CommandPermissionMode,
 } from "@conduit/shared";
+
+export interface CodingIterationRequest {
+  goal: string;
+  workspacePath: string;
+  modelId: string;
+  previousPlan?: AgentPlan;
+  judgeFeedback?: string[];
+  iteration: number;
+  maxIterations: number;
+  reasoningEffort?: string;
+  permissionMode?: CommandPermissionMode;
+  signal?: AbortSignal;
+}
+
+export interface CodingIterationResult {
+  changedFiles: string[];
+  validationResults: ValidationResult[];
+  agentSummary: string;
+  toolCalls: StoredToolCall[];
+  messages: ModelMessage[];
+  tokenUsage?: TokenUsage;
+  estimatedCost?: number;
+}
 
 export interface ModelProvider {
   readonly id: string;
@@ -17,6 +46,12 @@ export interface ModelProvider {
     request: ModelRequest,
     onEvent: (event: ModelStreamEvent) => void
   ): Promise<ModelResponse>;
+
+  /** Local autonomous harnesses may implement a complete coding iteration. */
+  runCodingIteration?(
+    request: CodingIterationRequest,
+    onEvent: (event: import("@conduit/shared").GoalRunEvent) => void,
+  ): Promise<CodingIterationResult>;
 }
 
 export interface LocalHarnessCapabilities {

@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Conduit",
         "width": 1100,
         "height": 750,
@@ -22,7 +23,19 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": {
+        "default-src": "'self' customprotocol: asset:",
+        "connect-src": "'self' ipc: http://ipc.localhost https://openrouter.ai https://api.github.com https://github.com",
+        "font-src": "'self' data:",
+        "img-src": "'self' asset: http://asset.localhost data: blob:",
+        "style-src": "'self' 'unsafe-inline'",
+        "script-src": "'self'",
+        "object-src": "'none'",
+        "base-uri": "'self'",
+        "frame-ancestors": "'none'",
+        "form-action": "'none'"
+      },
+      "freezePrototype": true
     }
   },
   "bundle": {
@@ -40,10 +53,6 @@
     }
   },
   "plugins": {
-    "dialog": {},
-    "shell": {
-      "open": true
-    },
-    "store": {}
+    "dialog": {}
   }
 }

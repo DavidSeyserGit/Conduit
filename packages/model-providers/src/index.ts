@@ -1,4 +1,4 @@
-export type { ModelProvider, ProviderRegistry } from "./provider.js";
+export type { ModelProvider, ProviderRegistry, CodingIterationRequest, CodingIterationResult } from "./provider.js";
 export { LocalHarnessProvider } from "./provider.js";
 export { DefaultProviderRegistry, findProviderForModel } from "./provider.js";
 export { OpenRouterProvider } from "./openrouter.js";
@@ -6,4 +6,6 @@ export { OpenAICompatibleProvider } from "./openai-compatible.js";
 export { ACPAgentProvider, AcpSessionManager } from "./acp.js";
 export { CodexProvider } from "./codex.js";
 export { KiloProvider } from "./kilo.js";
+export { HttpLocalHarnessTransport } from "./local-transport.js";
+export type { LocalHarnessTransport } from "./local-transport.js";
 export { HARNESS_DEFINITIONS, getHarnessDefinition } from "./harnesses.js";

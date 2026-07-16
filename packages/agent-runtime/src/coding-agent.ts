@@ -5,6 +5,7 @@ import type {
   AgentPlan,
   TokenUsage,
   ValidationResult,
+  CommandPermissionMode,
 } from "@conduit/shared";
 import type { ToolExecutor, ToolExecutorContext } from "@conduit/tools";
 import type { ModelProvider } from "@conduit/model-providers";
@@ -20,10 +21,6 @@ import {
 } from "./state.js";
 
 const MAX_TOOL_ROUNDS = 30;
-// A coding iteration may include several model/tool turns. Keep this longer
-// than the backend command timeout so a healthy long-running agent is not
-// mistaken for a dead server by the browser.
-const PI_REQUEST_TIMEOUT_MS = 20 * 60 * 1000;
 
 export interface CodingAgentConfig {
   goal: string;
@@ -43,6 +40,7 @@ export interface CodingAgentConfig {
   outputPrice?: number;
   supportsReasoning?: boolean;
   codingReasoningEffort?: string;
+  permissionMode?: CommandPermissionMode;
 }
 
 export interface CodingAgentResult {
@@ -58,94 +56,19 @@ export interface CodingAgentResult {
 
 export class CodingAgent {
   async run(config: CodingAgentConfig): Promise<CodingAgentResult> {
-    if (typeof window !== "undefined") {
-      const controller = new AbortController();
-      let timeout: ReturnType<typeof setTimeout> | undefined;
-      const armTimeout = () => {
-        clearTimeout(timeout);
-        timeout = setTimeout(() => controller.abort(), PI_REQUEST_TIMEOUT_MS);
-      };
-      armTimeout();
-      const abortRequest = () => controller.abort();
-      config.signal?.addEventListener("abort", abortRequest, { once: true });
-      try {
-        const response = await fetch("/api/agent/pi-iteration", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            workspace: config.workspacePath,
-            goal: config.goal,
-            modelId: config.modelId,
-            apiKey: config.modelApiKey,
-            previousPlan: config.previousPlan,
-            judgeFeedback: config.judgeFeedback,
-            iteration: config.iteration,
-            maxIterations: config.maxIterations,
-            inputPrice: config.inputPrice,
-            outputPrice: config.outputPrice,
-            supportsReasoning: config.supportsReasoning,
-            codingReasoningEffort: config.codingReasoningEffort,
-          }),
-          signal: controller.signal,
-        });
-        if (!response.ok) {
-          const error = await response.text();
-          throw new Error(error || `Pi backend failed (${response.status})`);
-        }
-
-        if (response.headers.get("content-type")?.includes("application/x-ndjson") && response.body) {
-          const reader = response.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = "";
-          let result: CodingAgentResult | undefined;
-          let lastStatus = "the agent stream started";
-          while (true) {
-            let chunk: ReadableStreamReadResult<Uint8Array>;
-            try {
-              chunk = await reader.read();
-            } catch (error) {
-              const reason = error instanceof Error ? error.message : String(error);
-              throw new Error(`Agent stream interrupted after ${lastStatus}: ${reason}`);
-            }
-            const { done, value } = chunk;
-            armTimeout();
-            buffer += decoder.decode(value, { stream: !done });
-            for (const line of buffer.split("\n").slice(0, done ? undefined : -1)) {
-              if (!line.trim()) continue;
-              const packet = JSON.parse(line) as { event?: GoalRunEvent; result?: CodingAgentResult; error?: string };
-              if (packet.event) {
-                config.emit(packet.event);
-                if (packet.event.type === "agent_status") lastStatus = `status “${packet.event.message}”`;
-                if (packet.event.type === "tool_started") lastStatus = `tool “${packet.event.toolCall.name}” started`;
-              }
-              if (packet.error) throw new Error(packet.error);
-              if (packet.result) result = packet.result;
-            }
-            buffer = done ? "" : buffer.split("\n").at(-1) ?? "";
-            if (done) break;
-          }
-          if (!result) throw new Error("Pi backend returned no result");
-        return result;
-        }
-
-        const body = await response.text();
-        if (!body) throw new Error(`Pi backend returned an empty response (${response.status})`);
-        const result = JSON.parse(body) as { result?: CodingAgentResult; events?: GoalRunEvent[]; error?: string };
-        if (!result.result) throw new Error(result.error || `Pi backend failed (${response.status})`);
-        for (const event of result.events ?? []) config.emit(event);
-        return result.result;
-      } catch (error) {
-        if (controller.signal.aborted && !config.signal?.aborted) {
-          throw new Error("Coding agent timed out after 20 minutes. Check the model/API connection and try again.");
-        }
-        if (error instanceof TypeError && /fetch|network|load failed/i.test(error.message)) {
-          throw new Error("Could not reach the Conduit agent backend. Check that the Vite/Tauri server is running and try again.");
-        }
-        throw error;
-      } finally {
-        clearTimeout(timeout);
-        config.signal?.removeEventListener("abort", abortRequest);
-      }
+    if (config.provider.runCodingIteration) {
+      return config.provider.runCodingIteration({
+        goal: config.goal,
+        workspacePath: config.workspacePath,
+        modelId: config.modelId,
+        previousPlan: config.previousPlan,
+        judgeFeedback: config.judgeFeedback,
+        iteration: config.iteration,
+        maxIterations: config.maxIterations,
+        reasoningEffort: config.codingReasoningEffort,
+        permissionMode: config.permissionMode,
+        signal: config.signal,
+      }, config.emit);
     }
 
     const toolCalls: StoredToolCall[] = [];
