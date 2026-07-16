@@ -15,6 +15,7 @@ concurrency:
 jobs:
   verify:
     uses: ./.github/workflows/verify.yml
+    secrets: inherit
 
   publish:
     name: Build ${{ matrix.label }}

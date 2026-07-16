@@ -56,7 +56,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "GgxsqVp5bo53fN5R4o92Q0dvsNtEztaC59gLs/xG6Rc=",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDEyQTMxRjdFODlFMDg4OUMKUldTY2lPQ0pmaCtqRW95enhheXcvaFNnR04ydEQ5d2VSTGNkRlNEaVBieVRLRVRKKzREeFdDTjIK",
       "endpoints": [
         "https://github.com/DavidSeyserGit/Conduit/releases/latest/download/latest.json"
       ]
