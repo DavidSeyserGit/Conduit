@@ -17,6 +17,18 @@ jobs:
     uses: ./.github/workflows/verify.yml
     secrets: inherit
 
+  verify-release:
+    name: Assert updater manifest
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Check latest.json matches tag
+        run: node scripts/verify-release-manifest.mjs "${{ github.ref_name }}" "${{ github.repository }}"
+
   publish:
     name: Build ${{ matrix.label }}
     needs: verify
