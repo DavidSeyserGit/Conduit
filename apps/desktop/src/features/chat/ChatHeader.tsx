@@ -13,6 +13,7 @@ export function ChatHeader() {
   const mode = useAppStore((s) => s.mode);
   const setMode = useAppStore((s) => s.setMode);
   const isRunning = useAppStore((s) => s.isRunning);
+  const pendingApproval = useAppStore((s) => s.pendingApproval);
   const createWorktree = useAppStore((s) => s.createWorktree);
   const removeWorktree = useAppStore((s) => s.removeWorktree);
   const openGitDiff = useAppStore((s) => s.openGitDiff);
@@ -45,6 +46,10 @@ export function ChatHeader() {
           <span>{formatTokens(sessionUsage.totalTokens)} tokens</span>
           {(sessionUsage.cacheReadTokens > 0 || sessionUsage.cacheWriteTokens > 0) && <span className="text-indigo-500">{formatTokens(sessionUsage.cacheReadTokens + sessionUsage.cacheWriteTokens)} cached</span>}
           <span className="text-gray-700">{formatCost(sessionUsage.totalCost)}</span>
+        </span>}
+        {isRunning && <span className={`hidden sm:inline-flex items-center gap-1.5 px-2 py-1 text-[11px] font-medium rounded-md border ${pendingApproval ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-indigo-50 border-indigo-100 text-indigo-700"}`} title={pendingApproval ? "A command approval is required to continue." : "A Conduit run is in progress."}>
+          <span className={`w-1.5 h-1.5 rounded-full ${pendingApproval ? "bg-amber-500" : "bg-indigo-500 animate-pulse"}`} />
+          {pendingApproval ? "Approval needed" : "Working"}
         </span>}
       </div>
 

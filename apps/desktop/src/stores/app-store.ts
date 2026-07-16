@@ -41,6 +41,7 @@ export interface RunHistoryEntry {
 export interface ChatSession {
   id: string;
   title: string;
+  pinned?: boolean;
   workspacePath?: string;
   branch?: string;
   worktreePath?: string;
@@ -64,6 +65,8 @@ interface AppState {
   openSession: (workspacePath: string, sessionId: string) => void;
   newChat: () => void;
   deleteChat: (workspacePath: string, sessionId: string) => void;
+  renameChat: (workspacePath: string, sessionId: string, title: string) => void;
+  toggleChatPin: (workspacePath: string, sessionId: string) => void;
   createWorktree: () => Promise<void>;
   removeWorktree: () => Promise<void>;
 
@@ -99,6 +102,10 @@ interface AppState {
   setCodexReasoningEffort: (modelId: string, effort: string) => void;
   setJudgeModelId: (id: string) => void;
   setMaxIterations: (n: number) => void;
+  favoriteModelIds: string[];
+  recentModelIds: string[];
+  toggleFavoriteModel: (id: string) => void;
+  recordRecentModel: (id: string) => void;
 
   // Goal run
   currentRun: GoalRunState | null;
@@ -228,6 +235,7 @@ function snapshotSession(state: AppState): ChatSession {
   return {
     id: state.activeSessionId,
     title: existing?.title !== "New chat" ? existing?.title || "New chat" : firstUserMessage?.slice(0, 60) || "New chat",
+    pinned: existing?.pinned,
     workspacePath: state.workspacePath,
     branch: existing?.branch,
     worktreePath: existing?.worktreePath,
@@ -391,6 +399,22 @@ export const useAppStore = create<AppState>()(
           sessions: { ...state.sessions, [path]: remaining.length ? remaining : [nextSession] },
         });
       },
+      renameChat: (path, sessionId, title) => {
+        const nextTitle = title.trim();
+        if (!nextTitle) return;
+        set((state) => ({
+          sessions: {
+            ...state.sessions,
+            [path]: (state.sessions[path] || []).map((session) => session.id === sessionId ? { ...session, title: nextTitle, updatedAt: new Date().toISOString() } : session),
+          },
+        }));
+      },
+      toggleChatPin: (path, sessionId) => set((state) => ({
+        sessions: {
+          ...state.sessions,
+          [path]: (state.sessions[path] || []).map((session) => session.id === sessionId ? { ...session, pinned: !session.pinned } : session),
+        },
+      })),
       createWorktree: async () => {
         const state = get();
         if (state.isRunning || !state.activeProjectPath || !state.activeSessionId) return;
@@ -563,6 +587,16 @@ export const useAppStore = create<AppState>()(
       })),
       setJudgeModelId: (id) => set({ judgeModelId: id }),
       setMaxIterations: (n) => set({ maxIterations: Math.min(10, Math.max(1, n)) }),
+      favoriteModelIds: [],
+      recentModelIds: [],
+      toggleFavoriteModel: (id) => set((state) => ({
+        favoriteModelIds: state.favoriteModelIds.includes(id)
+          ? state.favoriteModelIds.filter((modelId) => modelId !== id)
+          : [...state.favoriteModelIds, id],
+      })),
+      recordRecentModel: (id) => set((state) => ({
+        recentModelIds: [id, ...state.recentModelIds.filter((modelId) => modelId !== id)].slice(0, 8),
+      })),
 
       currentRun: null,
       runEvents: [],
@@ -865,6 +899,8 @@ export const useAppStore = create<AppState>()(
         codexReasoningEfforts: state.codexReasoningEfforts,
         judgeModelId: state.judgeModelId,
         maxIterations: state.maxIterations,
+        favoriteModelIds: state.favoriteModelIds,
+        recentModelIds: state.recentModelIds,
         mode: state.mode,
         goalDraft: state.goalDraft,
         currentRun: state.currentRun,

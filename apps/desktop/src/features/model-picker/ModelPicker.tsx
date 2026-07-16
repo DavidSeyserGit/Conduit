@@ -13,24 +13,38 @@ interface ModelPickerProps {
 }
 
 type PickerView = "models" | "reasoning";
+type ModelScope = "all" | "favorites" | string;
 
 export function ModelPicker({ label, value, onChange, compact, isJudgePicker }: ModelPickerProps) {
   const models = useAppStore((s) => s.models);
   const codingModelId = useAppStore((s) => s.codingModelId);
   const codexReasoningEfforts = useAppStore((s) => s.codexReasoningEfforts);
   const setCodexReasoningEffort = useAppStore((s) => s.setCodexReasoningEffort);
+  const favoriteModelIds = useAppStore((s) => s.favoriteModelIds);
+  const recentModelIds = useAppStore((s) => s.recentModelIds);
+  const toggleFavoriteModel = useAppStore((s) => s.toggleFavoriteModel);
+  const recordRecentModel = useAppStore((s) => s.recordRecentModel);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const [provider, setProvider] = useState("all");
+  const [provider, setProvider] = useState<ModelScope>("all");
   const [view, setView] = useState<PickerView>("models");
   const [reasoningModelId, setReasoningModelId] = useState<string | null>(null);
   const providers = useMemo(() => Array.from(new Set(models.map((model) => model.provider))), [models]);
   const filtered = useMemo(() => {
-    const scoped = provider === "all" ? models : models.filter((model) => model.provider === provider);
-    if (!search) return scoped;
+    const scoped = provider === "favorites" ? models.filter((model) => favoriteModelIds.includes(model.id)) : provider === "all" ? models : models.filter((model) => model.provider === provider);
+    const ordered = [...scoped].sort((a, b) => {
+      const favoriteDifference = Number(favoriteModelIds.includes(b.id)) - Number(favoriteModelIds.includes(a.id));
+      if (favoriteDifference) return favoriteDifference;
+      const recentRank = (id: string) => {
+        const index = recentModelIds.indexOf(id);
+        return index === -1 ? Number.MAX_SAFE_INTEGER : index;
+      };
+      return recentRank(a.id) - recentRank(b.id);
+    });
+    if (!search) return ordered;
     const query = search.toLowerCase();
-    return scoped.filter((model) => `${model.displayName} ${model.id} ${model.provider}`.toLowerCase().includes(query));
-  }, [models, provider, search]);
+    return ordered.filter((model) => `${model.displayName} ${model.id} ${model.provider}`.toLowerCase().includes(query));
+  }, [favoriteModelIds, models, provider, recentModelIds, search]);
   const selected = models.find((model) => model.id === value);
   const reasoningModel = models.find((model) => model.id === reasoningModelId);
   const selectedCodexReasoningModel = selected && supportsCodexReasoning(selected) ? selected : undefined;
@@ -51,6 +65,7 @@ export function ModelPicker({ label, value, onChange, compact, isJudgePicker }: 
 
   const selectModel = (model: ModelDescriptor) => {
     onChange(model.id);
+    recordRecentModel(model.id);
     if (supportsCodexReasoning(model)) {
       openReasoning(model);
       return;
@@ -80,7 +95,8 @@ export function ModelPicker({ label, value, onChange, compact, isJudgePicker }: 
 
       {open && <div className={`absolute z-50 w-[430px] h-[360px] overflow-hidden bg-white border border-gray-200 rounded-2xl shadow-xl flex ${compact ? "bottom-full mb-2 right-0" : "top-full mt-2 left-0"}`}>
         <aside className="w-12 shrink-0 border-r border-gray-100 bg-gray-50/70 flex flex-col items-center py-2 gap-1">
-          <ProviderTab active={provider === "all" && !isReasoningView} label="All models" onClick={() => { setProvider("all"); setView("models"); }}><span>★</span></ProviderTab>
+          <ProviderTab active={provider === "favorites" && !isReasoningView} label="Favorite models" onClick={() => { setProvider("favorites"); setView("models"); }}><span>★</span></ProviderTab>
+          <ProviderTab active={provider === "all" && !isReasoningView} label="All models" onClick={() => { setProvider("all"); setView("models"); }}><span>◉</span></ProviderTab>
           {providers.map((name) => <ProviderTab key={name} active={provider === name && !isReasoningView} label={name} onClick={() => { setProvider(name); setView("models"); }}><ProviderIcon provider={name} /></ProviderTab>)}
         </aside>
         <div className="min-w-0 flex-1 flex flex-col">
@@ -108,7 +124,7 @@ export function ModelPicker({ label, value, onChange, compact, isJudgePicker }: 
               <svg className="w-3.5 h-3.5 text-indigo-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="m9 18 6-6-6-6"/></svg>
             </button>}
             <div className="overflow-y-auto flex-1 p-1.5">
-              {filtered.length === 0 ? <div className="p-6 text-sm text-gray-500 text-center">{models.length === 0 ? "No models loaded" : "No models found"}</div> : filtered.map((model) => <ModelOption key={model.id} model={model} selected={model.id === value} onSelect={() => selectModel(model)} isJudgePicker={isJudgePicker} codingModelId={codingModelId} reasoningEffort={supportsCodexReasoning(model) ? resolveReasoningEffort(model, codexReasoningEfforts) : undefined} />)}
+              {filtered.length === 0 ? <div className="p-6 text-sm text-gray-500 text-center">{models.length === 0 ? "No models loaded" : provider === "favorites" ? "No favorite models yet" : "No models found"}</div> : filtered.map((model) => <ModelOption key={model.id} model={model} selected={model.id === value} onSelect={() => selectModel(model)} isJudgePicker={isJudgePicker} codingModelId={codingModelId} reasoningEffort={supportsCodexReasoning(model) ? resolveReasoningEffort(model, codexReasoningEfforts) : undefined} favorite={favoriteModelIds.includes(model.id)} recent={recentModelIds.includes(model.id)} onToggleFavorite={() => toggleFavoriteModel(model.id)} />)}
             </div>
           </>}
         </div>
@@ -128,13 +144,14 @@ function ProviderIcon({ provider }: { provider: string }) {
   return <span className="text-xs font-semibold">{provider.slice(0, 2).toUpperCase()}</span>;
 }
 
-function ModelOption({ model, selected, onSelect, isJudgePicker, codingModelId, reasoningEffort }: { model: ModelDescriptor; selected: boolean; onSelect: () => void; isJudgePicker?: boolean; codingModelId: string; reasoningEffort?: string }) {
+function ModelOption({ model, selected, onSelect, isJudgePicker, codingModelId, reasoningEffort, favorite, recent, onToggleFavorite }: { model: ModelDescriptor; selected: boolean; onSelect: () => void; isJudgePicker?: boolean; codingModelId: string; reasoningEffort?: string; favorite: boolean; recent: boolean; onToggleFavorite: () => void }) {
   const isCodex = model.provider === "codex";
   const isRecommendedJudge = isJudgePicker && codingModelId && isRecommendedJudgeModel(codingModelId, model.id);
   const supportsCodingTools = isJudgePicker || model.supportsTools;
 
-  return <button onClick={onSelect} disabled={!supportsCodingTools} className={`w-full text-left px-3 py-2.5 rounded-xl transition-colors ${selected ? "bg-fuchsia-50" : supportsCodingTools ? "hover:bg-gray-50" : "opacity-50 cursor-not-allowed"}`}>
-    <div className="flex items-center gap-2">
+  return <div className={`group relative w-full rounded-xl transition-colors ${selected ? "bg-fuchsia-50" : supportsCodingTools ? "hover:bg-gray-50" : "opacity-50"}`}>
+    <button onClick={onSelect} disabled={!supportsCodingTools} className="w-full text-left px-3 py-2.5 disabled:cursor-not-allowed">
+    <div className="flex items-center gap-2 pr-7">
       <span className="w-6 h-6 rounded-md bg-gray-50 text-gray-500 flex items-center justify-center shrink-0"><ProviderIcon provider={model.provider} /></span>
       <span className="text-sm text-gray-900 truncate font-medium flex-1">{model.displayName}</span>
       {isRecommendedJudge && <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded font-medium">Recommended judge</span>}
@@ -144,12 +161,15 @@ function ModelOption({ model, selected, onSelect, isJudgePicker, codingModelId, 
     </div>
     <div className="flex items-center gap-2 mt-1 pl-8">
       <span className="text-[11px] text-gray-400">{model.provider}</span>
+      {recent && !favorite && <span className="text-[11px] text-gray-400">Recent</span>}
       {model.contextLength && <span className="text-[11px] text-gray-400">{(model.contextLength / 1000).toFixed(0)}k ctx</span>}
       {model.supportsTools && <span className="text-[11px] text-emerald-600">tools</span>}
       {reasoningEffort && <span className="text-[11px] text-indigo-600">{formatReasoningEffort(reasoningEffort)} reasoning</span>}
-      {model.inputPrice !== undefined && <span className="text-[11px] text-gray-400">${model.inputPrice.toFixed(2)}/M</span>}
+      {model.inputPrice !== undefined && <span className="text-[11px] text-gray-400">${model.inputPrice.toFixed(2)} in · ${model.outputPrice?.toFixed(2) ?? "—"} out/M</span>}
     </div>
-  </button>;
+    </button>
+    <button type="button" onClick={onToggleFavorite} className={`absolute right-2 top-2 p-1 rounded-md transition-colors ${favorite ? "text-amber-500" : "text-gray-300 hover:text-amber-500 opacity-0 group-hover:opacity-100 focus:opacity-100"}`} title={favorite ? "Remove from favorites" : "Add to favorites"} aria-label={favorite ? `Remove ${model.displayName} from favorites` : `Add ${model.displayName} to favorites`}>★</button>
+  </div>;
 }
 
 function ReasoningPanel({ model, value, onBack, onChange }: { model: ModelDescriptor; value: string; onBack: () => void; onChange: (effort: string) => void }) {
