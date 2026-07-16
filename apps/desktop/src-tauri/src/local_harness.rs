@@ -19,6 +19,9 @@ const PROCESS_OUTPUT_LIMIT: usize = 20 * 1024 * 1024;
 const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const PROCESS_KILL_GRACE: Duration = Duration::from_secs(2);
 
+type HeartbeatCallback = Arc<dyn Fn() + Send + Sync>;
+type LineCallback = Arc<dyn Fn(&str) + Send + Sync>;
+
 #[derive(Clone, Default)]
 pub struct HarnessProcessState {
     active: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
@@ -567,7 +570,7 @@ fn run_process(
     args: &[String],
     cwd: &Path,
     cancelled: Arc<AtomicBool>,
-    heartbeat: Option<Arc<dyn Fn() + Send + Sync>>,
+    heartbeat: Option<HeartbeatCallback>,
 ) -> Result<ProcessCapture, String> {
     run_process_with_stdout(program, args, cwd, cancelled, heartbeat, None)
 }
@@ -602,8 +605,8 @@ fn run_process_with_stdout(
     args: &[String],
     cwd: &Path,
     cancelled: Arc<AtomicBool>,
-    heartbeat: Option<Arc<dyn Fn() + Send + Sync>>,
-    on_stdout_line: Option<Arc<dyn Fn(&str) + Send + Sync>>,
+    heartbeat: Option<HeartbeatCallback>,
+    on_stdout_line: Option<LineCallback>,
 ) -> Result<ProcessCapture, String> {
     run_process_with_options(
         program,
@@ -624,8 +627,8 @@ fn run_process_with_options(
     args: &[String],
     cwd: &Path,
     cancelled: Arc<AtomicBool>,
-    heartbeat: Option<Arc<dyn Fn() + Send + Sync>>,
-    on_stdout_line: Option<Arc<dyn Fn(&str) + Send + Sync>>,
+    heartbeat: Option<HeartbeatCallback>,
+    on_stdout_line: Option<LineCallback>,
     environment: Option<Vec<(String, String)>>,
     timeout: Duration,
     require_success: bool,
@@ -720,10 +723,7 @@ fn run_process_with_options(
     })
 }
 
-fn read_bounded<R: Read>(
-    reader: R,
-    on_line: Option<Arc<dyn Fn(&str) + Send + Sync>>,
-) -> Result<String, String> {
+fn read_bounded<R: Read>(reader: R, on_line: Option<LineCallback>) -> Result<String, String> {
     let mut reader = BufReader::new(reader);
     let mut output = Vec::new();
     let mut overflowed = false;
