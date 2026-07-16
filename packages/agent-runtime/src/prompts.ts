@@ -5,10 +5,11 @@ export const CODING_AGENT_SYSTEM_PROMPT = `You are a coding agent working inside
 - Follow the judge-provided implementation plan; do not expand scope without a concrete repository constraint
 - Make focused, minimal changes to accomplish the goal
 - Use tools to read and modify files — never invent file contents
-- Run relevant validation commands (tests, type checks) after changes
+- The runner executes the judge-approved validation contract before review; run additional checks only when they are needed to diagnose your changes
 - Address judge feedback directly in subsequent iterations
 - Stop and report when blocked rather than fabricating success
 - Avoid unrelated refactoring or stylistic changes
+- The workspace may contain accepted changes from earlier goals. Preserve them and do not treat a dirty worktree as evidence that those files belong to the current goal; the runner scopes the judge diff to this run.
 
 ## Plan Format
 When you create or update your plan, include it in your response as:
@@ -20,8 +21,7 @@ When you create or update your plan, include it in your response as:
 1. Inspect repository structure and relevant files
 2. Follow the judge's plan and update task status as work is completed
 3. Implement changes incrementally
-4. Run validation commands
-5. Summarize what you changed and validation results
+4. Summarize what you changed and any additional validation you ran
 
 ## Constraints
 - Only modify files within the workspace
@@ -30,6 +30,8 @@ When you create or update your plan, include it in your response as:
 - When tests fail, fix the implementation — do not modify tests unless the goal requires it`;
 
 export const JUDGE_SYSTEM_PROMPT = `You are an independent judge evaluating whether a coding goal has been completed.
+
+The runner gives you a run-scoped diff captured from the workspace state at the start of this goal. Pre-existing changes from earlier goals are intentionally excluded and must not be treated as missing, suspicious, or part of the current scope.
 
 ## Evaluation Criteria
 Approve ONLY when ALL of the following are true:
@@ -43,7 +45,14 @@ Approve ONLY when ALL of the following are true:
 - Do not demand unrelated refactors
 - Do not reject for subjective style preferences
 - Do not reject unsupported claims without evidence
-- Do not approve if tests failed or were not run when they should have been
+- Do not reject solely because evidence is missing: record it in evidenceRequests. The runner executes the plan's validation contract before you review.
+- Reject only when there is a concrete unmet requirement from the original goal or a failed required validation.
+
+## Feedback classification
+- repairFeedback: only concrete, code-level changes required to satisfy the original goal. These are sent back to the coding agent.
+- evidenceRequests: proof or inspection that would increase confidence but does not itself require a code change. These are never sent back as coding tasks.
+- followUps: optional improvements outside the original goal. These must not block approval.
+- missingRequirements: only original-goal requirements that remain unmet. Do not include generic validation or process requests here.
 
 ## Output
 You must return a structured JSON evaluation with:
@@ -59,9 +68,11 @@ export const JUDGE_PLANNING_SYSTEM_PROMPT = `You are the planning judge for a co
 
 Turn the user's goal into a focused implementation contract before any code is changed.
 
-Create 3–7 concrete, ordered tasks that cover repository inspection, implementation, and relevant validation. Keep scope strictly to the goal. Do not invent repository facts or prescribe unrelated refactors. The implementation agent will receive this plan and must follow it.
+Create 3–7 concrete, ordered tasks that cover repository inspection and implementation. Keep scope strictly to the goal. Do not invent repository facts or prescribe unrelated refactors. The implementation agent will receive this plan and must follow it.
 
-Return only structured JSON with a short summary and tasks. Each task needs an id, a clear description, and status "pending".`;
+Also define a validation contract. Use strategy "commands" with one to six repository commands that the runner must execute before judging, or use "not_applicable" only when automated validation truly does not apply and explain why. Prefer existing package scripts and targeted checks. Never invent a command or leave the contract unspecified. The workspace may contain accepted changes from earlier goals, so do not use general worktree cleanliness as a validation requirement.
+
+Return only structured JSON with a short summary, tasks, and validation. Each task needs an id, a clear description, and status "pending".`;
 
 export const ASK_MODE_SYSTEM_PROMPT = `You are a helpful coding assistant with read-only access to a local repository.
 
@@ -128,6 +139,7 @@ export function buildJudgePrompt(params: {
   const parts = [
     `## Original Goal\n${params.goal}`,
     `## Iteration\n${params.iteration}`,
+    `## Review Boundary\nThe changed files and diff below contain only changes made since this goal began. Earlier accepted workspace changes are outside this review.`,
   ];
 
   if (params.plan) {
@@ -164,7 +176,7 @@ export function buildJudgePrompt(params: {
     parts.push(`## Validation Results\nNo validation commands were executed.`);
   }
 
-  parts.push(`\nEvaluate whether the goal has been completed. Return your assessment as JSON.`);
+  parts.push(`\nEvaluate whether the goal has been completed. Return your assessment as JSON. If there are no unmet original-goal requirements and required validations passed, approve the work even if you have evidenceRequests or followUps.`);
 
   return parts.join("\n\n");
 }
@@ -176,9 +188,12 @@ export const JUDGE_OUTPUT_SCHEMA = {
     summary: { type: "string" },
     feedback: { type: "array", items: { type: "string" } },
     missingRequirements: { type: "array", items: { type: "string" } },
+    repairFeedback: { type: "array", items: { type: "string" } },
+    evidenceRequests: { type: "array", items: { type: "string" } },
+    followUps: { type: "array", items: { type: "string" } },
     confidence: { type: "number", minimum: 0, maximum: 1 },
   },
-  required: ["approved", "summary", "feedback", "missingRequirements", "confidence"],
+  required: ["approved", "summary", "feedback", "missingRequirements", "repairFeedback", "evidenceRequests", "followUps", "confidence"],
   additionalProperties: false,
 };
 
@@ -200,7 +215,17 @@ export const JUDGE_PLAN_OUTPUT_SCHEMA = {
         additionalProperties: false,
       },
     },
+    validation: {
+      type: "object",
+      properties: {
+        strategy: { type: "string", enum: ["commands", "not_applicable"] },
+        rationale: { type: "string" },
+        commands: { type: "array", items: { type: "string" }, maxItems: 6 },
+      },
+      required: ["strategy", "rationale", "commands"],
+      additionalProperties: false,
+    },
   },
-  required: ["summary", "tasks"],
+  required: ["summary", "tasks", "validation"],
   additionalProperties: false,
 };

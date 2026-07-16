@@ -37,6 +37,7 @@ html.dark {
 /* The interface relies on Tailwind's neutral palette. These token-level overrides
    keep every surface, popup, and form control legible in the dark theme. */
 .dark .bg-white { background-color: #1d2026; }
+.dark .bg-white\/95 { background-color: rgb(29 32 38 / 0.95); }
 .dark .bg-gray-50 { background-color: #24272e; }
 .dark .bg-gray-100 { background-color: #2c3038; }
 .dark .bg-gray-200 { background-color: #3a404a; }

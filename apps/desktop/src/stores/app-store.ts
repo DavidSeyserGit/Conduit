@@ -141,6 +141,7 @@ const defaultSettings: AppSettings = {
   inputGlowColor: "#3b82f6",
   commandPermissionMode: "auto_approve_safe",
   defaultMaxIterations: 3,
+  autoCheckUpdates: true,
 };
 
 const MODEL_CACHE_TTL_MS = 24 * 60 * 60 * 1000;

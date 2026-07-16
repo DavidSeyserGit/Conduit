@@ -17,6 +17,9 @@ export function ChatTimeline() {
   const settings = useAppStore((s) => s.settings);
   const modeStatusColor = getModeColor(settings, mode);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const hasActiveRun = mode === "goal"
+    && (runEvents.some((event) => event.type === "run_started") || Boolean(currentRun))
+    && !runEvents.some((event) => event.type === "run_completed" || event.type === "run_failed");
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -36,13 +39,12 @@ export function ChatTimeline() {
   }
 
   return (
-    <div className="relative flex-1 min-h-0 overflow-y-auto px-6 py-6">
-      <div className="sticky top-1/2 z-20 h-0 -translate-y-1/2 pointer-events-none">
-        <div className="flex w-full justify-end pr-10">
-          <GoalCanvasOverlay />
-        </div>
-      </div>
-      <div className="max-w-6xl mx-auto space-y-6">
+    <div className="flex-1 min-h-0 flex flex-col">
+      {hasActiveRun && <div className="shrink-0 px-6 pt-4 pb-2 border-b border-gray-100 bg-white">
+        <div className="max-w-6xl mx-auto"><GoalCanvasOverlay /></div>
+      </div>}
+      <div className="relative flex-1 min-h-0 overflow-y-auto px-6 py-6">
+        <div className="max-w-6xl mx-auto space-y-6">
         {messages.map((msg) => (
           <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
             <div className={`max-w-[82%] ${msg.role === "user" ? "items-end" : "items-start"}`}>
@@ -154,6 +156,7 @@ export function ChatTimeline() {
           <RunSummary run={currentRun} events={runEvents} />
         )}
         <div ref={bottomRef} />
+        </div>
       </div>
     </div>
   );

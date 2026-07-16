@@ -98,6 +98,7 @@ export function buildJudgePrompt(
 export function buildWorkerPrompt(input: WorkerPromptInput): string {
   return [
     "Work directly on this repository and complete the goal using your coding tools.",
+    "Preserve pre-existing workspace changes from earlier goals. Do not treat a dirty worktree as part of the current goal; Conduit scopes review evidence to this run.",
     "",
     `Goal: ${input.goal}`,
     `Iteration: ${input.iteration} of ${input.maxIterations}`,

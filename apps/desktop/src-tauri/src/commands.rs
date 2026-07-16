@@ -575,39 +575,185 @@ fn approve_command(app: &AppHandle, command: &str) -> bool {
 }
 
 #[tauri::command]
-pub fn tool_get_git_diff(workspace: String, path: Option<String>) -> ToolResult {
-    let mut cmd = Command::new("git");
-    cmd.arg("diff").current_dir(&workspace);
-    if let Some(p) = path {
-        cmd.args(["--", &p]);
-    }
-
-    match cmd.output() {
-        Ok(out) => {
-            let diff = String::from_utf8_lossy(&out.stdout).to_string();
-            ToolResult {
-                success: true,
-                result: Some(serde_json::json!({
-                    "diff": diff,
-                    "hasChanges": !diff.is_empty()
-                })),
-                error: None,
-            }
-        }
-        Err(e) => ToolResult {
+pub fn tool_capture_git_snapshot(workspace: String) -> ToolResult {
+    match capture_git_tree(&workspace) {
+        Ok(tree) => ToolResult {
+            success: true,
+            result: Some(serde_json::json!({ "tree": tree })),
+            error: None,
+        },
+        Err(error) => ToolResult {
             success: false,
             result: None,
-            error: Some(e.to_string()),
+            error: Some(error),
         },
     }
 }
 
+fn run_git(workspace: &str, args: &[&str], index_path: Option<&Path>) -> Result<String, String> {
+    let mut command = Command::new("git");
+    command.args(args).current_dir(workspace);
+    if let Some(index_path) = index_path {
+        command.env("GIT_INDEX_FILE", index_path);
+    }
+    let output = command
+        .output()
+        .map_err(|error| format!("Could not run git: {error}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            format!(
+                "git exited with code {}",
+                output.status.code().unwrap_or(-1)
+            )
+        } else {
+            stderr
+        });
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+fn capture_git_tree(workspace: &str) -> Result<String, String> {
+    run_git(workspace, &["rev-parse", "--git-dir"], None)?;
+    let temp = tempfile::tempdir().map_err(|error| error.to_string())?;
+    let index_path = temp.path().join("index");
+    if run_git(workspace, &["read-tree", "HEAD"], Some(&index_path)).is_err() {
+        run_git(workspace, &["read-tree", "--empty"], Some(&index_path))?;
+    }
+    run_git(workspace, &["add", "-A", "--", "."], Some(&index_path))?;
+    let tree = run_git(workspace, &["write-tree"], Some(&index_path))?
+        .trim()
+        .to_string();
+    let valid = (tree.len() == 40 || tree.len() == 64)
+        && tree.chars().all(|character| character.is_ascii_hexdigit());
+    if !valid {
+        return Err("Git returned an invalid workspace snapshot".to_string());
+    }
+    Ok(tree)
+}
+
+#[tauri::command]
+pub fn tool_get_git_diff(
+    workspace: String,
+    path: Option<String>,
+    baseline_tree: Option<String>,
+) -> ToolResult {
+    if let Some(baseline_tree) = baseline_tree {
+        let valid = (baseline_tree.len() == 40 || baseline_tree.len() == 64)
+            && baseline_tree
+                .chars()
+                .all(|character| character.is_ascii_hexdigit());
+        if !valid {
+            return ToolResult {
+                success: false,
+                result: None,
+                error: Some("Invalid Git baseline snapshot".to_string()),
+            };
+        }
+        let tree_expression = format!("{baseline_tree}^{{tree}}");
+        if let Err(error) = run_git(&workspace, &["cat-file", "-e", &tree_expression], None) {
+            return ToolResult {
+                success: false,
+                result: None,
+                error: Some(error),
+            };
+        }
+        let current_tree = match capture_git_tree(&workspace) {
+            Ok(tree) => tree,
+            Err(error) => {
+                return ToolResult {
+                    success: false,
+                    result: None,
+                    error: Some(error),
+                }
+            }
+        };
+        let mut diff_args = vec![
+            "diff",
+            "--no-ext-diff",
+            "--no-color",
+            &baseline_tree,
+            &current_tree,
+        ];
+        if let Some(path) = path.as_deref() {
+            diff_args.extend(["--", path]);
+        }
+        let mut names_args = vec!["diff", "--name-only", "-z", &baseline_tree, &current_tree];
+        if let Some(path) = path.as_deref() {
+            names_args.extend(["--", path]);
+        }
+        return match (
+            run_git(&workspace, &diff_args, None),
+            run_git(&workspace, &names_args, None),
+        ) {
+            (Ok(diff), Ok(names)) => ToolResult {
+                success: true,
+                result: Some(serde_json::json!({
+                    "hasChanges": !diff.is_empty(),
+                    "diff": diff,
+                    "changedFiles": names.split('\0').filter(|name| !name.is_empty()).collect::<Vec<_>>()
+                })),
+                error: None,
+            },
+            (Err(error), _) | (_, Err(error)) => ToolResult {
+                success: false,
+                result: None,
+                error: Some(error),
+            },
+        };
+    }
+
+    let mut args = vec!["diff"];
+    if let Some(path) = path.as_deref() {
+        args.extend(["--", path]);
+    }
+
+    match run_git(&workspace, &args, None) {
+        Ok(diff) => ToolResult {
+            success: true,
+            result: Some(serde_json::json!({
+                "diff": diff,
+                "hasChanges": !diff.is_empty()
+            })),
+            error: None,
+        },
+        Err(error) => ToolResult {
+            success: false,
+            result: None,
+            error: Some(error),
+        },
+    }
+}
+
+fn keychain_fallback_path(name: &str) -> std::path::PathBuf {
+    let base = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+    base.join(".conduit").join(name)
+}
+
 fn github_entry() -> Result<keyring::Entry, String> {
-    keyring::Entry::new("loopkit", "github-token").map_err(|e| e.to_string())
+    keyring::Entry::new("conduit", "github-token").map_err(|e| e.to_string())
 }
 
 fn openrouter_entry() -> Result<keyring::Entry, String> {
-    keyring::Entry::new("loopkit", "openrouter-api-key").map_err(|e| e.to_string())
+    keyring::Entry::new("conduit", "openrouter-api-key").map_err(|e| e.to_string())
+}
+
+fn read_fallback_token(name: &str) -> Option<String> {
+    std::fs::read_to_string(keychain_fallback_path(name)).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+}
+
+fn write_fallback_token(name: &str, token: &str) -> Result<(), String> {
+    let path = keychain_fallback_path(name);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&path, token).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -675,38 +821,117 @@ pub fn github_get_token() -> ToolResult {
                 result: Some(serde_json::json!({ "token": token })),
                 error: None,
             },
-            Err(keyring::Error::NoEntry) => ToolResult {
+            Err(keyring::Error::NoEntry) => {
+                if let Some(token) = read_fallback_token("github-token") {
+                    let _ = github_entry().and_then(|e| e.set_password(&token).map_err(|er| er.to_string()));
+                    return ToolResult {
+                        success: true,
+                        result: Some(serde_json::json!({ "token": token })),
+                        error: None,
+                    };
+                }
+                ToolResult {
+                    success: true,
+                    result: Some(serde_json::json!({ "token": null })),
+                    error: None,
+                }
+            },
+            Err(_) => {
+                if let Some(token) = read_fallback_token("github-token") {
+                    return ToolResult {
+                        success: true,
+                        result: Some(serde_json::json!({ "token": token })),
+                        error: None,
+                    };
+                }
+                ToolResult {
+                    success: true,
+                    result: Some(serde_json::json!({ "token": null })),
+                    error: None,
+                }
+            }
+        },
+        Err(_) => {
+            if let Some(token) = read_fallback_token("github-token") {
+                return ToolResult {
+                    success: true,
+                    result: Some(serde_json::json!({ "token": token })),
+                    error: None,
+                };
+            }
+            ToolResult {
                 success: true,
                 result: Some(serde_json::json!({ "token": null })),
                 error: None,
-            },
-            Err(e) => ToolResult {
-                success: false,
-                result: None,
-                error: Some(e.to_string()),
-            },
-        },
-        Err(e) => ToolResult {
-            success: false,
-            result: None,
-            error: Some(e),
+            }
         },
     }
 }
 
 #[tauri::command]
 pub fn github_store_token(token: String) -> ToolResult {
+    let token = token.trim().to_string();
+    if token.is_empty() {
+        if let Ok(entry) = github_entry() {
+            let _ = entry.delete_credential();
+        }
+        let _ = std::fs::remove_file(keychain_fallback_path("github-token"));
+        return ToolResult { success: true, result: None, error: None };
+    }
+    let _ = write_fallback_token("github-token", &token);
     match github_entry().and_then(|entry| entry.set_password(&token).map_err(|e| e.to_string())) {
-        Ok(()) => ToolResult {
-            success: true,
-            result: None,
-            error: None,
+        Ok(()) => ToolResult { success: true, result: None, error: None },
+        Err(_) => ToolResult { success: true, result: None, error: None },
+    }
+}
+
+#[tauri::command]
+pub fn github_device_start(client_id: String) -> ToolResult {
+    let client_id = if client_id.trim().is_empty() { github_client_id() } else { client_id };
+    let response = ureq::post("https://github.com/login/device/code")
+        .set("Accept", "application/json")
+        .send_form(&[("client_id", client_id.as_str()), ("scope", "repo")]);
+    match response {
+        Ok(resp) => match resp.into_json::<serde_json::Value>() {
+            Ok(json) => ToolResult { success: true, result: Some(json), error: None },
+            Err(e) => ToolResult { success: false, result: None, error: Some(format!("Failed to parse device flow response: {e}")) },
         },
-        Err(e) => ToolResult {
-            success: false,
-            result: None,
-            error: Some(e.to_string()),
+        Err(ureq::Error::Status(code, resp)) => {
+            let body = resp.into_string().unwrap_or_default();
+            ToolResult { success: false, result: None, error: Some(format!("GitHub device flow failed ({code}): {body}")) }
+        }
+        Err(e) => ToolResult { success: false, result: None, error: Some(format!("GitHub device flow request failed: {e}")) },
+    }
+}
+
+#[tauri::command]
+pub fn github_device_poll(client_id: String, device_code: String) -> ToolResult {
+    let client_id = if client_id.trim().is_empty() { github_client_id() } else { client_id };
+    let response = ureq::post("https://github.com/login/oauth/access_token")
+        .set("Accept", "application/json")
+        .send_form(&[
+            ("client_id", client_id.as_str()),
+            ("device_code", device_code.as_str()),
+            ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+        ]);
+    match response {
+        Ok(resp) => match resp.into_json::<serde_json::Value>() {
+            Ok(json) => {
+                if let Some(token) = json.get("access_token").and_then(|v| v.as_str()) {
+                    let _ = write_fallback_token("github-token", token);
+                    let _ = github_entry().and_then(|entry| entry.set_password(token).map_err(|e| e.to_string()));
+                }
+                ToolResult { success: true, result: Some(json), error: None }
+            },
+            Err(e) => ToolResult { success: false, result: None, error: Some(format!("Failed to parse access token response: {e}")) },
         },
+        Err(ureq::Error::Status(_, resp)) => {
+            match resp.into_json::<serde_json::Value>() {
+                Ok(json) => ToolResult { success: true, result: Some(json), error: None },
+                Err(_) => ToolResult { success: true, result: Some(serde_json::json!({"error":"authorization_pending"})), error: None },
+            }
+        }
+        Err(e) => ToolResult { success: false, result: None, error: Some(format!("GitHub poll failed: {e}")) },
     }
 }
 
@@ -791,14 +1016,17 @@ pub fn git_clone_repo(url: String, destination: String, name: String) -> ToolRes
         };
     }
 
-    let token =
-        match github_entry().and_then(|entry| entry.get_password().map_err(|e| e.to_string())) {
-            Ok(token) => token,
-            Err(e) => {
-                return ToolResult {
-                    success: false,
-                    result: None,
-                    error: Some(format!("GitHub authorization is required: {e}")),
+    let token = match github_entry().and_then(|entry| entry.get_password().map_err(|e| e.to_string())) {
+            Ok(t) => t,
+            Err(_) => {
+                if let Some(fb) = read_fallback_token("github-token") {
+                    fb
+                } else {
+                    return ToolResult {
+                        success: false,
+                        result: None,
+                        error: Some("GitHub authorization is required: No matching entry found in secure storage. Please reconnect GitHub.".to_string()),
+                    }
                 }
             }
         };
@@ -1136,7 +1364,8 @@ pub fn git_push_branch(workspace: String) -> ToolResult {
     };
     let token = github_entry()
         .and_then(|entry| entry.get_password().map_err(|e| e.to_string()))
-        .ok();
+        .ok()
+        .or_else(|| read_fallback_token("github-token"));
     let askpass = std::env::temp_dir().join(format!("loopkit-git-push-{}", std::process::id()));
     if let Some(token) = token.as_ref() {
         let _ = std::fs::write(&askpass, "#!/bin/sh\ncase \"$1\" in *Username*) echo x-access-token;; *) echo \"$LOOPKIT_GITHUB_TOKEN\";; esac\n");
@@ -1241,6 +1470,7 @@ fn execute_tool(
         "delete_file",
         "run_command",
         "get_git_diff",
+        "capture_git_snapshot",
     ];
     if mode == "ask" && goal_only.contains(&name.as_str()) {
         return ToolResult {
@@ -1346,7 +1576,11 @@ fn execute_tool(
         "get_git_diff" => tool_get_git_diff(
             workspace,
             args.get("path").and_then(|v| v.as_str()).map(String::from),
+            args.get("baselineTree")
+                .and_then(|v| v.as_str())
+                .map(String::from),
         ),
+        "capture_git_snapshot" => tool_capture_git_snapshot(workspace),
         _ => ToolResult {
             success: false,
             result: None,
@@ -1403,6 +1637,39 @@ mod tests {
         assert!(requires_command_approval("git status", "ask_every_time").unwrap());
         assert!(!requires_command_approval("npm install", "auto_approve_all").unwrap());
         assert!(requires_command_approval("git status", "invalid").is_err());
+    }
+
+    #[test]
+    fn scoped_git_diff_excludes_the_preexisting_workspace_state() {
+        let temp = tempfile::tempdir().unwrap();
+        let workspace = temp.path();
+        assert!(Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(workspace)
+            .status()
+            .unwrap()
+            .success());
+        fs::write(workspace.join("shared.txt"), "plan A\n").unwrap();
+        fs::write(workspace.join("accepted-untracked.txt"), "accepted\n").unwrap();
+        let baseline = capture_git_tree(workspace.to_str().unwrap()).unwrap();
+
+        fs::write(workspace.join("shared.txt"), "plan A\nplan B\n").unwrap();
+        fs::write(workspace.join("plan-b.txt"), "new\n").unwrap();
+        let result = tool_get_git_diff(
+            workspace.to_string_lossy().into_owned(),
+            None,
+            Some(baseline),
+        );
+
+        assert!(result.success);
+        let result = result.result.unwrap();
+        let files = result["changedFiles"].as_array().unwrap();
+        assert_eq!(files.len(), 2);
+        assert!(files.iter().any(|file| file == "plan-b.txt"));
+        assert!(files.iter().any(|file| file == "shared.txt"));
+        let diff = result["diff"].as_str().unwrap();
+        assert!(diff.contains("+plan B"));
+        assert!(!diff.contains("accepted-untracked"));
     }
 
     #[test]

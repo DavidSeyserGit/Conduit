@@ -12,12 +12,15 @@ export default function App() {
   const loadModels = useAppStore((s) => s.loadModels);
   const hydrateOpenRouterKey = useAppStore((s) => s.hydrateOpenRouterKey);
   const theme = useAppStore((s) => s.settings.theme ?? "light");
+  const settings = useAppStore((s) => s.settings);
+  const updateSettings = useAppStore((s) => s.updateSettings);
   const isRunning = useAppStore((s) => s.isRunning);
   const pendingApproval = useAppStore((s) => s.pendingApproval);
   const currentRun = useAppStore((s) => s.currentRun);
   const previousRunning = useRef(false);
   const previousApprovalId = useRef<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [updateNotice, setUpdateNotice] = useState<{ version: string; body?: string } | null>(null);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
@@ -28,6 +31,22 @@ export default function App() {
       await hydrateOpenRouterKey();
       initProviders();
       await loadModels();
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (settings.autoCheckUpdates === false) return;
+    const isTauri = Boolean((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
+    if (!isTauri && window.location.hostname === "localhost") return;
+    const last = settings.lastUpdateCheckAt ? new Date(settings.lastUpdateCheckAt).getTime() : 0;
+    if (Date.now() - last < 60 * 60 * 1000) return;
+    void (async () => {
+      try {
+        const { checkForUpdates } = await import("@/lib/updater");
+        const info = await checkForUpdates();
+        updateSettings({ lastUpdateCheckAt: new Date().toISOString() });
+        if (info?.available) setUpdateNotice({ version: info.latestVersion, body: info.body });
+      } catch {}
     })();
   }, []);
 
@@ -67,6 +86,11 @@ export default function App() {
       <SettingsPanel />
       <GitDiffPanel />
       {notice && <div role="status" className="fixed right-5 bottom-5 z-[60] rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 shadow-xl">{notice}</div>}
+      {updateNotice && <div className="fixed left-1/2 -translate-x-1/2 bottom-6 z-[70] flex items-center gap-3 rounded-xl bg-gray-900 text-white px-4 py-3 shadow-2xl text-sm">
+        <span>Update available: v{updateNotice.version}</span>
+        <button onClick={() => { setUpdateNotice(null); useAppStore.getState().setShowSettings(true); }} className="px-3 py-1 bg-white text-gray-900 rounded-lg text-xs font-medium">View</button>
+        <button onClick={() => setUpdateNotice(null)} className="p-1 text-white/60 hover:text-white">✕</button>
+      </div>}
     </div>
   );
 }

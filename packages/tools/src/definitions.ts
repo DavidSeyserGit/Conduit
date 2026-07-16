@@ -151,4 +151,5 @@ export const GOAL_ONLY_TOOLS = new Set([
   ...WRITE_TOOLS,
   "run_command",
   "get_git_diff",
+  "capture_git_snapshot",
 ]);

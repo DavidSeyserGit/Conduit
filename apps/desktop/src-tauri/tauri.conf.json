@@ -19,28 +19,30 @@
         "minWidth": 800,
         "minHeight": 500,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "devtools": true
       }
     ],
     "security": {
       "csp": {
         "default-src": "'self' customprotocol: asset:",
-        "connect-src": "'self' ipc: http://ipc.localhost https://openrouter.ai https://api.github.com https://github.com",
+        "connect-src": "'self' ipc: http://ipc.localhost http://localhost:1420 ws://localhost:1420 https://openrouter.ai https://api.github.com https://github.com https://objects.githubusercontent.com https://release-assets.githubusercontent.com https://github.com https://api.github.com https://*.githubusercontent.com",
         "font-src": "'self' data:",
         "img-src": "'self' asset: http://asset.localhost data: blob:",
         "style-src": "'self' 'unsafe-inline'",
-        "script-src": "'self'",
+        "script-src": "'self' 'unsafe-inline' 'unsafe-eval' http://localhost:1420",
         "object-src": "'none'",
         "base-uri": "'self'",
         "frame-ancestors": "'none'",
         "form-action": "'none'"
       },
-      "freezePrototype": true
+      "freezePrototype": false
     }
   },
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -53,6 +55,11 @@
     }
   },
   "plugins": {
-    "dialog": {}
+    "updater": {
+      "pubkey": "GgxsqVp5bo53fN5R4o92Q0dvsNtEztaC59gLs/xG6Rc=",
+      "endpoints": [
+        "https://github.com/DavidSeyserGit/Conduit/releases/latest/download/latest.json"
+      ]
+    }
   }
 }
