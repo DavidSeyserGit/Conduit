@@ -116,12 +116,27 @@ export const AgentTaskSchema = z.object({
   status: AgentTaskStatusSchema,
 });
 
+export const ValidationContractSchema = z.object({
+  strategy: z.enum(["commands", "not_applicable"]),
+  rationale: z.string().min(1),
+  commands: z.array(z.string().min(1)).max(6),
+}).superRefine((contract, ctx) => {
+  if (contract.strategy === "commands" && contract.commands.length === 0) {
+    ctx.addIssue({ code: "custom", message: "Command validation requires at least one command", path: ["commands"] });
+  }
+  if (contract.strategy === "not_applicable" && contract.commands.length > 0) {
+    ctx.addIssue({ code: "custom", message: "Non-automated validation cannot include commands", path: ["commands"] });
+  }
+});
+
 export const AgentPlanSchema = z.object({
   summary: z.string(),
   tasks: z.array(AgentTaskSchema),
+  validation: ValidationContractSchema,
 });
 
 export type AgentTask = z.infer<typeof AgentTaskSchema>;
+export type ValidationContract = z.infer<typeof ValidationContractSchema>;
 export type AgentPlan = z.infer<typeof AgentPlanSchema>;
 
 // ─── Judge ────────────────────────────────────────────────────────────────────
@@ -129,8 +144,11 @@ export type AgentPlan = z.infer<typeof AgentPlanSchema>;
 export const JudgeResultSchema = z.object({
   approved: z.boolean(),
   summary: z.string(),
-  feedback: z.array(z.string()),
-  missingRequirements: z.array(z.string()),
+  feedback: z.array(z.string()).default([]),
+  missingRequirements: z.array(z.string()).default([]),
+  repairFeedback: z.array(z.string()).default([]),
+  evidenceRequests: z.array(z.string()).default([]),
+  followUps: z.array(z.string()).default([]),
   confidence: z.number().min(0).max(1),
 });
 
@@ -218,6 +236,8 @@ export interface GoalRunState {
   judgeReasoningEffort?: string;
   iteration: number;
   maxIterations: number;
+  /** Git tree representing the exact workspace contents when this goal began. */
+  baselineTree?: string;
   plan?: AgentPlan;
   iterations: GoalIteration[];
   startedAt: string;
@@ -362,6 +382,8 @@ export interface AppSettings {
   defaultMaxIterations: number;
   qualityLaneDefaults?: Partial<Record<QualityLaneId, QualityLaneDefault>>;
   acpAgents?: AcpAgentConfig[];
+  autoCheckUpdates?: boolean;
+  lastUpdateCheckAt?: string;
 }
 
 export interface AcpAgentConfig {

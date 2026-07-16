@@ -4,6 +4,7 @@ import type {
   GoalRunState,
   GoalRunEvent,
   ModelCostBreakdown,
+  ValidationResult,
 } from "@conduit/shared";
 import type { ProviderRegistry } from "@conduit/model-providers";
 import type { ToolExecutor, ToolExecutorContext } from "@conduit/tools";
@@ -102,6 +103,21 @@ export class GoalLoopRunner {
       return { status: "failed", state: finalState, error };
     }
 
+    if (!state.baselineTree) {
+      emit({ type: "agent_status", message: "Capturing this goal's change baseline…" });
+      const snapshot = await toolExecutor.execute("capture_git_snapshot", {}, "goal");
+      const tree = snapshot.success && snapshot.result
+        ? (snapshot.result as { tree?: string }).tree
+        : undefined;
+      if (!tree) {
+        const error = `Could not capture the goal change baseline: ${snapshot.error || "Git snapshot failed"}`;
+        const finalState = finalizeState({ ...state, status: "failed", finishedAt: new Date().toISOString() });
+        emit({ type: "run_failed", error });
+        return { status: "failed", state: finalState, error };
+      }
+      state.baselineTree = tree;
+    }
+
     const codingAgent = new CodingAgent();
     const judge = new Judge(
       judgeProviderInfo.provider,
@@ -184,8 +200,29 @@ export class GoalLoopRunner {
         // supply a fallback for legacy/resumed runs that have no judge plan.
         state.plan = state.plan ?? agentResult.plan;
         iteration.toolCalls = agentResult.toolCalls;
-        iteration.changedFiles = agentResult.changedFiles;
-        iteration.validationResults = agentResult.validationResults;
+        const contractValidationResults = await runValidationContract(
+          state.plan,
+          toolExecutor,
+          emit,
+        );
+        iteration.validationResults = [
+          ...agentResult.validationResults,
+          ...contractValidationResults,
+        ];
+
+        const scopedDiffResult = await toolExecutor.execute(
+          "get_git_diff",
+          { baselineTree: state.baselineTree },
+          "goal",
+        );
+        if (!scopedDiffResult.success || !scopedDiffResult.result) {
+          throw new Error(`Could not calculate this goal's scoped changes: ${scopedDiffResult.error || "Git diff failed"}`);
+        }
+        const scopedChanges = scopedDiffResult.result as {
+          diff?: string;
+          changedFiles?: string[];
+        };
+        iteration.changedFiles = scopedChanges.changedFiles || [];
 
         if (agentResult.agentSummary) {
           addAgentMessage(iteration, "assistant", agentResult.agentSummary);
@@ -194,7 +231,7 @@ export class GoalLoopRunner {
         if (
           !agentResult.agentSummary.trim() &&
           agentResult.toolCalls.length === 0 &&
-          agentResult.changedFiles.length === 0
+          iteration.changedFiles.length === 0
         ) {
           throw new Error(
             "Coding agent completed without producing a response, tool calls, or changes; the judge was not run."
@@ -216,12 +253,15 @@ export class GoalLoopRunner {
         const judgeReview = await judge.review({
           goal: state.goal,
           plan: state.plan,
-          changedFiles: agentResult.changedFiles,
-          validationResults: agentResult.validationResults,
+          changedFiles: iteration.changedFiles,
+          validationResults: [
+            ...state.iterations.flatMap((previousIteration) => previousIteration.validationResults),
+            ...iteration.validationResults,
+          ],
           iteration: state.iteration,
           agentSummary: agentResult.agentSummary,
           workspacePath: state.workspacePath,
-          getDiff: () => toolExecutor.execute("get_git_diff", {}, "goal"),
+          diff: scopedChanges.diff || "",
         });
         const judgeResult = judgeReview.result;
         state.tokenUsage = accumulateTokenUsage(state.tokenUsage, judgeReview.tokenUsage);
@@ -246,14 +286,21 @@ export class GoalLoopRunner {
           return result;
         }
 
-        state.lastJudgeFeedback = [
-          ...judgeResult.feedback,
-          ...judgeResult.missingRequirements.map((r) => `Missing: ${r}`),
-        ];
-        emit({
-          type: "agent_status",
-          message: `Judge rejected iteration ${state.iteration}; sending ${state.lastJudgeFeedback.length} required fix${state.lastJudgeFeedback.length === 1 ? "" : "es"} to the coding agent…`,
-        });
+        state.lastJudgeFeedback = Array.from(new Set([
+          ...judgeResult.repairFeedback,
+          ...judgeResult.missingRequirements,
+        ]));
+        if (state.lastJudgeFeedback.length > 0) {
+          emit({
+            type: "agent_status",
+            message: `Judge rejected iteration ${state.iteration}; sending ${state.lastJudgeFeedback.length} required fix${state.lastJudgeFeedback.length === 1 ? "" : "es"} to the coding agent…`,
+          });
+        } else {
+          emit({
+            type: "agent_status",
+            message: `Judge reported no repairable goal requirements; evidence requests and follow-ups were recorded without starting another code iteration.`,
+          });
+        }
       } catch (err) {
         if (this.cancelled || this.abortController?.signal.aborted) {
           state.status = "cancelled";
@@ -284,6 +331,38 @@ export class GoalLoopRunner {
     emit({ type: "run_completed", result });
     return result;
   }
+}
+
+async function runValidationContract(
+  plan: GoalRunState["plan"],
+  toolExecutor: ToolExecutor,
+  emit: GoalRunEventHandler,
+): Promise<ValidationResult[]> {
+  // Resumed runs created before validation contracts were introduced remain
+  // reviewable, but all newly planned runs are schema-required to have one.
+  if (!plan || !("validation" in plan) || plan.validation.strategy !== "commands") return [];
+
+  emit({ type: "agent_status", message: `Running ${plan.validation.commands.length} planned validation command${plan.validation.commands.length === 1 ? "" : "s"}…` });
+  const results: ValidationResult[] = [];
+  for (const command of plan.validation.commands) {
+    const toolResult = await toolExecutor.execute("run_command", { command }, "goal");
+    const commandResult = toolResult.result as Partial<{
+      command: string;
+      exitCode: number;
+      stdout: string;
+      stderr: string;
+    }> | undefined;
+    const validation: ValidationResult = {
+      command: commandResult?.command || command,
+      exitCode: commandResult?.exitCode ?? 1,
+      stdout: commandResult?.stdout || "",
+      stderr: commandResult?.stderr || toolResult.error || "Validation command could not be executed",
+      passed: toolResult.success && commandResult?.exitCode === 0,
+    };
+    results.push(validation);
+    emit({ type: "validation_completed", result: validation });
+  }
+  return results;
 }
 
 function applyEventToState(

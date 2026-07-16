@@ -4,6 +4,8 @@ fn main() {
         "github_client_id",
         "github_get_token",
         "github_store_token",
+        "github_device_start",
+        "github_device_poll",
         "openrouter_get_key",
         "openrouter_store_key",
         "git_clone_repo",

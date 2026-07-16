@@ -6,11 +6,16 @@ pub fn run() {
     tauri::Builder::default()
         .manage(local_harness::HarnessProcessState::default())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             commands::tool_execute,
             commands::github_client_id,
             commands::github_get_token,
             commands::github_store_token,
+            commands::github_device_start,
+            commands::github_device_poll,
             commands::openrouter_get_key,
             commands::openrouter_store_key,
             commands::git_clone_repo,

@@ -857,6 +857,8 @@ fn build_worker_prompt(request: &CodingIterationRequest) -> String {
     let mut lines = vec![
         "Work directly on this repository and complete the goal using your coding tools."
             .to_string(),
+        "Preserve pre-existing workspace changes from earlier goals. Do not treat a dirty worktree as part of the current goal; Conduit scopes review evidence to this run."
+            .to_string(),
         String::new(),
         format!("Goal: {}", request.goal),
         format!(

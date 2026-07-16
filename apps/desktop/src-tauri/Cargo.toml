@@ -1,6 +1,6 @@
 [package]
 name = "conduit-desktop"
-version = "0.1.0"
+version = "0.2.0"
 description = "Conduit - Minimal desktop coding chatbot"
 authors = ["Conduit"]
 edition = "2021"
@@ -22,6 +22,10 @@ keyring = "3"
 chrono = "0.4"
 dirs = "6"
 tempfile = "3"
+ureq = { version = "2", features = ["json"] }
+tauri-plugin-opener = "2"
+tauri-plugin-process = "2"
+tauri-plugin-updater = "2"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
