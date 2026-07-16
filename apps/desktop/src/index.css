@@ -47,12 +47,17 @@ html.dark {
 .dark .bg-emerald-50 { background-color: #163b31; }
 .dark .bg-amber-50 { background-color: #443518; }
 
+.dark .from-white { --tw-gradient-from: #1d2026; }
+.dark .to-gray-50 { --tw-gradient-to: #24272e; }
+
 .dark .border-gray-100 { border-color: #363b44; }
 .dark .border-gray-200 { border-color: #494f5a; }
 .dark .border-gray-300 { border-color: #626a77; }
 .dark .border-indigo-100, .dark .border-indigo-200 { border-color: #5868a6; }
 .dark .border-emerald-100, .dark .border-emerald-200 { border-color: #28735a; }
 .dark .border-amber-200 { border-color: #80652c; }
+
+.dark .ring-gray-900 { --tw-ring-color: #e2e8f0; }
 
 .dark .text-gray-900 { color: #f8fafc; }
 .dark .text-gray-800 { color: #e2e8f0; }
@@ -69,10 +74,12 @@ html.dark {
 .dark .text-indigo-400 { color: #a5b4fc; }
 .dark .text-fuchsia-600 { color: #e879f9; }
 .dark .text-emerald-600 { color: #5eead4; }
+.dark .placeholder-gray-400::placeholder { color: #7e8da2; }
 
 .dark .hover\:bg-gray-50:hover { background-color: #2c3038; }
 .dark .hover\:bg-gray-100:hover { background-color: #353a44; }
 .dark .hover\:bg-gray-200:hover { background-color: #494f5a; }
+.dark .hover\:bg-white\/80:hover { background-color: rgb(29 32 38 / 0.8); }
 .dark .hover\:text-gray-900:hover, .dark .hover\:text-gray-800:hover, .dark .hover\:text-gray-700:hover { color: #f8fafc; }
 
 .dark .input-glow {
