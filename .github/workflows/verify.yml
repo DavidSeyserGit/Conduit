@@ -31,6 +31,14 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Fail fast on lockfile or version drift
+        run: |
+          cargo metadata --format-version 1 --locked --no-deps --manifest-path apps/desktop/src-tauri/Cargo.toml > /dev/null
+          node scripts/check-release-version.mjs
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -61,11 +69,20 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop/src-tauri -> target
+
+      - name: Rust lint and tests
+        working-directory: apps/desktop/src-tauri
+        run: |
+          cargo fmt -- --check
+          cargo clippy --locked -- -D warnings
+          cargo test --locked
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -78,3 +95,6 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      - name: Verify updater artifact signatures
+        run: node scripts/verify-updater-artifacts.mjs apps/desktop/src-tauri/target/release/bundle/deb
