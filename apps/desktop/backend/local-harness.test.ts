@@ -9,6 +9,7 @@ import {
   buildCodexWorkerArgs,
   buildJudgePrompt,
   buildKiloArgs,
+  buildKiloSecurityConfig,
   buildWorkerPrompt,
   parseKiloModelCatalog,
   runCodexProcess,
@@ -87,15 +88,30 @@ test("Kilo role policy keeps judges read-only and workers autonomous", () => {
 
   assert.deepEqual(judge, [
     "run", "--format", "json", "--dir", "/repo", "--model", "kilo/free",
-    "--agent", "ask", "--pure", "prompt",
+    "--pure", "--agent", "ask", "prompt",
   ]);
   assert.equal(judge.includes("--auto"), false);
   assert.equal(judge.includes("--dangerously-skip-permissions"), false);
   assert.equal(worker.includes("--agent"), true);
   assert.equal(worker.includes("code"), true);
-  assert.equal(worker.includes("--auto"), true);
-  assert.equal(worker.includes("--dangerously-skip-permissions"), true);
-  assert.equal(worker.includes("--pure"), false);
+  assert.equal(worker.includes("--auto"), false);
+  assert.equal(worker.includes("--dangerously-skip-permissions"), false);
+  assert.equal(worker.includes("--pure"), true);
+});
+
+test("Kilo worker security config enforces command policy and workspace boundaries", () => {
+  const safe = JSON.parse(buildKiloSecurityConfig("worker", "auto_approve_safe"));
+  assert.equal(safe.permission.external_directory, "deny");
+  assert.equal(safe.permission.bash["*"], "deny");
+  assert.equal(safe.permission.bash["git status *"], "allow");
+  assert.deepEqual(safe.agent.code.permission, safe.permission);
+  if (process.platform !== "win32") {
+    assert.equal(safe.sandbox.enabled, true);
+    assert.equal(safe.sandbox.network, "deny");
+  }
+  assert.equal(JSON.parse(buildKiloSecurityConfig("worker", "ask_every_time")).permission.bash, "deny");
+  assert.equal(JSON.parse(buildKiloSecurityConfig("worker", "auto_approve_all")).permission.bash, "allow");
+  assert.throws(() => buildKiloSecurityConfig("worker", "invalid" as never), /Invalid command permission mode/);
 });
 
 test("Codex role policy isolates judge and worker command flags", () => {
@@ -119,7 +135,11 @@ test("Codex role policy isolates judge and worker command flags", () => {
   assert.equal(judge.includes("--ignore-rules"), true);
   assert.equal(judge.includes("--output-schema"), true);
   assert.equal(judge.includes("--dangerously-bypass-approvals-and-sandbox"), false);
-  assert.equal(worker.includes("--dangerously-bypass-approvals-and-sandbox"), true);
+  assert.equal(worker.includes("--dangerously-bypass-approvals-and-sandbox"), false);
+  assert.equal(worker.includes("workspace-write"), true);
+  assert.equal(worker.includes("--ignore-user-config"), true);
+  assert.equal(worker.includes("approval_policy=\"never\""), true);
+  assert.equal(worker.includes("sandbox_workspace_write.network_access=false"), true);
   assert.equal(worker.includes("--output-schema"), false);
   assert.equal(judge[judge.length - 1], "judge");
   assert.equal(worker[worker.length - 1], "work");
@@ -216,6 +236,7 @@ test("Kilo process runner parses successful output and propagates CLI failures",
     () => {},
     () => {},
     "judge",
+    "auto_approve_safe",
     1_000,
     (() => success.child) as unknown as typeof spawn,
   );
@@ -232,6 +253,7 @@ test("Kilo process runner parses successful output and propagates CLI failures",
     () => {},
     () => {},
     "judge",
+    "auto_approve_safe",
     1_000,
     (() => failure.child) as unknown as typeof spawn,
   );
@@ -251,6 +273,7 @@ test("Kilo process runner terminates promptly on cancellation and timeout", asyn
     () => {},
     () => {},
     "judge",
+    "auto_approve_safe",
     1_000,
     (() => cancelled.child) as unknown as typeof spawn,
   );
@@ -267,6 +290,7 @@ test("Kilo process runner terminates promptly on cancellation and timeout", asyn
     () => {},
     () => {},
     "judge",
+    "auto_approve_safe",
     5,
     (() => timedOut.child) as unknown as typeof spawn,
   );

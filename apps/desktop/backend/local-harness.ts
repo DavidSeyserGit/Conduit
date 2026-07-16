@@ -4,9 +4,11 @@ import type {
   ModelDescriptor,
   ModelMessage,
   ToolCallRequest,
+  CommandPermissionMode,
 } from "@conduit/shared";
 
 export const LOCAL_HARNESS_TIMEOUT_MS = 20 * 60 * 1000;
+const LOCAL_HARNESS_OUTPUT_LIMIT = 20 * 1024 * 1024;
 
 export interface StructuredOutputContract {
   name: string;
@@ -114,16 +116,80 @@ export function buildKiloArgs(
   role: KiloRunRole,
 ): string[] {
   const roleArgs = role === "judge"
-    ? ["--agent", "ask", "--pure"]
-    : ["--agent", "code", "--auto", "--dangerously-skip-permissions"];
+    ? ["--agent", "ask"]
+    : ["--agent", "code"];
   return [
     "run",
     "--format", "json",
     "--dir", root,
     "--model", runtimeModelId,
+    "--pure",
     ...roleArgs,
     prompt,
   ];
+}
+
+export function buildKiloSecurityConfig(
+  role: KiloRunRole,
+  permissionMode: CommandPermissionMode = "auto_approve_safe",
+): string {
+  if (!["ask_every_time", "auto_approve_safe", "auto_approve_all"].includes(permissionMode)) {
+    throw new Error("Invalid command permission mode");
+  }
+  const bash = permissionMode === "ask_every_time"
+    ? "deny"
+    : permissionMode === "auto_approve_all"
+      ? "allow"
+      : {
+          "*": "deny",
+          "git status *": "allow",
+          "git diff *": "allow",
+          "git log *": "allow",
+          "npm test *": "allow",
+          "npm run test *": "allow",
+          "pnpm test *": "allow",
+          "yarn test *": "allow",
+          "pytest *": "allow",
+          "cargo test *": "allow",
+          "go test *": "allow",
+          "node --version *": "allow",
+          "npm --version *": "allow",
+          "python --version *": "allow",
+          "python3 --version *": "allow",
+        };
+  const permission = role === "judge" ? "deny" : {
+    "*": "deny",
+    read: { "*": "allow", "*.env": "deny", "*.env.*": "deny" },
+    glob: "allow",
+    grep: "allow",
+    edit: { "*": "allow", "*.env": "deny", "*.env.*": "deny" },
+    write: { "*": "allow", "*.env": "deny", "*.env.*": "deny" },
+    apply_patch: "allow",
+    bash,
+    external_directory: "deny",
+    task: "deny",
+    agent_manager: "deny",
+    webfetch: "deny",
+    websearch: "deny",
+    skill: "deny",
+    question: "deny",
+  };
+  const config: Record<string, unknown> = {
+    permission,
+    formatter: false,
+    lsp: false,
+    snapshot: true,
+    agent: { [role === "judge" ? "ask" : "code"]: { permission } },
+  };
+  if (process.platform !== "win32") {
+    config.sandbox = {
+      enabled: true,
+      network: "deny",
+      allowed_hosts: [],
+      writable_paths: [],
+    };
+  }
+  return JSON.stringify(config);
 }
 
 export function buildCodexJudgeArgs(input: {
@@ -140,6 +206,8 @@ export function buildCodexJudgeArgs(input: {
   const schemaArgs = input.schemaFile ? ["--output-schema", input.schemaFile] : [];
   return [
     "exec",
+    "-c", "approval_policy=\"never\"",
+    "-c", "web_search=\"disabled\"",
     ...reasoningArgs,
     "--ephemeral",
     "--ignore-user-config",
@@ -166,13 +234,18 @@ export function buildCodexWorkerArgs(input: {
     : [];
   return [
     "exec",
+    "-c", "approval_policy=\"never\"",
+    "-c", "sandbox_workspace_write.network_access=false",
+    "-c", "web_search=\"disabled\"",
     ...reasoningArgs,
     "--json",
     "--ephemeral",
+    "--ignore-user-config",
+    "--sandbox", "workspace-write",
+    "--color", "never",
     "--skip-git-repo-check",
     "-C", input.root,
     "-m", input.runtimeModelId,
-    "--dangerously-bypass-approvals-and-sandbox",
     "-o", input.outputFile,
     input.prompt,
   ];
@@ -349,33 +422,57 @@ export async function runKiloProcess(
   onStatus: (message: string) => void,
   onTool: (toolCall: HarnessToolCall) => void,
   role: KiloRunRole,
+  permissionMode: CommandPermissionMode = "auto_approve_safe",
   timeoutMs = LOCAL_HARNESS_TIMEOUT_MS,
   spawnProcess: typeof spawn = spawn,
 ): Promise<LocalHarnessRun> {
   const child = spawnProcess("kilo", buildKiloArgs(root, runtimeModelId, prompt, role), {
     cwd: root,
-    env: process.env,
+    env: {
+      ...process.env,
+      KILO_CONFIG_CONTENT: buildKiloSecurityConfig(role, permissionMode),
+      KILO_DISABLE_EXTERNAL_SKILLS: "true",
+    },
     stdio: ["ignore", "pipe", "pipe"],
   });
   const collector = new KiloEventCollector(onStatus, onTool);
   let buffer = "";
   let stderr = "";
   let timedOut = false;
+  let outputOverflow = false;
+  let outputBytes = 0;
+  let terminating = false;
   let forceKill: ReturnType<typeof setTimeout> | undefined;
 
+  const terminate = () => {
+    if (terminating) return;
+    terminating = true;
+    child.kill("SIGTERM");
+    forceKill = setTimeout(() => child.kill("SIGKILL"), 5_000);
+    forceKill.unref?.();
+  };
+
   child.stdout.on("data", (chunk) => {
+    outputBytes += Buffer.byteLength(chunk);
+    if (outputBytes > LOCAL_HARNESS_OUTPUT_LIMIT) {
+      outputOverflow = true;
+      terminate();
+      return;
+    }
     buffer += String(chunk);
     const lines = buffer.split(/\r?\n/);
     buffer = lines.pop() || "";
     for (const line of lines) collector.consume(line);
   });
-  child.stderr.on("data", (chunk) => { stderr += String(chunk); });
-
-  const terminate = () => {
-    child.kill("SIGTERM");
-    forceKill = setTimeout(() => child.kill("SIGKILL"), 5_000);
-    forceKill.unref?.();
-  };
+  child.stderr.on("data", (chunk) => {
+    outputBytes += Buffer.byteLength(chunk);
+    if (outputBytes > LOCAL_HARNESS_OUTPUT_LIMIT) {
+      outputOverflow = true;
+      terminate();
+      return;
+    }
+    stderr += String(chunk);
+  });
   const abortChild = () => terminate();
   const timeout = setTimeout(() => {
     timedOut = true;
@@ -391,6 +488,7 @@ export async function runKiloProcess(
     if (buffer.trim()) collector.consume(buffer);
     if (signal.aborted) throw new Error("Kilo run was cancelled before completion");
     if (timedOut) throw new Error(`Kilo run timed out after ${timeoutMs}ms`);
+    if (outputOverflow) throw new Error("Kilo output exceeded 20 MiB");
     if (code !== 0) throw new Error(stderr.trim() || `Kilo exited with code ${code}`);
     return collector.result();
   } finally {

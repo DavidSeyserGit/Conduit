@@ -16,6 +16,7 @@ Run the complete local gate with:
 
 ```bash
 pnpm verify
+cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 ```
 
 The same command runs in `.github/workflows/verify.yml` for every pull request and
@@ -23,6 +24,13 @@ push to `main`. A second CI job builds a real Debian Tauri installer, covering t
 Rust backend and native packaging path before a release tag is accepted.
 Authenticated Codex/Kilo smoke tests remain the local gate below because they
 depend on locally logged-in CLIs.
+
+Before a desktop release, also verify the exact packaged boundary and capability
+manifest without producing an installer:
+
+```bash
+pnpm --filter @conduit/desktop exec tauri build --debug --no-bundle
+```
 
 Tag-driven installer builds and GitHub Releases are documented in
 [GitHub CI/CD and Releases](./releasing.md).
@@ -69,9 +77,11 @@ Environment overrides:
 | Judge | Planning schema, review repair, invalid-plan rejection, no tools, workspace and reasoning |
 | Goal loop | Plan → code → tools → validation → review, planning failure, cancellation, missing provider |
 | Ask mode | Read-only tools, stream assembly, cancellation, no duplicate token usage |
-| Coding transport | Fragmented NDJSON, status/error context, interrupted stream, cancellation |
-| CLI policy | Read-only judge flags, autonomous worker flags, native model-ID conversion |
-| Process lifecycle | Codex stdin EOF, Kilo stdout/stderr, non-zero exit, timeout, abort, forced cleanup |
+| Coding transport | HTTP/Tauri request serialization, status events, interrupted streams, request-ID cancellation |
+| CLI policy | Read-only judges, sandboxed workers, injected Kilo permissions, native model-ID conversion |
+| Native authority | Explicit capability manifest, CSP, high-level command allowlist, invalid-mode rejection |
+| Workspace safety | Parent/symlink escape rejection, matching clone reuse, GitHub URL restriction, file/search caps |
+| Process lifecycle | Codex stdin EOF, stdout/stderr bounds, non-zero exit, timeout, abort, process-tree cleanup |
 | Structured output | Raw JSON, fenced/prose JSON, braces inside strings, malformed output |
 | Live integration | Codex judge/worker and Kilo judge/worker through desktop HTTP routes |
 

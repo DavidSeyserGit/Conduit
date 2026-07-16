@@ -17,11 +17,14 @@ import {
   ACPAgentProvider,
   CodexProvider,
   KiloProvider,
+  HttpLocalHarnessTransport,
+  type LocalHarnessTransport,
 } from "@conduit/model-providers";
 import { GoalLoopRunner, AskChatRunner } from "@conduit/agent-runtime";
 import { createTauriToolExecutor } from "@/lib/tauri-tools";
 import { createChatWorktree, removeChatWorktree } from "@/lib/git-workflow";
 import { catalogNeedsMigration, normalizePersistedModelId } from "@/lib/model-catalog";
+import { TauriLocalHarnessTransport } from "@/lib/local-harness-transport";
 
 export interface Project {
   name: string;
@@ -138,12 +141,20 @@ const inTauri = () => Boolean((window as unknown as { __TAURI_INTERNALS__?: unkn
 
 let providerRegistry: DefaultProviderRegistry | null = null;
 let openRouterProvider: OpenRouterProvider | null = null;
+let localHarnessTransport: LocalHarnessTransport | null = null;
 
 function getRegistry(): DefaultProviderRegistry {
   if (!providerRegistry) {
     providerRegistry = new DefaultProviderRegistry();
   }
   return providerRegistry;
+}
+
+function getLocalHarnessTransport(): LocalHarnessTransport {
+  localHarnessTransport ??= inTauri()
+    ? new TauriLocalHarnessTransport()
+    : new HttpLocalHarnessTransport();
+  return localHarnessTransport;
 }
 
 function createChatSession(): ChatSession {
@@ -571,7 +582,11 @@ export const useAppStore = create<AppState>()(
         if (!workspacePath) return;
         set({ showGitDiff: true, gitDiffLoading: true });
         try {
-          const result = await createTauriToolExecutor(() => get().workspacePath).execute("get_git_diff", {}, "goal");
+          const result = await createTauriToolExecutor(
+            () => get().workspacePath,
+            {},
+            () => get().settings.commandPermissionMode
+          ).execute("get_git_diff", {}, "goal");
           const diff = result.success && result.result && typeof result.result === "object"
             ? (result.result as { diff?: string }).diff || ""
             : "";
@@ -600,8 +615,9 @@ export const useAppStore = create<AppState>()(
 
         const acpProvider = new ACPAgentProvider(settings.acpAgents ?? []);
         if (enabled("acp")) registry.register(acpProvider); else registry.unregister("acp");
-        if (enabled("codex")) registry.register(new CodexProvider()); else registry.unregister("codex");
-        if (enabled("kilo")) registry.register(new KiloProvider()); else registry.unregister("kilo");
+        const transport = getLocalHarnessTransport();
+        if (enabled("codex")) registry.register(new CodexProvider(transport)); else registry.unregister("codex");
+        if (enabled("kilo")) registry.register(new KiloProvider(transport)); else registry.unregister("kilo");
       },
 
       sendMessage: async (content) => {
@@ -636,7 +652,11 @@ export const useAppStore = create<AppState>()(
 
           if (!providerInfo) throw new Error("Provider not found");
 
-          const toolExecutor = createTauriToolExecutor(() => get().workspacePath);
+          const toolExecutor = createTauriToolExecutor(
+            () => get().workspacePath,
+            {},
+            () => get().settings.commandPermissionMode
+          );
 
           const runner = new AskChatRunner();
           const result = await runner.run({
@@ -697,7 +717,8 @@ export const useAppStore = create<AppState>()(
         const runner = new GoalLoopRunner(getRegistry());
         const toolExecutor = createTauriToolExecutor(
           () => get().workspacePath,
-          { onApprovalRequired: (requestId, command) => set({ pendingApproval: { requestId, command } }) }
+          { onApprovalRequired: (requestId, command) => set({ pendingApproval: { requestId, command } }) },
+          () => get().settings.commandPermissionMode
         );
 
         set({
@@ -726,6 +747,7 @@ export const useAppStore = create<AppState>()(
               judgeInputPrice: judgeModel?.inputPrice,
               judgeOutputPrice: judgeModel?.outputPrice,
               codingSupportsReasoning: codingModel?.supportsReasoning,
+              commandPermissionMode: state.settings.commandPermissionMode,
             },
             toolExecutor,
             { onApprovalRequired: (requestId, command) => set({ pendingApproval: { requestId, command } }) },

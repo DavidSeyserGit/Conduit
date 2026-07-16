@@ -177,6 +177,7 @@ export class GoalLoopRunner {
           outputPrice: config.codingOutputPrice,
           supportsReasoning: config.codingSupportsReasoning,
           codingReasoningEffort: config.codingReasoningEffort,
+          permissionMode: config.commandPermissionMode,
         });
 
         // The judge owns the implementation contract. Worker plans may only

@@ -5,8 +5,8 @@ import type {
   ModelStreamEvent,
 } from "@conduit/shared";
 import { LocalHarnessProvider } from "./provider.js";
-
-const KILO_REQUEST_TIMEOUT_MS = 20 * 60 * 1000;
+import type { CodingIterationRequest, CodingIterationResult } from "./provider.js";
+import { HttpLocalHarnessTransport, type LocalHarnessTransport } from "./local-transport.js";
 
 interface KiloModelPayload {
   id?: string;
@@ -28,19 +28,12 @@ export class KiloProvider extends LocalHarnessProvider {
     streamsToolEvents: true,
   } as const;
 
-  async listModels(): Promise<ModelDescriptor[]> {
-    if (typeof window === "undefined") {
-      return [fallbackModel()];
-    }
+  constructor(private readonly transport: LocalHarnessTransport = new HttpLocalHarnessTransport()) {
+    super();
+  }
 
-    const response = await fetch("/api/kilo/models", {
-      signal: AbortSignal.timeout(30_000),
-    });
-    if (!response.ok) {
-      const message = await response.text();
-      throw new Error(message || `Kilo model discovery failed (${response.status})`);
-    }
-    return (await response.json()) as ModelDescriptor[];
+  async listModels(): Promise<ModelDescriptor[]> {
+    return await this.transport.listModels("kilo") as ModelDescriptor[];
   }
 
   async createResponse(request: ModelRequest): Promise<ModelResponse> {
@@ -51,62 +44,16 @@ export class KiloProvider extends LocalHarnessProvider {
     request: ModelRequest,
     onEvent: (event: ModelStreamEvent) => void
   ): Promise<ModelResponse> {
-    if (typeof window === "undefined") {
-      throw new Error("Kilo Ask mode is only available through the desktop backend");
-    }
     if (!request.workspacePath) throw new Error("Kilo Ask requires a workspace");
-
-    const response = await fetch("/api/agent/kilo-chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        workspace: request.workspacePath,
-        modelId: request.modelId,
-        messages: request.messages,
-        structuredOutput: request.structuredOutput,
-      }),
-      signal: combineWithTimeout(request.signal, KILO_REQUEST_TIMEOUT_MS),
-    });
-    if (!response.ok) throw new Error((await response.text()) || `Kilo Ask failed (${response.status})`);
-    if (!response.body) throw new Error("Kilo Ask returned no response body");
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let result: ModelResponse | undefined;
-    let lastEvent = "the Kilo stream started";
-    while (true) {
-      let chunk: ReadableStreamReadResult<Uint8Array>;
-      try {
-        chunk = await reader.read();
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        throw new Error(`Kilo stream interrupted after ${lastEvent}: ${reason}`);
-      }
-      const { done, value } = chunk;
-      buffer += decoder.decode(value, { stream: !done });
-      const lines = buffer.split("\n");
-      buffer = done ? "" : lines.pop() || "";
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        const packet = JSON.parse(line) as { event?: ModelStreamEvent; result?: ModelResponse; error?: string };
-        if (packet.event) {
-          onEvent(packet.event);
-          lastEvent = packet.event.type === "content_delta" ? "a content update" : `event ${packet.event.type}`;
-        }
-        if (packet.error) throw new Error(packet.error);
-        if (packet.result) result = packet.result;
-      }
-      if (done) break;
-    }
-    if (!result) throw new Error("Kilo Ask returned no result");
-    return result;
+    return this.transport.createResponse("kilo", request, onEvent);
   }
-}
 
-function combineWithTimeout(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
-  const timeout = AbortSignal.timeout(timeoutMs);
-  return signal ? AbortSignal.any([signal, timeout]) : timeout;
+  async runCodingIteration(
+    request: CodingIterationRequest,
+    onEvent: (event: import("@conduit/shared").GoalRunEvent) => void,
+  ): Promise<CodingIterationResult> {
+    return this.transport.runCodingIteration("kilo", request, onEvent);
+  }
 }
 
 export function parseKiloModels(output: string): ModelDescriptor[] {

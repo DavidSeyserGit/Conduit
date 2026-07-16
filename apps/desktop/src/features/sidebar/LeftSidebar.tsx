@@ -256,8 +256,10 @@ function AddProject({ onClose, onAdded }: { onClose: () => void; onAdded: (proje
     setLoading(true); setError("");
     try {
       const name = selected.full_name.split("/").pop()!;
-      const result = await invoke<{ path: string }>("git_clone_repo", { url: selected.clone_url, destination: parent, name });
-      onAdded({ name, path: result.path, remote: selected.full_name }); onClose();
+      const response = await invoke<{ success: boolean; result?: { path?: string }; error?: string }>("git_clone_repo", { url: selected.clone_url, destination: parent, name });
+      const clonedPath = response.result?.path;
+      if (!response.success || !clonedPath) throw new Error(response.error || "Clone did not return a repository path");
+      onAdded({ name, path: clonedPath, remote: selected.full_name }); onClose();
     } catch (e) { setError(String(e)); setLoading(false); }
   };
 

@@ -270,6 +270,7 @@ export interface GoalRunConfig {
   judgeInputPrice?: number;
   judgeOutputPrice?: number;
   codingSupportsReasoning?: boolean;
+  commandPermissionMode?: CommandPermissionMode;
 }
 
 export interface GoalRunResult {

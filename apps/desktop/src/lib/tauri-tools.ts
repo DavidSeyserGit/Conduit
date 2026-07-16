@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { ToolExecutor, ToolMode, ToolCallResult, ToolExecutorContext } from "@conduit/tools";
 import { GOAL_ONLY_TOOLS, WRITE_TOOLS } from "@conduit/tools";
+import type { CommandPermissionMode } from "@conduit/shared";
 
 interface TauriToolResult {
   success: boolean;
@@ -10,7 +11,8 @@ interface TauriToolResult {
 
 export function createTauriToolExecutor(
   getWorkspacePath: () => string,
-  context: ToolExecutorContext = {}
+  context: ToolExecutorContext = {},
+  getPermissionMode: () => CommandPermissionMode = () => "auto_approve_safe"
 ): ToolExecutor {
   return {
     async execute(
@@ -27,7 +29,13 @@ export function createTauriToolExecutor(
           const response = await fetch("/api/workspace/tool", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ workspace: getWorkspacePath(), name, args, mode }),
+            body: JSON.stringify({
+              workspace: getWorkspacePath(),
+              name,
+              args,
+              mode,
+              permissionMode: getPermissionMode(),
+            }),
           });
           const body = await response.text();
           if (!body) return { success: false, error: `Workspace tool returned an empty response (${response.status})` };
@@ -45,6 +53,7 @@ export function createTauriToolExecutor(
           name,
           args,
           mode,
+          permissionMode: getPermissionMode(),
         });
 
         if (result.success && WRITE_TOOLS.has(name) && args.path) {

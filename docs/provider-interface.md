@@ -15,6 +15,10 @@ interface ModelProvider {
     request: ModelRequest,
     onEvent: (event: ModelStreamEvent) => void
   ): Promise<ModelResponse>;
+  runCodingIteration?(
+    request: CodingIterationRequest,
+    onEvent: (event: GoalRunEvent) => void
+  ): Promise<CodingIterationResult>;
 }
 ```
 
@@ -91,17 +95,20 @@ Configuration: API key via app settings.
 
 ### Codex
 
-- Uses the locally authenticated Codex CLI through the desktop backend
+- Uses the locally authenticated Codex CLI through an injected local-harness transport
 - Uses schema-bound, read-only commands for judges
-- Uses the coding command policy only for Goal implementation iterations
-- Supports cancellation, timeouts, and explicit stdin EOF
+- Uses an explicit `workspace-write` sandbox for Goal workers; bypass flags are forbidden and sandbox escalations fail closed
+- Supports packaged Tauri IPC and browser-development HTTP without provider branching
+- Supports request-scoped cancellation, process-tree cleanup, timeouts, bounded output, and explicit stdin EOF
 
 ### Kilo Code
 
 - Discovers the locally configured Kilo model catalog
 - Uses `ask --pure` for read-only judge/Ask work
-- Uses `code --auto --dangerously-skip-permissions` only for Goal workers
-- Parses Kilo JSON events and propagates CLI stderr failures
+- Uses `code --pure` with a Conduit-injected, fail-closed permission policy for Goal workers
+- Maps Conduit's command-permission mode into Kilo's `bash` permission and denies external directories, network tools, subagents, and sensitive-file edits
+- Enables Kilo's OS sandbox with command network denial on macOS/Linux
+- Parses Kilo JSON events and propagates cancellation, timeout, output-limit, and CLI stderr failures
 
 ## OpenAI Compatible
 
