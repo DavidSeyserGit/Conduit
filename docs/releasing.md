@@ -20,8 +20,8 @@ run; the release workflow calls the same CI workflow once.
 
 1. Reuses the complete CI verification job.
 2. Verifies that the tag matches all four application version sources.
-3. Builds Tauri installers for macOS Apple Silicon, macOS Intel, Linux x64, and
-   Windows x64.
+3. Builds Tauri installers for macOS Apple Silicon, macOS Intel, and Linux x64
+   (Windows is currently not built — see Signing).
 4. Publishes the installers to a generated GitHub Release with release notes.
 
 The required version sources are:
@@ -57,6 +57,14 @@ macOS artifacts use Tauri's ad-hoc signing identity (`-`) so Apple Silicon build
 are signed without storing an Apple certificate. They are not notarized and may
 still require user approval in Privacy & Security. Windows artifacts are built
 without a trusted publisher certificate until signing secrets are configured.
+
+Windows builds are currently removed from the release matrix: the committed
+`apps/desktop/src-tauri/icons/icon.ico` is a renamed PNG, so the resource
+compiler fails (`RC2175: not in 3.00 format`). To re-enable, regenerate the
+icons from a real source image (`pnpm --dir apps/desktop tauri icon
+path/to/icon.png`), restore the Windows matrix entry in
+`.github/workflows/release.yml`, and configure Windows signing secrets when
+distribution to Windows users matters.
 
 For public production distribution, add Apple notarization and Windows signing
 credentials using Tauri's official [macOS signing](https://v2.tauri.app/distribute/sign/macos/)
