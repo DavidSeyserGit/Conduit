@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const tag = process.argv[2];
+const tag = process.argv.slice(2).filter((arg) => arg !== "--")[0];
 const rootPackage = JSON.parse(await readFile("package.json", "utf8"));
 const desktopPackage = JSON.parse(await readFile("apps/desktop/package.json", "utf8"));
 const tauriConfig = JSON.parse(await readFile("apps/desktop/src-tauri/tauri.conf.json", "utf8"));
