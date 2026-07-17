@@ -583,8 +583,18 @@ pub fn tool_capture_git_snapshot(workspace: String) -> ToolResult {
     }
 }
 
+fn git_cmd() -> Command {
+    let executable =
+        crate::local_harness::resolve_executable("git").unwrap_or_else(|_| PathBuf::from("git"));
+    let mut command = Command::new(executable);
+    if let Some(path) = crate::local_harness::augmented_path() {
+        command.env("PATH", path);
+    }
+    command
+}
+
 fn run_git(workspace: &str, args: &[&str], index_path: Option<&Path>) -> Result<String, String> {
-    let mut command = Command::new("git");
+    let mut command = git_cmd();
     command.args(args).current_dir(workspace);
     if let Some(index_path) = index_path {
         command.env("GIT_INDEX_FILE", index_path);
@@ -1062,7 +1072,7 @@ pub fn git_clone_repo(url: String, destination: String, name: String) -> ToolRes
         };
     }
     if target.exists() {
-        let is_repository = Command::new("git")
+        let is_repository = git_cmd()
             .args([
                 "-C",
                 &target.to_string_lossy(),
@@ -1149,7 +1159,7 @@ pub fn git_clone_repo(url: String, destination: String, name: String) -> ToolRes
         askpass
     };
     let target_string = target.to_string_lossy().to_string();
-    let output = Command::new("git")
+    let output = git_cmd()
         .args(["clone", &url, &target_string])
         .env("GIT_ASKPASS", &script)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -1234,7 +1244,7 @@ pub fn git_worktree_create(repository: String, branch: String, session_id: Strin
             error: Some(error.to_string()),
         };
     }
-    let output = Command::new("git")
+    let output = git_cmd()
         .args([
             "-C",
             &repository.to_string_lossy(),
@@ -1286,7 +1296,7 @@ pub fn git_worktree_remove(repository: String, worktree: String) -> ToolResult {
             error: Some("Invalid worktree path".to_string()),
         };
     }
-    let output = Command::new("git")
+    let output = git_cmd()
         .args([
             "-C",
             &repository.to_string_lossy(),
@@ -1319,7 +1329,7 @@ fn git_command(workspace: &str, args: &[&str]) -> Result<String, String> {
     let root = PathBuf::from(workspace)
         .canonicalize()
         .map_err(|_| "Workspace does not exist".to_string())?;
-    let output = Command::new("git")
+    let output = git_cmd()
         .arg("-C")
         .arg(root)
         .args(args)
@@ -1464,7 +1474,7 @@ pub fn git_push_branch(workspace: String) -> ToolResult {
             use std::os::unix::fs::PermissionsExt;
             let _ = fs::set_permissions(&askpass, fs::Permissions::from_mode(0o700));
         }
-        let output = Command::new("git")
+        let output = git_cmd()
             .args([
                 "-C",
                 &root.to_string_lossy(),
