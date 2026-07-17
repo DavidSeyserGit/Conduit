@@ -384,6 +384,8 @@ export interface AppSettings {
   acpAgents?: AcpAgentConfig[];
   autoCheckUpdates?: boolean;
   lastUpdateCheckAt?: string;
+  skippedUpdateVersion?: string;
+  lastSeenChangelogVersion?: string;
 }
 
 export interface AcpAgentConfig {
