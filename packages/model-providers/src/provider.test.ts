@@ -32,6 +32,22 @@ test("provider routing uses a complete namespace segment and preserves canonical
   assert.equal(findProviderForModel(registry, "unknown/model"), undefined);
 });
 
+test("listAllModelsWithErrors collects per-provider failures", async () => {
+  const registry = new DefaultProviderRegistry();
+  registry.register(provider("kilo"));
+  registry.register({
+    ...provider("broken"),
+    listModels: async () => {
+      throw new Error("env: node: No such file or directory");
+    },
+  });
+
+  const { models, errors } = await registry.listAllModelsWithErrors();
+
+  assert.deepEqual(models, []);
+  assert.deepEqual(errors, { broken: "env: node: No such file or directory" });
+});
+
 test("provider registry replacement is deterministic", () => {
   const registry = new DefaultProviderRegistry();
   const first = provider("kilo");
