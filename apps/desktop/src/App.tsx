@@ -52,7 +52,13 @@ export default function App() {
         const { checkForUpdates } = await import("@/lib/updater");
         const info = await checkForUpdates();
         updateSettings({ lastUpdateCheckAt: new Date().toISOString() });
-        if (info?.available) setUpdateNotice({ version: info.latestVersion, body: info.body });
+        if (info?.available) {
+          // A fresh notice reopens the dialog: clear any previous attempt's state.
+          setUpdateError(null);
+          setUpdateProgress(null);
+          setUpdateInstalling(false);
+          setUpdateNotice({ version: info.latestVersion, body: info.body });
+        }
       } catch {}
     })();
   }, []);
@@ -65,12 +71,21 @@ export default function App() {
         const { getVersion } = await import("@tauri-apps/api/app");
         const current = await getVersion();
         const lastSeen = useAppStore.getState().settings.lastSeenChangelogVersion;
+        if (!lastSeen) {
+          // Fresh install: record the version silently, no popup.
+          updateSettings({ lastSeenChangelogVersion: current });
+          return;
+        }
         if (shouldShowChangelog(current, lastSeen)) {
           const { fetchReleaseChangelog } = await import("@/lib/update-prompts");
           const changelog = await fetchReleaseChangelog(current);
-          if (changelog) setWhatsNew(changelog);
+          if (changelog) {
+            // Only mark as seen once the notes are shown; a failed fetch
+            // (offline, rate limit) retries on the next launch.
+            updateSettings({ lastSeenChangelogVersion: current });
+            setWhatsNew(changelog);
+          }
         }
-        if (lastSeen !== current) updateSettings({ lastSeenChangelogVersion: current });
       } catch {}
     })();
   }, []);
@@ -114,6 +129,8 @@ export default function App() {
       });
     } catch (error) {
       setUpdateError(error instanceof Error ? error.message : String(error));
+    } finally {
+      // Also resets on early-return paths (e.g. the non-Tauri browser flow).
       setUpdateInstalling(false);
     }
   };

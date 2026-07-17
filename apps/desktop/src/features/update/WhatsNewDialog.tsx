@@ -11,7 +11,7 @@ export function WhatsNewDialog({
 }) {
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/20 p-4">
-      <div role="dialog" aria-label={`What's new in v${version}`} className="w-[min(92vw,480px)] rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl space-y-4">
+      <div role="dialog" aria-modal="true" aria-label={`What's new in v${version}`} className="w-[min(92vw,480px)] rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl space-y-4">
         <div>
           <div className="text-base font-semibold text-gray-900">What&apos;s new in v{version}</div>
           {publishedAt && <div className="text-xs text-gray-400 mt-0.5">{new Date(publishedAt).toLocaleDateString()}</div>}

@@ -19,7 +19,7 @@ export function UpdateDialog({
 }) {
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/20 p-4">
-      <div role="dialog" aria-label="Update available" className="w-[min(92vw,440px)] rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl space-y-4">
+      <div role="dialog" aria-modal="true" aria-label="Update available" className="w-[min(92vw,440px)] rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl space-y-4">
         <div>
           <div className="text-base font-semibold text-gray-900">Update available</div>
           <div className="text-sm text-gray-500 mt-0.5">Conduit v{version} is ready to install.</div>
