@@ -50,10 +50,6 @@ jobs:
             platform: ubuntu-22.04
             args: --ci --bundles deb,appimage -- --locked
             rustTargets: ""
-          - label: Windows x64
-            platform: windows-latest
-            args: --ci --bundles nsis -- --locked
-            rustTargets: ""
 
     steps:
       - name: Check out repository
