@@ -678,11 +678,7 @@ fn run_process_with_options(
         .stderr(Stdio::piped());
     // Packaged builds inherit a minimal PATH (launchd on macOS), so script
     // CLIs with `#!/usr/bin/env node` shebangs cannot find their runtime.
-    let mut child_path: Vec<PathBuf> = env::var_os("PATH")
-        .map(|path| env::split_paths(&path).collect())
-        .unwrap_or_default();
-    child_path.extend(extra_executable_dirs());
-    if let Ok(child_path) = env::join_paths(child_path) {
+    if let Some(child_path) = augmented_path() {
         command.env("PATH", child_path);
     }
     if let Some(environment) = environment {
@@ -833,7 +829,7 @@ fn terminate_process_tree(child: &mut Child) {
     let _ = child.wait();
 }
 
-fn extra_executable_dirs() -> Vec<PathBuf> {
+pub(crate) fn extra_executable_dirs() -> Vec<PathBuf> {
     let mut directories = Vec::new();
     if let Some(home) = dirs::home_dir() {
         directories.extend([
@@ -849,7 +845,17 @@ fn extra_executable_dirs() -> Vec<PathBuf> {
     directories
 }
 
-fn resolve_executable(program: &str) -> Result<PathBuf, String> {
+/// Inherited PATH plus the fallback dirs above; needed by script CLIs with
+/// `#!/usr/bin/env node` shebangs under launchd's minimal GUI PATH.
+pub(crate) fn augmented_path() -> Option<std::ffi::OsString> {
+    let mut directories: Vec<PathBuf> = env::var_os("PATH")
+        .map(|path| env::split_paths(&path).collect())
+        .unwrap_or_default();
+    directories.extend(extra_executable_dirs());
+    env::join_paths(directories).ok()
+}
+
+pub(crate) fn resolve_executable(program: &str) -> Result<PathBuf, String> {
     let candidate = Path::new(program);
     if candidate.components().count() > 1 && candidate.is_file() {
         return Ok(candidate.to_path_buf());
