@@ -54,6 +54,7 @@ test("release publishing is gated and covers every desktop platform", async () =
   assert.match(workflow, /macOS Apple Silicon/);
   assert.match(workflow, /macOS Intel/);
   assert.match(workflow, /Linux x64/);
-  assert.match(workflow, /Windows x64/);
+  // Windows is parked: icon.ico is broken and there is no Windows demand; see releasing.md.
+  assert.doesNotMatch(workflow, /Windows x64/);
   assert.match(workflow, /releaseDraft: false/);
 });
