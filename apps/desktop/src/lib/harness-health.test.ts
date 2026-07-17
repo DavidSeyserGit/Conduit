@@ -43,6 +43,10 @@ test("harnessStatusView maps probe results to status lines", () => {
     { tone: "warn", text: "Not signed in · run: codex login" },
   );
   assert.deepEqual(
+    harnessStatusView("kimi", { kimi: { installed: true, authenticated: "no" } }),
+    { tone: "warn", text: "Not signed in · run: kimi login" },
+  );
+  assert.deepEqual(
     harnessStatusView("codex", { codex: { installed: true, authenticated: "yes" } }),
     { tone: "ok", text: "CLI ready" },
   );

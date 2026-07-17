@@ -18,6 +18,7 @@ import {
   ACPAgentProvider,
   CodexProvider,
   KiloProvider,
+  KimiProvider,
   HttpLocalHarnessTransport,
   type LocalHarnessTransport,
 } from "@conduit/model-providers";
@@ -645,7 +646,7 @@ export const useAppStore = create<AppState>()(
       initProviders: () => {
         const { settings } = get();
         const registry = getRegistry();
-        const enabled = (id: "openrouter" | "codex" | "acp" | "kilo") => settings.enabledHarnesses?.[id] !== false;
+        const enabled = (id: "openrouter" | "codex" | "acp" | "kilo" | "kimi") => settings.enabledHarnesses?.[id] !== false;
 
         if (settings.openRouterApiKey && enabled("openrouter")) {
           if (!openRouterProvider) {
@@ -663,6 +664,7 @@ export const useAppStore = create<AppState>()(
         const transport = getLocalHarnessTransport();
         if (enabled("codex")) registry.register(new CodexProvider(transport)); else registry.unregister("codex");
         if (enabled("kilo")) registry.register(new KiloProvider(transport)); else registry.unregister("kilo");
+        if (enabled("kimi")) registry.register(new KimiProvider(transport)); else registry.unregister("kimi");
       },
 
       sendMessage: async (content) => {

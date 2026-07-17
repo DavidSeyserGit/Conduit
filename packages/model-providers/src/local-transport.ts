@@ -10,14 +10,14 @@ import type { CodingIterationRequest, CodingIterationResult } from "./provider.j
 const LOCAL_REQUEST_TIMEOUT_MS = 20 * 60 * 1000;
 
 export interface LocalHarnessTransport {
-  listModels(providerId: "codex" | "kilo"): Promise<unknown[]>;
+  listModels(providerId: "codex" | "kilo" | "kimi"): Promise<unknown[]>;
   createResponse(
-    providerId: "codex" | "kilo",
+    providerId: "codex" | "kilo" | "kimi",
     request: ModelRequest,
     onEvent: (event: ModelStreamEvent) => void,
   ): Promise<ModelResponse>;
   runCodingIteration(
-    providerId: "codex" | "kilo",
+    providerId: "codex" | "kilo" | "kimi",
     request: CodingIterationRequest,
     onEvent: (event: GoalRunEvent) => void,
   ): Promise<CodingIterationResult>;
@@ -25,7 +25,7 @@ export interface LocalHarnessTransport {
 
 /** Browser-development adapter. Production Tauri injects an IPC transport. */
 export class HttpLocalHarnessTransport implements LocalHarnessTransport {
-  async listModels(providerId: "codex" | "kilo"): Promise<unknown[]> {
+  async listModels(providerId: "codex" | "kilo" | "kimi"): Promise<unknown[]> {
     const response = await fetch(`/api/${providerId}/models`, {
       signal: AbortSignal.timeout(30_000),
     });
@@ -37,7 +37,7 @@ export class HttpLocalHarnessTransport implements LocalHarnessTransport {
   }
 
   async createResponse(
-    providerId: "codex" | "kilo",
+    providerId: "codex" | "kilo" | "kimi",
     request: ModelRequest,
     onEvent: (event: ModelStreamEvent) => void,
   ): Promise<ModelResponse> {
@@ -62,7 +62,7 @@ export class HttpLocalHarnessTransport implements LocalHarnessTransport {
   }
 
   async runCodingIteration(
-    _providerId: "codex" | "kilo",
+    _providerId: "codex" | "kilo" | "kimi",
     request: CodingIterationRequest,
     onEvent: (event: GoalRunEvent) => void,
   ): Promise<CodingIterationResult> {

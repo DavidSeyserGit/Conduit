@@ -6,6 +6,7 @@ export { OpenAICompatibleProvider } from "./openai-compatible.js";
 export { ACPAgentProvider, AcpSessionManager } from "./acp.js";
 export { CodexProvider } from "./codex.js";
 export { KiloProvider } from "./kilo.js";
+export { KimiProvider } from "./kimi.js";
 export { HttpLocalHarnessTransport } from "./local-transport.js";
 export type { LocalHarnessTransport } from "./local-transport.js";
 export { HARNESS_DEFINITIONS, getHarnessDefinition } from "./harnesses.js";

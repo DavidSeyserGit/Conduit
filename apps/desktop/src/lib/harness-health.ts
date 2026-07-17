@@ -6,7 +6,7 @@ export interface HarnessHealth {
   authenticated: HarnessAuthState;
   detail?: string | null;
 }
-export type HarnessHealthMap = Partial<Record<"codex" | "kilo", HarnessHealth>>;
+export type HarnessHealthMap = Partial<Record<"codex" | "kilo" | "kimi", HarnessHealth>>;
 
 type InvokeFn = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
 
@@ -33,7 +33,7 @@ export interface HarnessStatusView {
 
 /** Maps probe results to the status line shown next to a harness in Settings. */
 export function harnessStatusView(
-  harnessId: "codex" | "kilo",
+  harnessId: "codex" | "kilo" | "kimi",
   health: HarnessHealthMap | null,
   installHint?: string,
 ): HarnessStatusView | null {
@@ -43,9 +43,10 @@ export function harnessStatusView(
     return { tone: "warn", text: `CLI not found${installHint ? ` · install: ${installHint}` : ""}` };
   }
   if (entry.authenticated === "no") {
+    const hint = harnessId === "codex" ? "codex login" : harnessId === "kimi" ? "kimi login" : null;
     return {
       tone: "warn",
-      text: harnessId === "codex" ? "Not signed in · run: codex login" : "Not signed in · check the CLI auth",
+      text: hint ? `Not signed in · run: ${hint}` : "Not signed in · check the CLI auth",
     };
   }
   if (entry.authenticated === "yes") return { tone: "ok", text: "CLI ready" };

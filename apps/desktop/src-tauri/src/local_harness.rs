@@ -138,11 +138,18 @@ struct KiloRun {
     tool_calls: Vec<Value>,
 }
 
+#[derive(Debug, Default, Clone)]
+struct KimiRun {
+    summary: String,
+    tool_calls: Vec<Value>,
+}
+
 #[tauri::command]
 pub async fn local_harness_models(provider_id: String) -> Result<Vec<Value>, String> {
     tauri::async_runtime::spawn_blocking(move || match provider_id.as_str() {
         "codex" => load_codex_models(),
         "kilo" => load_kilo_models(),
+        "kimi" => load_kimi_models(),
         _ => Err("Unsupported local harness provider".to_string()),
     })
     .await
@@ -174,9 +181,19 @@ fn harness_health() -> Result<Value, String> {
             Err(error) => ("unknown", Some(error)),
         }
     };
+    let kimi_installed = resolve_executable("kimi").is_ok();
+    let (kimi_auth, kimi_detail) = if !kimi_installed {
+        ("unknown", None)
+    } else {
+        match load_kimi_models() {
+            Ok(_) => ("yes", None),
+            Err(error) => ("unknown", Some(error)),
+        }
+    };
     Ok(json!({
         "codex": { "installed": codex_installed, "authenticated": codex_auth },
         "kilo": { "installed": kilo_installed, "authenticated": kilo_auth, "detail": kilo_detail },
+        "kimi": { "installed": kimi_installed, "authenticated": kimi_auth, "detail": kimi_detail },
     }))
 }
 
@@ -296,6 +313,31 @@ fn run_response(
                 finish_reason: "stop".to_string(),
             })
         }
+        "kimi" => {
+            let runtime_model = runtime_model_id("kimi", &request.model_id)?;
+            let run = run_kimi(
+                &workspace,
+                &runtime_model,
+                &prompt,
+                "judge",
+                None,
+                cancelled,
+                None,
+            )?;
+            if !run.summary.is_empty() {
+                let _ = on_event.send(json!({ "type": "content_delta", "content": run.summary }));
+            }
+            let structured_output = request
+                .structured_output
+                .as_ref()
+                .and_then(|_| try_parse_structured_output(&run.summary));
+            Ok(ModelResponse {
+                content: run.summary,
+                structured_output,
+                tool_calls: Vec::new(),
+                finish_reason: "stop".to_string(),
+            })
+        }
         _ => Err("Unsupported local harness provider".to_string()),
     }
 }
@@ -347,6 +389,20 @@ fn run_coding_iteration(
             let runtime_model = kilo_runtime_model_id(&request.model_id)?;
             send_status(&on_event, &format!("Starting Kilo {runtime_model}…"));
             let run = run_kilo(
+                &workspace,
+                &runtime_model,
+                &prompt,
+                "worker",
+                request.permission_mode.as_deref(),
+                cancelled,
+                Some(on_event.clone()),
+            )?;
+            (run.summary, run.tool_calls)
+        }
+        "kimi" => {
+            let runtime_model = runtime_model_id("kimi", &request.model_id)?;
+            send_status(&on_event, &format!("Starting Kimi {runtime_model}…"));
+            let run = run_kimi(
                 &workspace,
                 &runtime_model,
                 &prompt,
@@ -441,6 +497,62 @@ fn load_kilo_models() -> Result<Vec<Value>, String> {
                 "supportsTools": true,
                 "supportsStructuredOutput": false,
                 "supportsReasoning": true,
+                "supportsAsk": true,
+                "supportsGoal": true,
+                "supportsJudge": true,
+            })
+        })
+        .collect())
+}
+
+fn load_kimi_models() -> Result<Vec<Value>, String> {
+    let cwd =
+        dirs::home_dir().ok_or_else(|| "Could not determine the home directory".to_string())?;
+    let capture = run_process(
+        "kimi",
+        &["provider", "list", "--json"].map(String::from),
+        &cwd,
+        Arc::new(AtomicBool::new(false)),
+        None,
+    )?;
+    parse_kimi_models_from_json(&capture.stdout)
+}
+
+fn parse_kimi_models_from_json(output: &str) -> Result<Vec<Value>, String> {
+    let catalog: Value = serde_json::from_str(output)
+        .map_err(|error| format!("Kimi model catalog is invalid: {error}"))?;
+    let models = catalog
+        .get("models")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "Kimi model catalog has no models".to_string())?;
+    Ok(models
+        .iter()
+        .map(|(alias, model)| {
+            let capabilities: Vec<&str> = model
+                .get("capabilities")
+                .and_then(Value::as_array)
+                .map(|capabilities| capabilities.iter().filter_map(Value::as_str).collect())
+                .unwrap_or_default();
+            let display_name = model
+                .get("displayName")
+                .and_then(Value::as_str)
+                .map(String::from)
+                .unwrap_or_else(|| {
+                    title_case(
+                        &alias
+                            .rsplit('/')
+                            .next()
+                            .unwrap_or(alias)
+                            .replace(['-', '_'], " "),
+                    )
+                });
+            json!({
+                "id": format!("kimi/{alias}"),
+                "provider": "kimi",
+                "displayName": display_name,
+                "supportsTools": capabilities.contains(&"tool_use"),
+                "supportsStructuredOutput": false,
+                "supportsReasoning": capabilities.contains(&"thinking"),
                 "supportsAsk": true,
                 "supportsGoal": true,
                 "supportsJudge": true,
@@ -594,6 +706,156 @@ impl KiloCollector {
 
     fn result(&self) -> KiloRun {
         KiloRun {
+            summary: self.summary.clone(),
+            tool_calls: self.tool_calls.values().cloned().collect(),
+        }
+    }
+}
+
+fn run_kimi(
+    workspace: &Path,
+    runtime_model: &str,
+    prompt: &str,
+    // Kimi print mode cannot express Conduit roles or permission modes in v1:
+    // `-p` auto-approves tool use non-interactively, and the CLI rejects
+    // combining it with `--auto`/`--yolo`.
+    _role: &str,
+    _permission_mode: Option<&str>,
+    cancelled: Arc<AtomicBool>,
+    event_channel: Option<Channel<Value>>,
+) -> Result<KimiRun, String> {
+    let args = build_kimi_args(runtime_model, prompt);
+    let collector = Arc::new(Mutex::new(KimiCollector::new(event_channel.clone())));
+    let line_collector = collector.clone();
+    let on_line: Arc<dyn Fn(&str) + Send + Sync> = Arc::new(move |line| {
+        if let Ok(mut collector) = line_collector.lock() {
+            collector.consume(line);
+        }
+    });
+    let heartbeat_channel = event_channel.clone();
+    let heartbeat = heartbeat_channel.map(|channel| {
+        Arc::new(move || send_heartbeat(&channel, "Kimi")) as Arc<dyn Fn() + Send + Sync>
+    });
+    run_process_with_options(
+        "kimi",
+        &args,
+        workspace,
+        cancelled,
+        heartbeat,
+        Some(on_line),
+        None,
+        PROCESS_TIMEOUT,
+        true,
+    )?;
+    collector
+        .lock()
+        .map(|collector| collector.result())
+        .map_err(|_| "Kimi event collector is unavailable".to_string())
+}
+
+struct KimiCollector {
+    summary: String,
+    tool_calls: HashMap<String, Value>,
+    changed_files: Vec<String>,
+    event_channel: Option<Channel<Value>>,
+}
+
+impl KimiCollector {
+    fn new(event_channel: Option<Channel<Value>>) -> Self {
+        Self {
+            summary: String::new(),
+            tool_calls: HashMap::new(),
+            changed_files: Vec::new(),
+            event_channel,
+        }
+    }
+
+    fn consume(&mut self, line: &str) {
+        let Ok(event) = serde_json::from_str::<Value>(line) else {
+            return;
+        };
+        match event.get("role").and_then(Value::as_str) {
+            Some("assistant") => {
+                if let Some(text) = event.get("content").and_then(Value::as_str) {
+                    self.summary.push_str(text);
+                }
+                if let Some(calls) = event.get("tool_calls").and_then(Value::as_array) {
+                    for call in calls {
+                        self.start_tool(call);
+                    }
+                }
+            }
+            Some("tool") => self.complete_tool(&event),
+            _ => {}
+        }
+    }
+
+    fn start_tool(&mut self, call: &Value) {
+        let function = call.get("function").and_then(Value::as_object);
+        let name = function
+            .and_then(|function| function.get("name"))
+            .and_then(Value::as_str)
+            .unwrap_or("tool");
+        let id = call
+            .get("id")
+            .and_then(Value::as_str)
+            .map(String::from)
+            .unwrap_or_else(|| unique_id("tool"));
+        // Kimi serializes tool arguments as a JSON string; tolerate any other
+        // shape by falling back to an empty record.
+        let arguments = function
+            .and_then(|function| function.get("arguments"))
+            .and_then(Value::as_str)
+            .and_then(|arguments| serde_json::from_str::<Value>(arguments).ok())
+            .filter(|arguments| arguments.is_object())
+            .unwrap_or_else(|| json!({}));
+        let tool = json!({
+            "id": id,
+            "name": name,
+            "arguments": arguments,
+            "status": "running",
+            "startedAt": now(),
+        });
+        self.tool_calls.insert(id, tool.clone());
+        if let Some(channel) = &self.event_channel {
+            let _ = channel.send(json!({ "type": "tool_started", "toolCall": tool }));
+        }
+    }
+
+    fn complete_tool(&mut self, event: &Value) {
+        let Some(id) = event.get("tool_call_id").and_then(Value::as_str) else {
+            return;
+        };
+        let mut tool = self.tool_calls.get(id).cloned().unwrap_or_else(|| {
+            json!({
+                "id": id,
+                "name": "tool",
+                "arguments": {},
+                "status": "running",
+                "startedAt": now(),
+            })
+        });
+        tool["status"] = json!("completed");
+        tool["completedAt"] = json!(now());
+        if let Some(result) = event.get("content") {
+            tool["result"] = result.clone();
+        }
+        self.tool_calls.insert(id.to_string(), tool.clone());
+        if let Some(channel) = &self.event_channel {
+            let _ = channel.send(json!({ "type": "tool_completed", "toolCall": tool }));
+        }
+        if let Some(path) = kimi_file_change_path(&tool) {
+            if !self.changed_files.contains(&path) {
+                self.changed_files.push(path.clone());
+                if let Some(channel) = &self.event_channel {
+                    let _ = channel.send(json!({ "type": "file_changed", "path": path }));
+                }
+            }
+        }
+    }
+
+    fn result(&self) -> KimiRun {
+        KimiRun {
             summary: self.summary.clone(),
             tool_calls: self.tool_calls.values().cloned().collect(),
         }
@@ -836,6 +1098,7 @@ pub(crate) fn extra_executable_dirs() -> Vec<PathBuf> {
             home.join(".local/bin"),
             home.join(".bun/bin"),
             home.join(".cargo/bin"),
+            home.join(".kimi-code/bin"),
         ]);
     }
     directories.extend([
@@ -1027,6 +1290,34 @@ fn build_kilo_args(workspace: &Path, runtime_model: &str, prompt: &str, role: &s
     args
 }
 
+fn build_kimi_args(runtime_model: &str, prompt: &str) -> Vec<String> {
+    // Never add `--auto`/`--yolo`: print mode auto-approves tool use and the
+    // CLI rejects those flags in combination with `-p`.
+    vec![
+        "-p".to_string(),
+        prompt.to_string(),
+        "-m".to_string(),
+        runtime_model.to_string(),
+        "--output-format".to_string(),
+        "stream-json".to_string(),
+    ]
+}
+
+fn kimi_file_change_path(tool: &Value) -> Option<String> {
+    let name = tool.get("name").and_then(Value::as_str)?;
+    if !matches!(
+        name.to_ascii_lowercase().as_str(),
+        "write" | "edit" | "multiedit" | "apply_patch"
+    ) {
+        return None;
+    }
+    tool.get("arguments")
+        .and_then(|arguments| arguments.get("path"))
+        .and_then(Value::as_str)
+        .filter(|path| !path.is_empty())
+        .map(String::from)
+}
+
 fn build_codex_judge_args(
     workspace: &Path,
     runtime_model: &str,
@@ -1208,6 +1499,7 @@ fn provider_display_name(provider_id: &str) -> Result<&'static str, String> {
     match provider_id {
         "codex" => Ok("Codex"),
         "kilo" => Ok("Kilo"),
+        "kimi" => Ok("Kimi"),
         _ => Err("Unsupported local harness provider".to_string()),
     }
 }
@@ -1275,7 +1567,12 @@ mod tests {
             kilo_runtime_model_id("kilo/kilo/kilo-auto/free").unwrap(),
             "kilo/kilo-auto/free"
         );
+        assert_eq!(
+            runtime_model_id("kimi", "kimi/kimi-code/k3").unwrap(),
+            "kimi-code/k3"
+        );
         assert!(runtime_model_id("codex", "kilo/gpt-5.6").is_err());
+        assert!(runtime_model_id("kimi", "kimi/").is_err());
     }
 
     #[test]
@@ -1319,6 +1616,77 @@ mod tests {
             Some(json!({ "ok": true }))
         );
         assert_eq!(try_parse_structured_output("not json"), None);
+    }
+
+    #[test]
+    fn kimi_model_catalog_maps_aliases_to_descriptors() {
+        let output = json!({
+            "providers": { "managed:kimi-code": { "type": "kimi" } },
+            "models": {
+                "kimi-code/k3": {
+                    "provider": "managed:kimi-code",
+                    "model": "k3",
+                    "maxContextSize": 1048576,
+                    "capabilities": ["thinking", "always_thinking", "tool_use"],
+                    "displayName": "K3",
+                    "supportEfforts": ["max"],
+                    "defaultEffort": "max"
+                },
+                "kimi-code/plain": {
+                    "provider": "managed:kimi-code",
+                    "model": "plain",
+                    "capabilities": []
+                }
+            }
+        })
+        .to_string();
+        let models = parse_kimi_models_from_json(&output).unwrap();
+        assert_eq!(models.len(), 2);
+        let k3 = models
+            .iter()
+            .find(|model| model["id"] == "kimi/kimi-code/k3")
+            .unwrap();
+        assert_eq!(k3["provider"], "kimi");
+        assert_eq!(k3["displayName"], "K3");
+        assert_eq!(k3["supportsTools"], true);
+        assert_eq!(k3["supportsReasoning"], true);
+        assert_eq!(k3["supportsStructuredOutput"], false);
+        assert_eq!(k3["supportsAsk"], true);
+        assert_eq!(k3["supportsGoal"], true);
+        assert_eq!(k3["supportsJudge"], true);
+        let plain = models
+            .iter()
+            .find(|model| model["id"] == "kimi/kimi-code/plain")
+            .unwrap();
+        assert_eq!(plain["displayName"], "Plain");
+        assert_eq!(plain["supportsTools"], false);
+        assert_eq!(plain["supportsReasoning"], false);
+        assert!(parse_kimi_models_from_json("not json").is_err());
+        assert!(parse_kimi_models_from_json("{}").is_err());
+    }
+
+    #[test]
+    fn kimi_print_mode_never_combines_auto_flags() {
+        let args = build_kimi_args("kimi-code/k3", "prompt");
+        assert!(args.windows(2).any(|pair| pair == ["-p", "prompt"]));
+        assert!(args.windows(2).any(|pair| pair == ["-m", "kimi-code/k3"]));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair == ["--output-format", "stream-json"]));
+        assert!(!args.iter().any(|arg| arg == "--auto"));
+        assert!(!args.iter().any(|arg| arg == "--yolo"));
+    }
+
+    #[test]
+    fn kimi_file_change_path_only_flags_write_style_tools() {
+        let write = json!({ "name": "Write", "arguments": { "path": "src/a.ts" } });
+        assert_eq!(kimi_file_change_path(&write), Some("src/a.ts".to_string()));
+        let edit = json!({ "name": "Edit", "arguments": { "path": "src/b.ts" } });
+        assert_eq!(kimi_file_change_path(&edit), Some("src/b.ts".to_string()));
+        let read = json!({ "name": "Read", "arguments": { "path": "src/a.ts" } });
+        assert_eq!(kimi_file_change_path(&read), None);
+        let no_path = json!({ "name": "Write", "arguments": {} });
+        assert_eq!(kimi_file_change_path(&no_path), None);
     }
 
     #[test]
