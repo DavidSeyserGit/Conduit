@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAppStore } from "@/stores/app-store";
 import { HARNESS_DEFINITIONS } from "@conduit/model-providers";
+import { harnessStatusView, type HarnessHealthMap } from "@/lib/harness-health";
 import type { CommandPermissionMode } from "@conduit/shared";
 import { DEFAULT_GOAL_COLOR, getModeColor } from "@/lib/mode-colors";
 import { ModelPicker } from "@/features/model-picker/ModelPicker";
@@ -35,7 +36,13 @@ export function SettingsPanel() {
   const setMaxIterations = useAppStore((s) => s.setMaxIterations);
   const [tab, setTab] = useState<SettingsTab>("model");
   const [keyError, setKeyError] = useState<string | null>(null);
+  const harnessHealth = useAppStore((s) => s.harnessHealth);
+  const refreshHarnessHealth = useAppStore((s) => s.refreshHarnessHealth);
   const popover = usePopover({ open: showSettings, onClose: () => setShowSettings(false) });
+
+  useEffect(() => {
+    if (showSettings) void refreshHarnessHealth();
+  }, [showSettings, refreshHarnessHealth]);
 
   if (!showSettings) return null;
 
@@ -79,7 +86,7 @@ export function SettingsPanel() {
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto bg-white p-5 pb-8">
-          {tab === "model" && <ModelSettings settings={settings} openRouterKey={settings.openRouterApiKey ?? ""} keyError={keyError} onOpenRouterKeyChange={(value) => updateSettings({ openRouterApiKey: value })} onToggleHarness={(id, enabled) => { updateSettings({ enabledHarnesses: { ...settings.enabledHarnesses, [id]: enabled } }); initProviders(); void refreshModels(); }} onSaveKey={() => void handleSaveApiKey()} />}
+          {tab === "model" && <ModelSettings settings={settings} openRouterKey={settings.openRouterApiKey ?? ""} keyError={keyError} health={harnessHealth} onOpenRouterKeyChange={(value) => updateSettings({ openRouterApiKey: value })} onToggleHarness={(id, enabled) => { updateSettings({ enabledHarnesses: { ...settings.enabledHarnesses, [id]: enabled } }); initProviders(); void refreshModels(); }} onSaveKey={() => void handleSaveApiKey()} />}
           {tab === "color" && <ColorSettings askColor={askColor} goalColor={goalColor} onAskColor={(value) => updateSettings({ askModeColor: value, inputGlowColor: value })} onGoalColor={(value) => updateSettings({ goalModeColor: value })} />}
           {tab === "permission" && <PermissionSettings value={settings.commandPermissionMode} onChange={(value) => updateSettings({ commandPermissionMode: value })} />}
           {tab === "defaults" && <DefaultsSettings settings={settings} models={models} currentCodingModelId={codingModelId} currentJudgeModelId={judgeModelId} updateSettings={updateSettings} onApply={() => { if (settings.defaultCodingModelId) setCodingModelId(settings.defaultCodingModelId); if (settings.defaultJudgeModelId) setJudgeModelId(settings.defaultJudgeModelId); setMaxIterations(settings.defaultMaxIterations); }} />}
@@ -95,15 +102,16 @@ export function SettingsPanel() {
   );
 }
 
-function ModelSettings({ settings, openRouterKey, keyError, onOpenRouterKeyChange, onToggleHarness, onSaveKey }: { settings: ReturnType<typeof useAppStore.getState>["settings"]; openRouterKey: string; keyError: string | null; onOpenRouterKeyChange: (value: string) => void; onToggleHarness: (id: "openrouter" | "codex" | "acp" | "kilo", enabled: boolean) => void; onSaveKey: () => void }) {
+function ModelSettings({ settings, openRouterKey, keyError, health, onOpenRouterKeyChange, onToggleHarness, onSaveKey }: { settings: ReturnType<typeof useAppStore.getState>["settings"]; openRouterKey: string; keyError: string | null; health: HarnessHealthMap | null; onOpenRouterKeyChange: (value: string) => void; onToggleHarness: (id: "openrouter" | "codex" | "acp" | "kilo", enabled: boolean) => void; onSaveKey: () => void }) {
   return <div className="space-y-5">
     <SectionTitle title="Model providers" description="Choose which harnesses are available in the model picker." />
     <div className="space-y-2">
       {HARNESS_DEFINITIONS.map((harness) => {
         const enabled = settings.enabledHarnesses?.[harness.id] ?? (harness.id === "openrouter" ? Boolean(openRouterKey) : harness.available);
+        const status = (harness.id === "codex" || harness.id === "kilo") ? harnessStatusView(harness.id, health, harness.installHint) : null;
         return <div key={harness.id} className={`flex items-center gap-3 p-3 min-h-[62px] rounded-xl border ${harness.available ? "border-gray-200" : "border-gray-100 bg-gray-50"}`}>
           <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center text-xs font-semibold text-gray-500">{harness.name.slice(0, 1)}</div>
-          <div className="min-w-0 flex-1"><div className="text-sm font-medium text-gray-800">{harness.name}</div><div className="text-xs text-gray-400 truncate">{harness.description}{!harness.available ? " · Coming later" : ""}</div></div>
+          <div className="min-w-0 flex-1"><div className="text-sm font-medium text-gray-800">{harness.name}</div><div className="text-xs text-gray-400 truncate">{harness.description}{!harness.available ? " · Coming later" : ""}</div>{status && <div className={`text-xs truncate ${status.tone === "warn" ? "text-amber-700" : status.tone === "ok" ? "text-emerald-600" : "text-gray-400"}`}>{status.text}</div>}</div>
           <button disabled={!harness.available} onClick={() => onToggleHarness(harness.id as "openrouter" | "codex" | "acp" | "kilo", !enabled)} className={`relative w-10 h-6 shrink-0 rounded-full transition-colors ${!harness.available ? "bg-gray-200 cursor-not-allowed" : enabled ? "bg-emerald-500" : "bg-gray-300"}`} aria-label={`${enabled ? "Disable" : "Enable"} ${harness.name}`}><span className={`absolute left-1 top-1 w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${enabled ? "translate-x-4" : "translate-x-0"}`} /></button>
         </div>;
       })}

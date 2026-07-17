@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { invoke } from "@tauri-apps/api/core";
+import { fetchHarnessHealth, type HarnessHealthMap } from "../lib/harness-health";
 import type {
   AppSettings,
   ChatMessage,
@@ -80,6 +81,8 @@ interface AppState {
   modelsLoading: boolean;
   loadModels: () => Promise<void>;
   refreshModels: () => Promise<void>;
+  harnessHealth: HarnessHealthMap | null;
+  refreshHarnessHealth: () => Promise<void>;
   hydrateOpenRouterKey: () => Promise<void>;
   saveOpenRouterKey: (key: string) => Promise<void>;
 
@@ -456,6 +459,10 @@ export const useAppStore = create<AppState>()(
       models: [],
       modelsCachedAt: null,
       modelsLoading: false,
+      harnessHealth: null,
+      refreshHarnessHealth: async () => {
+        set({ harnessHealth: await fetchHarnessHealth() });
+      },
       loadModels: async () => {
         // Provider modules can be replaced during Vite hot reload while the
         // persisted model catalog survives. Rehydrate the runtime registry
