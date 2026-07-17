@@ -33,6 +33,13 @@ export const HARNESS_DEFINITIONS: readonly HarnessDefinition[] = [
     installHint: "npm install -g @kilocode/cli",
   },
   {
+    id: "kimi",
+    name: "Kimi",
+    description: "Moonshot Kimi models through the local kimi CLI",
+    available: true,
+    installHint: "npm install -g @moonshot-ai/kimi-code",
+  },
+  {
     id: "acp",
     name: "ACP agents",
     description: "Configured Agent Client Protocol agents (experimental)",

@@ -3,6 +3,7 @@ import { afterEach, test } from "node:test";
 import type { ModelRequest } from "@conduit/shared";
 import { CodexProvider } from "./codex.ts";
 import { KiloProvider, parseKiloModels } from "./kilo.ts";
+import { KimiProvider } from "./kimi.ts";
 
 const originalFetch = globalThis.fetch;
 const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
@@ -165,4 +166,35 @@ test("local providers propagate Goal cancellation to their backend fetch", async
   codexController.abort();
   await assert.rejects(codexRequest, /aborted/i);
   assert.equal(abortedRequests, 2);
+});
+
+test("Kimi provider delegates to its transport and requires a workspace", async () => {
+  const calls: string[] = [];
+  const transport = {
+    listModels: async (providerId: string) => {
+      calls.push(providerId);
+      return [];
+    },
+    createResponse: async (providerId: string) => {
+      calls.push(providerId);
+      return { content: "ok" };
+    },
+    runCodingIteration: async () => {
+      throw new Error("unused");
+    },
+  };
+  const provider = new KimiProvider(transport as never);
+
+  await provider.listModels();
+  const response = await provider.streamResponse(
+    { modelId: "kimi/kimi-code/k3", workspacePath: "/repo", messages: [] },
+    () => {},
+  );
+
+  assert.deepEqual(calls, ["kimi", "kimi"]);
+  assert.equal(response.content, "ok");
+  await assert.rejects(
+    () => provider.streamResponse({ modelId: "kimi/kimi-code/k3", messages: [] }, () => {}),
+    /requires a workspace/,
+  );
 });

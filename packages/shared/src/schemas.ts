@@ -353,7 +353,7 @@ export interface SessionState {
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
-export type HarnessId = "openrouter" | "codex" | "acp" | "claude-code" | "kilo";
+export type HarnessId = "openrouter" | "codex" | "acp" | "claude-code" | "kilo" | "kimi";
 
 export type QualityLaneId = "fast" | "confidence" | "deep";
 

@@ -22,12 +22,12 @@ export class TauriLocalHarnessTransport implements LocalHarnessTransport {
     private readonly createChannel: ChannelFactory = <T>() => new Channel<T>(),
   ) {}
 
-  async listModels(providerId: "codex" | "kilo"): Promise<unknown[]> {
+  async listModels(providerId: "codex" | "kilo" | "kimi"): Promise<unknown[]> {
     return this.invokeCommand<unknown[]>("local_harness_models", { providerId });
   }
 
   async createResponse(
-    providerId: "codex" | "kilo",
+    providerId: "codex" | "kilo" | "kimi",
     request: ModelRequest,
     onEvent: (event: ModelStreamEvent) => void,
   ): Promise<ModelResponse> {
@@ -41,7 +41,7 @@ export class TauriLocalHarnessTransport implements LocalHarnessTransport {
   }
 
   async runCodingIteration(
-    providerId: "codex" | "kilo",
+    providerId: "codex" | "kilo" | "kimi",
     request: CodingIterationRequest,
     onEvent: (event: GoalRunEvent) => void,
   ): Promise<CodingIterationResult> {
@@ -66,7 +66,7 @@ export class TauriLocalHarnessTransport implements LocalHarnessTransport {
 
   private async invokeCancellable<TResult, TEvent>(
     command: string,
-    providerId: "codex" | "kilo",
+    providerId: "codex" | "kilo" | "kimi",
     request: Record<string, unknown>,
     signal: AbortSignal | undefined,
     onEvent: (event: TEvent) => void,
