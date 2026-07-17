@@ -79,6 +79,7 @@ interface AppState {
   models: ModelDescriptor[];
   modelsCachedAt: number | null;
   modelsLoading: boolean;
+  providerErrors: Record<string, string>;
   loadModels: () => Promise<void>;
   refreshModels: () => Promise<void>;
   harnessHealth: HarnessHealthMap | null;
@@ -459,6 +460,7 @@ export const useAppStore = create<AppState>()(
       models: [],
       modelsCachedAt: null,
       modelsLoading: false,
+      providerErrors: {},
       harnessHealth: null,
       refreshHarnessHealth: async () => {
         set({ harnessHealth: await fetchHarnessHealth() });
@@ -489,7 +491,7 @@ export const useAppStore = create<AppState>()(
         set({ modelsLoading: true });
         try {
           const registry = getRegistry();
-          const models = await registry.listAllModels();
+          const { models, errors } = await registry.listAllModelsWithErrors();
           const state = get();
           const workers = models.filter((model) => model.supportsTools && model.supportsGoal !== false);
           const judges = models.filter((model) => model.supportsJudge !== false);
@@ -514,6 +516,7 @@ export const useAppStore = create<AppState>()(
           set({
             models,
             modelsCachedAt: Date.now(),
+            providerErrors: errors,
             codingModelId,
             judgeModelId,
             maxIterations: !state.codingModelId && !state.judgeModelId ? state.settings.defaultMaxIterations : state.maxIterations,

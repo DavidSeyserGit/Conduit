@@ -29,6 +29,7 @@ export function SettingsPanel() {
   const saveOpenRouterKey = useAppStore((s) => s.saveOpenRouterKey);
   const initProviders = useAppStore((s) => s.initProviders);
   const models = useAppStore((s) => s.models);
+  const providerErrors = useAppStore((s) => s.providerErrors);
   const codingModelId = useAppStore((s) => s.codingModelId);
   const judgeModelId = useAppStore((s) => s.judgeModelId);
   const setCodingModelId = useAppStore((s) => s.setCodingModelId);
@@ -86,7 +87,7 @@ export function SettingsPanel() {
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto bg-white p-5 pb-8">
-          {tab === "model" && <ModelSettings settings={settings} openRouterKey={settings.openRouterApiKey ?? ""} keyError={keyError} health={harnessHealth} onOpenRouterKeyChange={(value) => updateSettings({ openRouterApiKey: value })} onToggleHarness={(id, enabled) => { updateSettings({ enabledHarnesses: { ...settings.enabledHarnesses, [id]: enabled } }); initProviders(); void refreshModels(); }} onSaveKey={() => void handleSaveApiKey()} />}
+          {tab === "model" && <ModelSettings settings={settings} openRouterKey={settings.openRouterApiKey ?? ""} keyError={keyError} health={harnessHealth} providerErrors={providerErrors} onOpenRouterKeyChange={(value) => updateSettings({ openRouterApiKey: value })} onToggleHarness={(id, enabled) => { updateSettings({ enabledHarnesses: { ...settings.enabledHarnesses, [id]: enabled } }); initProviders(); void refreshModels(); }} onSaveKey={() => void handleSaveApiKey()} />}
           {tab === "color" && <ColorSettings askColor={askColor} goalColor={goalColor} onAskColor={(value) => updateSettings({ askModeColor: value, inputGlowColor: value })} onGoalColor={(value) => updateSettings({ goalModeColor: value })} />}
           {tab === "permission" && <PermissionSettings value={settings.commandPermissionMode} onChange={(value) => updateSettings({ commandPermissionMode: value })} />}
           {tab === "defaults" && <DefaultsSettings settings={settings} models={models} currentCodingModelId={codingModelId} currentJudgeModelId={judgeModelId} updateSettings={updateSettings} onApply={() => { if (settings.defaultCodingModelId) setCodingModelId(settings.defaultCodingModelId); if (settings.defaultJudgeModelId) setJudgeModelId(settings.defaultJudgeModelId); setMaxIterations(settings.defaultMaxIterations); }} />}
@@ -102,7 +103,7 @@ export function SettingsPanel() {
   );
 }
 
-function ModelSettings({ settings, openRouterKey, keyError, health, onOpenRouterKeyChange, onToggleHarness, onSaveKey }: { settings: ReturnType<typeof useAppStore.getState>["settings"]; openRouterKey: string; keyError: string | null; health: HarnessHealthMap | null; onOpenRouterKeyChange: (value: string) => void; onToggleHarness: (id: "openrouter" | "codex" | "acp" | "kilo", enabled: boolean) => void; onSaveKey: () => void }) {
+function ModelSettings({ settings, openRouterKey, keyError, health, providerErrors, onOpenRouterKeyChange, onToggleHarness, onSaveKey }: { settings: ReturnType<typeof useAppStore.getState>["settings"]; openRouterKey: string; keyError: string | null; health: HarnessHealthMap | null; providerErrors: Record<string, string>; onOpenRouterKeyChange: (value: string) => void; onToggleHarness: (id: "openrouter" | "codex" | "acp" | "kilo", enabled: boolean) => void; onSaveKey: () => void }) {
   return <div className="space-y-5">
     <SectionTitle title="Model providers" description="Choose which harnesses are available in the model picker." />
     <div className="space-y-2">
@@ -116,6 +117,14 @@ function ModelSettings({ settings, openRouterKey, keyError, health, onOpenRouter
         </div>;
       })}
     </div>
+    {Object.keys(providerErrors).length > 0 && (
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-1">
+        <div className="text-xs font-medium text-amber-800">Some providers failed to load</div>
+        {Object.entries(providerErrors).map(([id, error]) => (
+          <div key={id} className="text-xs text-amber-800 break-words">{id}: {error}</div>
+        ))}
+      </div>
+    )}
     <div><label className="block text-xs text-gray-700 mb-2 font-medium">OpenRouter API key</label><input type="password" value={openRouterKey} onChange={(e) => onOpenRouterKeyChange(e.target.value)} placeholder="sk-or-..." className="w-full px-3.5 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:border-indigo-400" /><button onClick={onSaveKey} className="mt-2.5 px-4 py-2 text-sm bg-gray-900 hover:bg-gray-800 text-white rounded-lg transition-colors font-medium">Save & Load Models</button>{keyError && <p className="mt-2 text-xs text-red-500">{keyError}</p>}</div>
   </div>;
 }

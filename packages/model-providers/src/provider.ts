@@ -115,16 +115,21 @@ export class DefaultProviderRegistry implements ProviderRegistry {
   }
 
   async listAllModels(): Promise<ModelDescriptor[]> {
-    const all: ModelDescriptor[] = [];
+    const { models } = await this.listAllModelsWithErrors();
+    return models;
+  }
+
+  async listAllModelsWithErrors(): Promise<{ models: ModelDescriptor[]; errors: Record<string, string> }> {
+    const models: ModelDescriptor[] = [];
+    const errors: Record<string, string> = {};
     for (const provider of this.providers.values()) {
       try {
-        const models = await provider.listModels();
-        all.push(...models);
-      } catch {
-        // skip unavailable providers
+        models.push(...(await provider.listModels()));
+      } catch (error) {
+        errors[provider.id] = error instanceof Error ? error.message : String(error);
       }
     }
-    return all;
+    return { models, errors };
   }
 }
 
