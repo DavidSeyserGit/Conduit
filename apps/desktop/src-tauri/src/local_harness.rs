@@ -150,6 +150,37 @@ pub async fn local_harness_models(provider_id: String) -> Result<Vec<Value>, Str
 }
 
 #[tauri::command]
+pub async fn local_harness_health() -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(harness_health)
+        .await
+        .map_err(|error| format!("Local harness health task failed: {error}"))?
+}
+
+fn harness_health() -> Result<Value, String> {
+    let codex_installed = resolve_executable("codex").is_ok();
+    let codex_auth = if !codex_installed {
+        "unknown"
+    } else if codex_home().is_some_and(|home| home.join("auth.json").is_file()) {
+        "yes"
+    } else {
+        "no"
+    };
+    let kilo_installed = resolve_executable("kilo").is_ok();
+    let (kilo_auth, kilo_detail) = if !kilo_installed {
+        ("unknown", None)
+    } else {
+        match load_kilo_models() {
+            Ok(_) => ("yes", None),
+            Err(error) => ("unknown", Some(error)),
+        }
+    };
+    Ok(json!({
+        "codex": { "installed": codex_installed, "authenticated": codex_auth },
+        "kilo": { "installed": kilo_installed, "authenticated": kilo_auth, "detail": kilo_detail },
+    }))
+}
+
+#[tauri::command]
 pub async fn local_harness_response(
     provider_id: String,
     request_id: String,
@@ -356,11 +387,15 @@ fn run_coding_iteration(
     })
 }
 
-fn load_codex_models() -> Result<Vec<Value>, String> {
-    let home = env::var_os("CODEX_HOME")
+fn codex_home() -> Option<PathBuf> {
+    env::var_os("CODEX_HOME")
         .map(PathBuf::from)
         .or_else(|| dirs::home_dir().map(|home| home.join(".codex")))
-        .ok_or_else(|| "Could not determine the Codex home directory".to_string())?;
+}
+
+fn load_codex_models() -> Result<Vec<Value>, String> {
+    let home =
+        codex_home().ok_or_else(|| "Could not determine the Codex home directory".to_string())?;
     let content = fs::read_to_string(home.join("models_cache.json"))
         .map_err(|error| format!("Codex model cache unavailable: {error}"))?;
     let cache: Value = serde_json::from_str(&content)

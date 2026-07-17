@@ -25,6 +25,7 @@ pub fn run() {
             commands::git_commit_changes,
             commands::git_push_branch,
             local_harness::local_harness_models,
+            local_harness::local_harness_health,
             local_harness::local_harness_response,
             local_harness::local_harness_coding_iteration,
             local_harness::local_harness_cancel,
