@@ -187,11 +187,14 @@ export class EvidenceCoordinator {
             : false;
           this.throwIfCancelled(options.signal);
           if (!approved) {
+            const rejectedAt = new Date().toISOString();
             request = await this.updateRequest(options, {
               ...request,
               status: "rejected",
               permissionDecision: "rejected",
-              resolvedAt: new Date().toISOString(),
+              attempts: (request.attempts ?? 0) + 1,
+              lastAttemptAt: rejectedAt,
+              resolvedAt: rejectedAt,
             });
             resolvedRequests.push(request);
             continue;
@@ -462,7 +465,10 @@ function bounded(value: string, limit: number): string {
   return trimmed.length <= limit ? trimmed : `${trimmed.slice(0, Math.max(0, limit - 24))}\n… output stored separately`;
 }
 function isDocumentationPath(path: string): boolean { return /(?:^|\/)docs?(?:\/|$)|(?:^|\/)(?:readme|changelog)(?:\.[^/]*)?$|\.(?:md|mdx|rst)$/.test(path); }
-function isDependencyOrConfigPath(path: string): boolean { return /(?:^|\/)(?:package\.json|.*lock|cargo\.toml|requirements[^/]*|pyproject\.toml|go\.mod|.*config\.[^/]+|tsconfig[^/]*)$/.test(path); }
+function isDependencyOrConfigPath(path: string): boolean {
+  return /(?:^|\/)(?:package\.json|cargo\.toml|requirements[^/]*|pyproject\.toml|go\.mod|.*config\.[^/]+|tsconfig[^/]*)$/.test(path)
+    || /(?:^|\/)(?:package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|cargo\.lock|poetry\.lock|uv\.lock|composer\.lock|gemfile\.lock|go\.sum)$/.test(path);
+}
 function isSourcePath(path: string): boolean { return /\.(?:ts|tsx|js|jsx|rs|py|go|java|kt|rb|swift|c|cc|cpp|h|hpp)$/.test(path) && !isDocumentationPath(path); }
 function unique<T>(values: T[]): T[] { return [...new Set(values)]; }
 function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value) && typeof value === "object" && !Array.isArray(value); }

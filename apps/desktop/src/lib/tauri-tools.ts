@@ -37,6 +37,7 @@ export function createTauriToolExecutor(
               args,
               mode,
               permissionMode: options?.permissionMode ?? getPermissionMode(),
+              timeoutMs: options?.timeoutMs,
             }),
           });
           const body = await response.text();
@@ -56,6 +57,7 @@ export function createTauriToolExecutor(
           args,
           mode,
           permissionMode: options?.permissionMode ?? getPermissionMode(),
+          timeoutMs: options?.timeoutMs,
         });
 
         if (result.success && WRITE_TOOLS.has(name) && args.path) {

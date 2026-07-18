@@ -17,3 +17,11 @@ test("browser workspace commands preserve a non-zero process exit code", async (
   assert.equal(result.stderr, "failed");
   assert.equal(result.timedOut, false);
 });
+
+test("browser workspace commands enforce a caller timeout", async () => {
+  const startedAt = Date.now();
+  const result = await runWorkspaceCommand("node -e \"setTimeout(() => {}, 10000)\"", process.cwd(), { timeoutMs: 25 });
+
+  assert.equal(result.timedOut, true);
+  assert.ok(Date.now() - startedAt < 2_000);
+});

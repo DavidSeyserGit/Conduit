@@ -183,7 +183,7 @@ function githubApi() {
 
         if (req.url === "/api/workspace/tool" && req.method === "POST") {
           try {
-            const { workspace, name, args = {}, mode } = await readJson(req);
+            const { workspace, name, args = {}, mode, timeoutMs } = await readJson(req);
             if (mode === "ask" && ["write_file", "replace_in_file", "create_file", "delete_file", "run_command", "get_git_diff", "capture_git_snapshot"].includes(name)) throw new Error(`${name} is not available in Ask mode`);
             const root = path.resolve(workspace);
             const isClone = root.startsWith(`${path.resolve(workspaceRoot)}${path.sep}`);
@@ -209,7 +209,12 @@ function githubApi() {
               else { if (name === "create_file") { try { await fs.access(target); throw new Error(`File already exists: ${args.path}`); } catch (e: any) { if (e.code !== "ENOENT") throw e; } } await fs.mkdir(path.dirname(target), { recursive: true }); await fs.writeFile(target, args.content); }
               result = { path: args.path };
             } else if (name === "run_command") {
-              result = await runWorkspaceCommand(args.command, root);
+              const lifecycle = attachRequestAbort(req, res);
+              try {
+                result = await runWorkspaceCommand(args.command, root, { timeoutMs, signal: lifecycle.signal });
+              } finally {
+                lifecycle.cleanup();
+              }
             } else if (name === "get_git_diff") {
               if (args.baselineTree) result = getScopedGitDiff(root, args.baselineTree, args.path);
               else {
