@@ -10,9 +10,9 @@ test("shouldShowUpdatePopup respects availability and skipped versions", () => {
   assert.equal(shouldShowUpdatePopup({ available: true, latestVersion: "0.2.3" }, "0.2.2"), true);
 });
 
-test("shouldShowChangelog only fires on an actual version change", () => {
+test("shouldShowChangelog fires on version change and on a missing lastSeen", () => {
   assert.equal(shouldShowChangelog(null, "0.2.2"), false);
-  assert.equal(shouldShowChangelog("0.2.3", undefined), false);
+  assert.equal(shouldShowChangelog("0.2.3", undefined), true);
   assert.equal(shouldShowChangelog("0.2.3", "0.2.3"), false);
   assert.equal(shouldShowChangelog("0.2.3", "0.2.2"), true);
 });

@@ -17,10 +17,11 @@ export function shouldShowUpdatePopup(
   return Boolean(info?.available && info.latestVersion && info.latestVersion !== skippedVersion);
 }
 
-/** Show the changelog only when the app actually changed versions; a missing
- * lastSeen (fresh install) silently records the version without a popup. */
+/** Show the changelog when the version differs from the last one seen. A
+ * missing lastSeen counts as "show": users updating from pre-changelog
+ * versions (and fresh installs, as a welcome card) get the notes too. */
 export function shouldShowChangelog(currentVersion: string | null, lastSeen: string | undefined): boolean {
-  return Boolean(currentVersion && lastSeen && currentVersion !== lastSeen);
+  return Boolean(currentVersion && currentVersion !== lastSeen);
 }
 
 /** Release notes for a tag, generated from git history by the release workflow. */

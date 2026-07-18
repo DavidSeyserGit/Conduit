@@ -6,6 +6,7 @@
   "permissions": [
     "dialog:allow-open",
     "opener:allow-open-url",
+    "opener:allow-default-urls",
     "updater:default",
     "updater:allow-check",
     "updater:allow-download-and-install",
@@ -25,8 +26,10 @@
     "allow-git-commit-changes",
     "allow-git-push-branch",
     "allow-local-harness-models",
+    "allow-local-harness-health",
     "allow-local-harness-response",
     "allow-local-harness-coding-iteration",
-    "allow-local-harness-cancel"
+    "allow-local-harness-cancel",
+    "core:app:allow-version"
   ]
 }

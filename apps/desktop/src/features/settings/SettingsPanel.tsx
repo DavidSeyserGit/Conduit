@@ -4,7 +4,7 @@ import { HARNESS_DEFINITIONS } from "@conduit/model-providers";
 import { harnessStatusView, type HarnessHealthMap } from "@/lib/harness-health";
 import type { CommandPermissionMode } from "@conduit/shared";
 import { DEFAULT_GOAL_COLOR, getModeColor } from "@/lib/mode-colors";
-import { ModelPicker } from "@/features/model-picker/ModelPicker";
+import { ModelPicker, ProviderIcon } from "@/features/model-picker/ModelPicker";
 import { resolveQualityLanes } from "@/lib/quality-lanes";
 import type { QualityLaneId } from "@conduit/shared";
 import { PopoverScope, usePopover } from "@/lib/popover";
@@ -111,7 +111,7 @@ function ModelSettings({ settings, openRouterKey, keyError, health, providerErro
         const enabled = settings.enabledHarnesses?.[harness.id] ?? (harness.id === "openrouter" ? Boolean(openRouterKey) : harness.available);
         const status = (harness.id === "codex" || harness.id === "kilo" || harness.id === "kimi") ? harnessStatusView(harness.id, health, harness.installHint) : null;
         return <div key={harness.id} className={`flex items-center gap-3 p-3 min-h-[62px] rounded-xl border ${harness.available ? "border-gray-200" : "border-gray-100 bg-gray-50"}`}>
-          <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center text-xs font-semibold text-gray-500">{harness.name.slice(0, 1)}</div>
+          <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center text-xs font-semibold text-gray-500">{harness.id === "kilo" ? <ProviderIcon provider={harness.id} /> : harness.name.slice(0, 1)}</div>
           <div className="min-w-0 flex-1"><div className="text-sm font-medium text-gray-800">{harness.name}</div><div className="text-xs text-gray-400 truncate">{harness.description}{!harness.available ? " · Coming later" : ""}</div>{status && <div className={`text-xs truncate ${status.tone === "warn" ? "text-amber-700" : status.tone === "ok" ? "text-emerald-600" : "text-gray-400"}`}>{status.text}</div>}</div>
           <button disabled={!harness.available} onClick={() => onToggleHarness(harness.id as "openrouter" | "codex" | "acp" | "kilo" | "kimi", !enabled)} className={`relative w-10 h-6 shrink-0 rounded-full transition-colors ${!harness.available ? "bg-gray-200 cursor-not-allowed" : enabled ? "bg-emerald-500" : "bg-gray-300"}`} aria-label={`${enabled ? "Disable" : "Enable"} ${harness.name}`}><span className={`absolute left-1 top-1 w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${enabled ? "translate-x-4" : "translate-x-0"}`} /></button>
         </div>;

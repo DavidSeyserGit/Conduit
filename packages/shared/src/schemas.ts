@@ -386,6 +386,8 @@ export interface AppSettings {
   lastUpdateCheckAt?: string;
   skippedUpdateVersion?: string;
   lastSeenChangelogVersion?: string;
+  supportPromptLastShownAt?: string;
+  supportPromptDismissedAt?: string;
 }
 
 export interface AcpAgentConfig {

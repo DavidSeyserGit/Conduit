@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAppStore } from "@/stores/app-store";
 import { ChatHeader } from "@/features/chat/ChatHeader";
 import { ChatTimeline } from "@/features/goal-run/ExecutionTimeline";
@@ -6,11 +6,14 @@ import { ChatInput } from "@/features/chat/ChatInput";
 import { SettingsPanel } from "@/features/settings/SettingsPanel";
 import { LeftSidebar } from "@/features/sidebar/LeftSidebar";
 import { GitDiffPanel } from "@/features/git/GitDiffPanel";
-import { UpdateDialog } from "@/features/update/UpdateDialog";
+import { UpdatePill } from "@/features/update/UpdatePill";
 import { WhatsNewDialog } from "@/features/update/WhatsNewDialog";
+import { SupportBubble } from "@/features/support/SupportBubble";
 import { shouldShowChangelog, shouldShowUpdatePopup, type ReleaseChangelog } from "@/lib/update-prompts";
+import { shouldShowSupportPrompt, summarizeSupportUsage } from "@/lib/support-prompt";
 
 export default function App() {
+  const forceSupportBubble = import.meta.env.DEV && import.meta.env.VITE_SHOW_SUPPORT_BUBBLE === "true";
   const initProviders = useAppStore((s) => s.initProviders);
   const loadModels = useAppStore((s) => s.loadModels);
   const hydrateOpenRouterKey = useAppStore((s) => s.hydrateOpenRouterKey);
@@ -20,6 +23,8 @@ export default function App() {
   const isRunning = useAppStore((s) => s.isRunning);
   const pendingApproval = useAppStore((s) => s.pendingApproval);
   const currentRun = useAppStore((s) => s.currentRun);
+  const sessions = useAppStore((s) => s.sessions);
+  const showSettings = useAppStore((s) => s.showSettings);
   const previousRunning = useRef(false);
   const previousApprovalId = useRef<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -28,6 +33,9 @@ export default function App() {
   const [updateProgress, setUpdateProgress] = useState<number | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [whatsNew, setWhatsNew] = useState<ReleaseChangelog | null>(null);
+  const [showSupportBubble, setShowSupportBubble] = useState(forceSupportBubble);
+  const supportUsage = useMemo(() => summarizeSupportUsage(Object.values(sessions).flat()), [sessions]);
+  const closeSupportBubble = useCallback(() => setShowSupportBubble(false), []);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
@@ -71,11 +79,8 @@ export default function App() {
         const { getVersion } = await import("@tauri-apps/api/app");
         const current = await getVersion();
         const lastSeen = useAppStore.getState().settings.lastSeenChangelogVersion;
-        if (!lastSeen) {
-          // Fresh install: record the version silently, no popup.
-          updateSettings({ lastSeenChangelogVersion: current });
-          return;
-        }
+        // A missing lastSeen also shows: users updating from pre-changelog
+        // versions (and fresh installs, as a welcome card) get the notes.
         if (shouldShowChangelog(current, lastSeen)) {
           const { fetchReleaseChangelog } = await import("@/lib/update-prompts");
           const changelog = await fetchReleaseChangelog(current);
@@ -115,6 +120,17 @@ export default function App() {
     return () => window.clearTimeout(timeout);
   }, [notice]);
 
+  useEffect(() => {
+    if (showSupportBubble || notice || updateNotice || whatsNew || showSettings) return;
+    if (!shouldShowSupportPrompt({
+      ...supportUsage,
+      lastShownAt: settings.supportPromptLastShownAt,
+      dismissedAt: settings.supportPromptDismissedAt,
+    })) return;
+    setShowSupportBubble(true);
+    updateSettings({ supportPromptLastShownAt: new Date().toISOString() });
+  }, [notice, settings.supportPromptDismissedAt, settings.supportPromptLastShownAt, showSettings, showSupportBubble, supportUsage, updateNotice, updateSettings, whatsNew]);
+
   const handleUpdateNow = async () => {
     setUpdateError(null);
     setUpdateInstalling(true);
@@ -147,18 +163,26 @@ export default function App() {
       <GitDiffPanel />
       {notice && <div role="status" className="fixed right-5 bottom-5 z-[60] rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 shadow-xl">{notice}</div>}
       {updateNotice && shouldShowUpdatePopup({ available: true, latestVersion: updateNotice.version }, settings.skippedUpdateVersion) && (
-        <UpdateDialog
+        <UpdatePill
           version={updateNotice.version}
-          body={updateNotice.body}
           installing={updateInstalling}
           progress={updateProgress}
           error={updateError}
           onUpdate={() => void handleUpdateNow()}
-          onLater={() => setUpdateNotice(null)}
+          onDismiss={() => setUpdateNotice(null)}
           onSkip={() => { updateSettings({ skippedUpdateVersion: updateNotice.version }); setUpdateNotice(null); }}
         />
       )}
       {whatsNew && <WhatsNewDialog version={whatsNew.version} body={whatsNew.body} publishedAt={whatsNew.publishedAt} onClose={() => setWhatsNew(null)} />}
+      {showSupportBubble && !notice && !updateNotice && !whatsNew && !showSettings && (
+        <SupportBubble
+          onClose={closeSupportBubble}
+          onDismiss={() => {
+            updateSettings({ supportPromptDismissedAt: new Date().toISOString() });
+            closeSupportBubble();
+          }}
+        />
+      )}
     </div>
   );
 }
