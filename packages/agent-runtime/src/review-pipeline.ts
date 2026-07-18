@@ -55,6 +55,7 @@ export interface ReviewPipelineResult {
   specialistReviews: ReviewResult[];
   approved: boolean;
   feedback: string[];
+  evidenceRequests: EvidenceRequest[];
   unresolvedEvidenceRequests: EvidenceRequest[];
   warnings: ReviewFinding[];
   findingLifecycle: FindingLifecycleRecord[];
@@ -458,6 +459,7 @@ function pipelineResult(
     specialistReviews: specialists,
     approved: decision.approved,
     feedback: actionableFeedback(allCurrent),
+    evidenceRequests: allCurrent.flatMap((review) => review.evidenceRequests).filter((request) => request.status !== "collected"),
     unresolvedEvidenceRequests: decision.unresolvedEvidenceRequests,
     warnings: decision.warnings,
     findingLifecycle: reconcileFindingLifecycle(previousReviews, allCurrent, round),
@@ -527,7 +529,7 @@ function normalizeReviewResult(
 function preservedEvidenceState(
   request: ReviewDetails["evidenceRequests"][number],
   previousReview?: ReviewResult,
-): Pick<EvidenceRequest, "status" | "evidenceIds" | "requestedAt" | "resolvedAt"> | undefined {
+): Pick<EvidenceRequest, "status" | "evidenceIds" | "requestedAt" | "resolvedAt" | "permissionDecision" | "attempts" | "lastAttemptAt"> | undefined {
   if (!request.id || !previousReview) return undefined;
   const previous = previousReview.evidenceRequests.find((candidate) => candidate.id === request.id);
   if (!previous) return undefined;
@@ -542,6 +544,9 @@ function preservedEvidenceState(
     evidenceIds: previous.evidenceIds,
     requestedAt: previous.requestedAt,
     ...(previous.resolvedAt ? { resolvedAt: previous.resolvedAt } : {}),
+    ...(previous.permissionDecision ? { permissionDecision: previous.permissionDecision } : {}),
+    ...(previous.attempts !== undefined ? { attempts: previous.attempts } : {}),
+    ...(previous.lastAttemptAt ? { lastAttemptAt: previous.lastAttemptAt } : {}),
   };
 }
 

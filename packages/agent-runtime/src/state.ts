@@ -10,7 +10,7 @@ import type {
 
 export function createInitialGoalState(config: GoalRunConfig): GoalRunState {
   return {
-    id: crypto.randomUUID(),
+    id: config.runId ?? crypto.randomUUID(),
     goal: config.goal,
     workspacePath: config.workspacePath,
     status: "idle",

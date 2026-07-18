@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { ToolExecutor, ToolMode, ToolCallResult, ToolExecutorContext } from "@conduit/tools";
+import type { ToolExecutor, ToolMode, ToolCallResult, ToolExecutorContext, ToolExecutionOptions } from "@conduit/tools";
 import { GOAL_ONLY_TOOLS, WRITE_TOOLS } from "@conduit/tools";
 import type { CommandPermissionMode } from "@conduit/shared";
 
@@ -18,7 +18,8 @@ export function createTauriToolExecutor(
     async execute(
       name: string,
       args: Record<string, unknown>,
-      mode: ToolMode
+      mode: ToolMode,
+      options?: ToolExecutionOptions,
     ): Promise<ToolCallResult> {
       if (mode === "ask" && GOAL_ONLY_TOOLS.has(name)) {
         return { success: false, error: `${name} is not available in Ask mode` };
@@ -29,12 +30,14 @@ export function createTauriToolExecutor(
           const response = await fetch("/api/workspace/tool", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            signal: options?.signal,
             body: JSON.stringify({
               workspace: getWorkspacePath(),
               name,
               args,
               mode,
-              permissionMode: getPermissionMode(),
+              permissionMode: options?.permissionMode ?? getPermissionMode(),
+              timeoutMs: options?.timeoutMs,
             }),
           });
           const body = await response.text();
@@ -53,7 +56,8 @@ export function createTauriToolExecutor(
           name,
           args,
           mode,
-          permissionMode: getPermissionMode(),
+          permissionMode: options?.permissionMode ?? getPermissionMode(),
+          timeoutMs: options?.timeoutMs,
         });
 
         if (result.success && WRITE_TOOLS.has(name) && args.path) {

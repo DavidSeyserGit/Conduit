@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ReviewResult, ReviewRoutingDecision } from "./goal-contracts.js";
+import type { EvidenceItem, EvidenceRequest, ReviewResult, ReviewRoutingDecision } from "./goal-contracts.js";
 
 // ─── Model Provider ───────────────────────────────────────────────────────────
 
@@ -206,6 +206,8 @@ export interface GoalIteration {
   generalReview?: ReviewResult;
   reviewRouting?: ReviewRoutingDecision;
   specialistReviews?: ReviewResult[];
+  evidenceRequests?: EvidenceRequest[];
+  evidence?: EvidenceItem[];
 }
 
 export interface IterationMetrics {
@@ -280,6 +282,8 @@ export interface ExportedRun {
 
 export interface GoalRunConfig {
   goal: string;
+  /** Stable persisted workflow-run ID when the Goal Builder created this run. */
+  runId?: string;
   /** When present, implementation is gated on approval of this exact structured goal version. */
   structuredGoal?: import("./goal-contracts.js").GoalDefinition;
   approvedGoalVersion?: number;
@@ -335,6 +339,10 @@ export type GoalRunEvent =
   | { type: "specialist_review_started"; iteration: number; reviewerId: string }
   | { type: "specialist_review_completed"; iteration: number; result: ReviewResult }
   | { type: "review_pipeline_completed"; iteration: number; approved: boolean; requiredReviewerIds: string[] }
+  | { type: "evidence_collection_started"; iteration: number; requestIds: string[] }
+  | { type: "evidence_request_updated"; iteration: number; request: EvidenceRequest }
+  | { type: "evidence_collected"; iteration: number; requestId: string; evidence: EvidenceItem; reused: boolean }
+  | { type: "evidence_collection_completed"; iteration: number; requestIds: string[]; evidenceIds: string[] }
   | { type: "approval_required"; command: string; requestId: string }
   | { type: "run_completed"; result: GoalRunResult }
   | { type: "run_failed"; error: string };

@@ -479,8 +479,11 @@ fn search_dir(
 }
 
 #[tauri::command]
-pub fn tool_run_command(workspace: String, command: String) -> ToolResult {
-    match crate::local_harness::run_shell_command(&workspace, &command) {
+pub fn tool_run_command(workspace: String, command: String, timeout_ms: Option<u64>) -> ToolResult {
+    let timeout =
+        std::time::Duration::from_millis(timeout_ms.unwrap_or(120_000).clamp(100, 1_200_000));
+    let started_at = std::time::Instant::now();
+    match crate::local_harness::run_shell_command(&workspace, &command, timeout) {
         Ok(out) => ToolResult {
             success: true,
             result: Some(serde_json::json!({
@@ -489,6 +492,7 @@ pub fn tool_run_command(workspace: String, command: String) -> ToolResult {
                 "stdout": out.stdout,
                 "stderr": out.stderr,
                 "timedOut": false,
+                "durationMs": started_at.elapsed().as_millis() as u64,
             })),
             error: None,
         },
@@ -1537,9 +1541,18 @@ pub async fn tool_execute(
     args: serde_json::Value,
     mode: String,
     permission_mode: String,
+    timeout_ms: Option<u64>,
 ) -> ToolResult {
     tauri::async_runtime::spawn_blocking(move || {
-        execute_tool(app, workspace, name, args, mode, permission_mode)
+        execute_tool(
+            app,
+            workspace,
+            name,
+            args,
+            mode,
+            permission_mode,
+            timeout_ms,
+        )
     })
     .await
     .unwrap_or_else(|error| ToolResult {
@@ -1556,6 +1569,7 @@ fn execute_tool(
     args: serde_json::Value,
     mode: String,
     permission_mode: String,
+    timeout_ms: Option<u64>,
 ) -> ToolResult {
     if mode != "ask" && mode != "goal" {
         return ToolResult {
@@ -1671,7 +1685,7 @@ fn execute_tool(
                     result: None,
                     error: Some("Command was not approved".to_string()),
                 },
-                _ => tool_run_command(workspace, command),
+                _ => tool_run_command(workspace, command, timeout_ms),
             }
         }
         "get_git_diff" => tool_get_git_diff(

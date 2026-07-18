@@ -872,7 +872,11 @@ fn run_process(
     run_process_with_stdout(program, args, cwd, cancelled, heartbeat, None)
 }
 
-pub(crate) fn run_shell_command(workspace: &str, command: &str) -> Result<ProcessCapture, String> {
+pub(crate) fn run_shell_command(
+    workspace: &str,
+    command: &str,
+    timeout: Duration,
+) -> Result<ProcessCapture, String> {
     let workspace = PathBuf::from(workspace)
         .canonicalize()
         .map_err(|error| format!("Workspace does not exist: {error}"))?;
@@ -892,7 +896,7 @@ pub(crate) fn run_shell_command(workspace: &str, command: &str) -> Result<Proces
         None,
         None,
         None,
-        Duration::from_secs(120),
+        timeout,
         false,
     )
 }
