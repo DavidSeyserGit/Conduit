@@ -138,9 +138,14 @@ function ProviderTab({ active, label, onClick, children }: { active: boolean; la
   return <button onClick={onClick} title={label} aria-label={label} className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${active ? "bg-white text-fuchsia-600 shadow-sm" : "text-gray-400 hover:bg-white/80 hover:text-gray-700"}`}>{children}</button>;
 }
 
-function ProviderIcon({ provider }: { provider: string }) {
+export function ProviderIcon({ provider }: { provider: string }) {
   if (provider === "codex") return <span className="text-base">✦</span>;
   if (provider === "openrouter") return <span className="text-sm font-bold">O</span>;
+  if (provider === "kilo") return (
+    <svg aria-hidden="true" className="w-4 h-4" viewBox="0 0 100 100" fill="currentColor">
+      <path d="M0 0v100h100V0H0Zm92.59 92.59H7.41V7.41h85.18v85.18ZM61.11 71.91h9.26v7.41H58.73l-5.03-5.03V62.65h7.41v9.26Zm16.67 0h-7.41v-9.26h-9.26v-7.41h11.64l5.03 5.03v11.64ZM46.3 61.11h-7.41V53.7h7.41v7.41ZM22.22 53.7h7.41v16.67H46.3v7.41H27.25l-5.03-5.03V53.7Zm55.56-14.81v7.41H53.7v-7.41h8.28v-9.26H53.7v-7.41h10.66l5.03 5.03v11.64h8.39ZM29.63 30.56h9.26l7.41 7.41v8.33h-7.41v-8.33h-9.26v8.33h-7.41V22.22h7.41v8.34Zm16.67 0h-7.41v-8.34h7.41v8.34Z" />
+    </svg>
+  );
   return <span className="text-xs font-semibold">{provider.slice(0, 2).toUpperCase()}</span>;
 }
 
