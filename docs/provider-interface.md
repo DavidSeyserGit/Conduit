@@ -96,7 +96,7 @@ Configuration: API key via app settings.
 ### Codex
 
 - Uses the locally authenticated Codex CLI through an injected local-harness transport
-- Uses schema-bound, read-only commands for judges
+- Uses schema-bound, read-only commands for goal analysis and reviewers
 - Uses an explicit `workspace-write` sandbox for Goal workers; bypass flags are forbidden and sandbox escalations fail closed
 - Supports packaged Tauri IPC and browser-development HTTP without provider branching
 - Supports request-scoped cancellation, process-tree cleanup, timeouts, bounded output, and explicit stdin EOF
@@ -104,7 +104,7 @@ Configuration: API key via app settings.
 ### Kilo Code
 
 - Discovers the locally configured Kilo model catalog
-- Uses `ask --pure` for read-only judge/Ask work
+- Uses `ask --pure` for read-only reviewer, Goal Analyst, and Ask work
 - Uses `code --pure` with a Conduit-injected, fail-closed permission policy for Goal workers
 - Maps Conduit's command-permission mode into Kilo's `bash` permission and denies external directories, network tools, subagents, and sensitive-file edits
 - Enables Kilo's OS sandbox with command network denial on macOS/Linux
@@ -128,7 +128,7 @@ new OpenAICompatibleProvider({
 ACP agents are treated as an alternative coding backend, not a model provider:
 
 - Agent runs its own internal loop and model
-- Conduit's native judge evaluates the workspace changes
+- Conduit's native general and specialist reviewers evaluate the workspace changes
 - Session management via `AcpSessionManager` (stub in v0.1)
 
 Example configuration:
@@ -144,7 +144,11 @@ Judge: Gemini through OpenRouter
 2. Register with `DefaultProviderRegistry`
 3. Model IDs use `your-provider/model-name` format
 4. Support `tools` in requests for coding agent compatibility
-5. Support `structuredOutput` for judge evaluations
+5. Support `structuredOutput` for goal analysis and reviewer evaluations
 6. Propagate `request.signal` to network or child-process cancellation
 7. Add provider-client, command-policy, error, and live smoke coverage described
    in [Testing](./testing.md)
+
+Structured model roles return validated data and concise decision summaries.
+Provider prompts do not request private chain-of-thought, and Conduit does not
+persist it in events or reports.

@@ -39,6 +39,9 @@ import { EvidenceCoordinator, invalidateEvidence } from "./evidence-coordinator.
 import { ReportBuilder } from "./report-builder.js";
 
 export type GoalRunEventHandler = (event: GoalRunEvent) => void;
+type GoalWorkflowEventBody<T = import("@conduit/shared").GoalWorkflowEvent> = T extends unknown
+  ? Omit<T, "id" | "runId" | "occurredAt">
+  : never;
 
 export class GoalLoopRunner {
   private cancelled = false;
@@ -84,6 +87,49 @@ export class GoalLoopRunner {
       this.pendingApprovals.set(requestId, resolve);
       emit({ type: "approval_required", command, requestId });
     });
+  }
+
+  private async transitionWorkflow(
+    runId: string,
+    to: import("@conduit/shared").GoalWorkflowPhase,
+    summary: string,
+  ): Promise<void> {
+    if (!this.persistence) return;
+    const snapshot = await this.persistence.restoreRun(runId);
+    if (!snapshot?.run || !("workflowPhase" in snapshot.run) || snapshot.run.workflowPhase === to) return;
+    const occurredAt = new Date().toISOString();
+    const from = snapshot.run.workflowPhase;
+    const terminal = ["completed", "failed", "cancelled"].includes(to);
+    await this.persistence.saveRun({
+      ...snapshot.run,
+      workflowPhase: to,
+      updatedAt: occurredAt,
+      ...(terminal ? { finishedAt: occurredAt } : {}),
+    });
+    await this.persistence.appendEvent({
+      id: `event-${crypto.randomUUID()}`,
+      runId,
+      occurredAt,
+      type: "workflow_state_transitioned",
+      from,
+      to,
+      summary,
+    });
+  }
+
+  private async appendWorkflowEvent(
+    runId: string,
+    event: GoalWorkflowEventBody,
+  ): Promise<void> {
+    if (!this.persistence) return;
+    const snapshot = await this.persistence.restoreRun(runId);
+    if (!snapshot?.run || !("workflowPhase" in snapshot.run)) return;
+    await this.persistence.appendEvent({
+      ...event,
+      id: `event-${crypto.randomUUID()}`,
+      runId,
+      occurredAt: new Date().toISOString(),
+    } as import("@conduit/shared").GoalWorkflowEvent);
   }
 
   private async withReport(result: GoalRunResult, configuredGoal?: GoalDefinition, error?: string): Promise<GoalRunResult> {
@@ -311,6 +357,9 @@ export class GoalLoopRunner {
       }
 
       state.iteration += 1;
+      await this.transitionWorkflow(state.id, "implementing", state.iteration === 1
+        ? "Implementation started from the approved plan"
+        : `Applying required revisions in iteration ${state.iteration}`);
       const iteration = createIteration(state.iteration);
       emit({ type: "iteration_started", iteration: state.iteration });
 
@@ -340,6 +389,7 @@ export class GoalLoopRunner {
         // supply a fallback for legacy/resumed runs that have no judge plan.
         state.plan = state.plan ?? agentResult.plan;
         iteration.toolCalls = agentResult.toolCalls;
+        await this.transitionWorkflow(state.id, "validating", "Running the approved validation contract");
         const contractValidationResults = await runValidationContract(
           state.plan,
           toolExecutor,
@@ -434,13 +484,27 @@ export class GoalLoopRunner {
             previousReviews,
             previousChangedFiles: evidenceRound === 0 ? previousIteration?.changedFiles : iteration.changedFiles,
             round: state.iteration,
-            onGeneralStarted: () => emit({ type: "general_review_started", iteration: state.iteration }),
-            onGeneralCompleted: (result, decision) => {
+            onGeneralStarted: async () => {
+              await this.transitionWorkflow(state.id, "general_review", "General reviewer is verifying functional completion");
+              emit({ type: "general_review_started", iteration: state.iteration });
+            },
+            onGeneralCompleted: async (result, decision) => {
+              await this.persistence?.saveReview(state.id, result);
+              await this.appendWorkflowEvent(state.id, { type: "review_completed", reviewId: result.id, reviewerId: result.reviewerId, status: result.status });
+              await this.transitionWorkflow(state.id, "routing_reviews", "General review completed and specialist routing was selected");
+              await this.appendWorkflowEvent(state.id, { type: "review_routed", requiredReviewerIds: decision.requiredReviewers, optionalReviewerIds: decision.optionalReviewers });
               emit({ type: "general_review_completed", iteration: state.iteration, result });
               emit({ type: "reviews_routed", iteration: state.iteration, decision });
             },
-            onSpecialistStarted: (reviewerId) => emit({ type: "specialist_review_started", iteration: state.iteration, reviewerId }),
-            onSpecialistCompleted: (result) => emit({ type: "specialist_review_completed", iteration: state.iteration, result }),
+            onSpecialistStarted: async (reviewerId) => {
+              await this.transitionWorkflow(state.id, "specialist_review", `${reviewerId} specialist review started`);
+              emit({ type: "specialist_review_started", iteration: state.iteration, reviewerId });
+            },
+            onSpecialistCompleted: async (result) => {
+              await this.persistence?.saveReview(state.id, result);
+              await this.appendWorkflowEvent(state.id, { type: "review_completed", reviewId: result.id, reviewerId: result.reviewerId, status: result.status });
+              emit({ type: "specialist_review_completed", iteration: state.iteration, result });
+            },
           });
           reviewTokenUsage = accumulateTokenUsage(reviewTokenUsage, pipelineResult.tokenUsage);
           await this.persistence?.saveReview(state.id, pipelineResult.generalReview);
@@ -452,6 +516,11 @@ export class GoalLoopRunner {
             iteration: state.iteration,
             requestIds: pipelineResult.evidenceRequests.map((request) => request.id),
           });
+          await this.transitionWorkflow(state.id, "collecting_evidence", "Collecting reviewer-requested evidence through approved tools");
+          for (const request of pipelineResult.evidenceRequests) {
+            await this.persistence?.saveEvidenceRequest(state.id, request);
+            await this.appendWorkflowEvent(state.id, { type: "evidence_requested", requestId: request.id, reviewerId: request.reviewerId });
+          }
           const collection = await evidenceCoordinator.collect(pipelineResult.evidenceRequests, {
             runId: state.id,
             goal: reviewInput.goal,
@@ -477,6 +546,11 @@ export class GoalLoopRunner {
           iteration.evidenceRequests = mergeEvidenceRequests(iteration.evidenceRequests ?? [], collection.requests);
           iteration.evidence = collection.evidence;
           availableEvidence = collection.evidence;
+          for (const request of collection.requests) {
+            for (const evidenceId of request.evidenceIds) {
+              await this.appendWorkflowEvent(state.id, { type: "evidence_collected", evidenceId, requestId: request.id });
+            }
+          }
           emit({
             type: "evidence_collection_completed",
             iteration: state.iteration,
@@ -527,6 +601,7 @@ export class GoalLoopRunner {
 
         state.lastJudgeFeedback = pipelineResult.feedback;
         if (state.lastJudgeFeedback.length > 0) {
+          await this.transitionWorkflow(state.id, "revising", "Required reviewer findings were returned to the coding agent");
           emit({
             type: "agent_status",
             message: `Judge rejected iteration ${state.iteration}; sending ${state.lastJudgeFeedback.length} required fix${state.lastJudgeFeedback.length === 1 ? "" : "es"} to the coding agent…`,

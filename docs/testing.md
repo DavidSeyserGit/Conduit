@@ -19,6 +19,23 @@ pnpm verify
 cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 ```
 
+Run the deterministic goal-driven release demonstration separately with:
+
+```bash
+pnpm demo:goals
+```
+
+It uses tiny checked-in repositories and fake providers, requires no network or
+paid model, and covers the five 0.3.1 acceptance paths:
+
+| Fixture | Release behavior |
+|---|---|
+| Dark mode | UI, accessibility, testing, and code-quality routing |
+| GitHub authentication | Security requests integration-test evidence before approval |
+| Execution question | User decision survives restart, versions the goal, and appears in the report |
+| Failed security review | Critical finding causes revision, stale evidence invalidation, recollection, and affected reruns |
+| Performance claim | Benchmark evidence waits for command approval and is linked in the report |
+
 The same command runs in `.github/workflows/verify.yml` for every pull request and
 push to `main`. A second CI job builds a real Debian Tauri installer, covering the
 Rust backend and native packaging path before a release tag is accepted.
@@ -76,6 +93,11 @@ Environment overrides:
 | Kilo client | Non-streaming judge bridge, NDJSON result/error parsing, workspace requirement, cancellation |
 | Judge | Planning schema, review repair, invalid-plan rejection, no tools, workspace and reasoning |
 | Goal loop | Plan → code → tools → validation → review, planning failure, cancellation, missing provider |
+| Goal definition | Repository-grounded analysis, question batching, approval gate, revision, restart-safe execution questions |
+| Routed review | General completion, specialist selection, warnings, critical findings, affected reviewer reruns |
+| Evidence | Permission gate, reuse, freshness invalidation, timeout/cancellation, artifact references |
+| Report | Criteria/evidence links, findings, warnings, Markdown/JSON export, malformed-output fallback |
+| Persistence | Ordered workflow events, active-state restoration, legacy v0.2 import, no duplicate migration |
 | Ask mode | Read-only tools, stream assembly, cancellation, no duplicate token usage |
 | Coding transport | HTTP/Tauri request serialization, status events, interrupted streams, request-ID cancellation |
 | CLI policy | Read-only judges, sandboxed workers, injected Kilo permissions, native model-ID conversion |
@@ -87,3 +109,7 @@ Environment overrides:
 
 When a bug is found, first add a test at the narrowest owning boundary, then add
 an integration test if the failure required two or more layers to reproduce.
+
+The automated suite also exercises cancellation in analysis, planning,
+implementation/provider transport, review, and evidence collection. Reporting
+is an atomic persistence step rather than a long-running provider operation.

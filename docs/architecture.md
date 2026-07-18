@@ -11,7 +11,7 @@ Conduit is a monorepo with clear separation between the UI, agent runtime, model
 
 Shared TypeScript types and Zod schemas used across all packages:
 
-- `GoalRunState`, `GoalIteration`, `JudgeResult`
+- Goal, question, answer, review, evidence, report, and workflow-event schemas
 - `ModelDescriptor`, `ModelRequest`, `ModelResponse`
 - `GoalRunEvent` — runtime events for UI decoupling
 - Error classes (`ConduitError`, `WorkspaceError`, etc.)
@@ -51,9 +51,13 @@ Implementations:
 
 The core loop engine:
 
-- **`GoalLoopRunner`** — Orchestrates iterations between coding agent and judge
+- **`GoalDefinitionRuntime`** — Inspects context, asks structured questions, versions goals, and enforces approval
+- **`GoalLoopRunner`** — Orchestrates planning, implementation, validation, reviews, evidence, revision, and reporting
 - **`CodingAgent`** — Tool-call loop for implementation
-- **`Judge`** — Independent evaluation with structured output
+- **`GeneralReviewer` / `ReviewRouter`** — Verify functional completion and select applicable specialist reviewers
+- **Specialist reviewers** — Narrow security, testing, quality, architecture, performance, documentation, UI, accessibility, migration, API, and dependency checks
+- **`EvidenceCoordinator`** — Safely fulfills reviewer evidence requests through the tool boundary and invalidates stale results
+- **`ReportBuilder`** — Produces a linked in-app, Markdown, and JSON account of the run
 - **`AskChatRunner`** — Read-only chat for Ask mode
 
 Events are emitted rather than controlling the UI directly, enabling future CLI or web clients.
@@ -75,7 +79,7 @@ Tauri desktop shell with React frontend:
 
 Local coding harnesses cross four deliberately separate layers:
 
-1. `GoalLoopRunner`, `Judge`, and `CodingAgent` decide **when** planning,
+1. `GoalLoopRunner`, reviewers, and `CodingAgent` decide **when** planning,
    implementation, validation, and review happen.
 2. `CodexProvider` and `KiloProvider` use the `LocalHarnessTransport` contract.
    They do not know whether HTTP development transport or packaged Tauri IPC is active.
@@ -103,15 +107,17 @@ The following invariants are enforced by tests:
 ## Data Flow
 
 ```
-User Input
+Rough Request
     ↓
 App Store (Zustand)
     ↓
-GoalDefinitionRuntime / GoalLoopRunner / AskChatRunner
+GoalDefinitionRuntime (inspect → questions → approval)
     ↓
-    ModelProvider (OpenRouter / Codex / Kilo)  ←→  Tools (file, search, command)
+GoalLoopRunner (plan → implement → validate → route reviews ↔ evidence/revision)
+    ↓                                      ↕
+ModelProvider (OpenRouter / Codex / Kilo)  Tools (file, search, command)
     ↓
-GoalRunEvents
+Persisted GoalWorkflowEvents + Report
     ↓
 Execution Timeline (React)
 ```
@@ -122,7 +128,11 @@ Execution Timeline (React)
 - Goal definitions, versions, run events, reviews, evidence, and reports: SQLite through the provider-neutral persistence port
 - Large repository context and command artifacts: integrity-checked files referenced by SQLite records
 
-The structured goal lifecycle, approval gate, and restart-safe execution questions are described in [Goal definition runtime](goal-definition-runtime.md). Storage and migration details are in [Goal persistence](goal-persistence.md).
+The structured goal lifecycle, approval gate, and restart-safe execution questions are described in [Goal definition runtime](goal-definition-runtime.md). Review, evidence, and reporting are described in [Evidence and reports](evidence-and-reports.md). Storage and migration details are in [Goal persistence](goal-persistence.md).
+
+Models return validated decisions and concise summaries. Conduit neither requests
+nor persists private chain-of-thought; reports link conclusions to explicit goal
+criteria, findings, user answers, and collected evidence.
 
 ## Security Model
 
