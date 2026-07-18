@@ -224,20 +224,20 @@ export class ReviewPipeline {
       previousReviews?: ReviewResult[];
       previousChangedFiles?: string[];
       round?: number;
-      onGeneralStarted?: () => void;
-      onGeneralCompleted?: (review: ReviewResult, routing: ReviewRoutingDecision) => void;
-      onSpecialistStarted?: (reviewerId: string) => void;
-      onSpecialistCompleted?: (review: ReviewResult) => void;
+      onGeneralStarted?: () => unknown | Promise<unknown>;
+      onGeneralCompleted?: (review: ReviewResult, routing: ReviewRoutingDecision) => unknown | Promise<unknown>;
+      onSpecialistStarted?: (reviewerId: string) => unknown | Promise<unknown>;
+      onSpecialistCompleted?: (review: ReviewResult) => unknown | Promise<unknown>;
     } = {},
   ): Promise<ReviewPipelineResult> {
     const previousGeneral = options.previousReviews?.find((review) => review.reviewerId === "general");
-    options.onGeneralStarted?.();
+    await options.onGeneralStarted?.();
     const general = await this.generalReviewer.review(
       { ...input, ...(previousGeneral ? { previousReview: previousGeneral } : {}) },
       this.registry.ids(),
       options.signal,
     );
-    options.onGeneralCompleted?.(general.result, general.routing);
+    await options.onGeneralCompleted?.(general.result, general.routing);
     let usage = general.tokenUsage;
     if (general.routing.goalStatus !== "implemented" || !isApproved(general.result.status)) {
       const decision = aggregateFinalApproval(general.result, general.routing.requiredReviewers, []);
@@ -262,17 +262,17 @@ export class ReviewPipeline {
         }
         continue;
       }
-      options.onSpecialistStarted?.(reviewerId);
+      await options.onSpecialistStarted?.(reviewerId);
       try {
         const execution = await reviewer.review({ ...input, previousReview: previous.get(reviewerId) }, options.signal);
         usage = addUsage(usage, execution.tokenUsage);
         specialistReviews.push(execution.result);
-        options.onSpecialistCompleted?.(execution.result);
+        await options.onSpecialistCompleted?.(execution.result);
       } catch (error) {
         if (options.signal?.aborted) throw error;
         const review = unavailableReview(reviewerId, error);
         specialistReviews.push(review);
-        options.onSpecialistCompleted?.(review);
+        await options.onSpecialistCompleted?.(review);
       }
     }
 

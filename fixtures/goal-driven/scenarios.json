@@ -1,0 +1,40 @@
+[
+  {
+    "id": "dark-mode",
+    "request": "Add a dark-mode toggle.",
+    "changedFiles": ["src/theme.tsx"],
+    "expectedReviewers": ["ui", "accessibility", "testing", "code_quality"],
+    "expectedOutcome": "achieved"
+  },
+  {
+    "id": "github-auth",
+    "request": "Add GitHub authentication.",
+    "changedFiles": ["src/auth.ts"],
+    "expectedReviewers": ["security", "testing", "code_quality", "documentation"],
+    "expectedEvidence": "test",
+    "expectedOutcome": "achieved"
+  },
+  {
+    "id": "execution-question",
+    "request": "Add account linking.",
+    "changedFiles": ["src/accounts.ts"],
+    "expectedDecision": "Require explicit confirmation",
+    "expectedOutcome": "achieved"
+  },
+  {
+    "id": "failed-security-review",
+    "request": "Add secure session authentication.",
+    "changedFiles": ["src/session.ts"],
+    "expectedReviewer": "security",
+    "expectedIterations": 2,
+    "expectedOutcome": "achieved"
+  },
+  {
+    "id": "performance-evidence",
+    "request": "Improve search performance and prove the latency improvement.",
+    "changedFiles": ["src/search.ts"],
+    "expectedReviewer": "performance",
+    "expectedEvidence": "benchmark",
+    "expectedOutcome": "achieved"
+  }
+]

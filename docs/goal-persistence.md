@@ -32,6 +32,12 @@ Run events receive a transactionally allocated sequence number and are written
 incrementally. Restoring a run returns its goal history, decisions, ordered
 events, reviews, findings, evidence, and report as one typed snapshot.
 
+Active structured runs persist their explicit workflow phase. On restart the
+runtime restores the latest goal version and phase, preserves completed work,
+and continues without duplicating already-recorded transitions or answers.
+Evidence freshness is persisted so a restart cannot turn stale validation into
+an approval. Terminal reports remain available in run history.
+
 ## v0.2 compatibility
 
 On the first packaged-app launch with this storage version, the desktop adapter

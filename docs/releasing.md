@@ -34,21 +34,21 @@ The required version sources are:
 `apps/desktop/src-tauri/Cargo.lock` is committed and release builds pass
 `--locked`, so GitHub cannot silently resolve different Rust dependencies.
 
-To publish version `0.2.0`, update all four files in a normal pull request, let
+To publish version `0.3.1`, update all four files in a normal pull request, let
 CI pass, verify the version locally, then tag the verified commit:
 
 ```bash
-pnpm release:check -- v0.2.0
+pnpm release:check -- v0.3.1
 ```
 
 Publish only after that command succeeds:
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.3.1
+git push origin v0.3.1
 ```
 
-Prereleases use tags such as `v0.2.0-beta.1` and are marked as prereleases on
+Prereleases use tags such as `v0.3.1-beta.1` and are marked as prereleases on
 GitHub automatically.
 
 ## Signing

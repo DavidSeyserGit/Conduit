@@ -1,16 +1,17 @@
 # Conduit
 
-Minimal desktop coding chatbot focused on explicit agent loops with independently selectable models.
+Local desktop application for goal-driven software engineering with independently selectable models.
 
-> Choose a coding model, choose a judge, and let them work toward a goal through a visible loop.
+> Start with a rough request. Conduit turns it into an explicit goal, implements it, routes independent reviews, gathers evidence, and explains why the work passed or failed.
 
 ## Features
 
 - **Ask mode** — Repository-aware read-only chat (read files, search, explain code)
-- **Goal mode** — Coding agent loop with independent judge model
+- **Goal mode** — Repository-grounded questions, approval-gated goals, implementation, routed specialist reviews, and evidence-backed completion
 - **OpenRouter, Codex, and Kilo integration** — Cloud and locally authenticated coding harnesses
 - **Workspace tools** — File read/write, search, git diff, command execution
-- **Visible execution timeline** — See every tool call, judge decision, and iteration
+- **Persistent workflow and reports** — Resume goal decisions after restart and export the final report as Markdown or JSON
+- **Visible execution timeline** — See lifecycle transitions, tool calls, review decisions, evidence, and iterations
 - **Command safety** — Configurable approval for shell commands
 
 ## Quick Start
@@ -48,6 +49,9 @@ pnpm --filter @conduit/desktop tauri:build
 
 ```bash
 pnpm verify
+
+# Deterministic offline walkthrough of the five 0.3 release scenarios
+pnpm demo:goals
 ```
 
 See [docs/testing.md](docs/testing.md) for the provider contract matrix and the
@@ -70,7 +74,9 @@ cross-platform Tauri installer releases.
 
 4. Click **+** beside Projects, connect GitHub, and authorize the app
 5. Choose a repository and clone destination
-6. Choose coding and judge models, then switch to **Goal** mode
+6. Choose coding and reviewer models, then switch to **Goal** mode
+7. Describe the outcome, answer only the product questions Conduit cannot infer,
+   review the generated goal, and approve it before implementation begins
 
 GitHub access tokens are stored in the operating system keychain. The selected
 repository is cloned locally and the agent runs against that local checkout.
@@ -85,7 +91,7 @@ mode; select **Codex (ChatGPT subscription)** as the coding model.
 conduit/
 ├── apps/desktop/          # Tauri + React desktop app
 ├── packages/
-│   ├── agent-runtime/     # Goal loop, coding agent, judge
+│   ├── agent-runtime/     # Goal definition, implementation, review, evidence, reports
 │   ├── model-providers/   # OpenRouter, Codex, Kilo, OpenAI-compatible, ACP
 │   ├── tools/             # File, search, command tools + safety
 │   └── shared/            # Types, schemas, events
@@ -97,13 +103,11 @@ See [docs/architecture.md](docs/architecture.md) for details.
 ## Goal Loop
 
 ```
-Goal → Inspect → Plan → Implement → Validate → Judge
-                                                  ↓
-                              Approved? ── Yes ──→ Complete
-                                  │
-                                  No
-                                  ↓
-                           Return feedback → Next iteration
+Request → Inspect → Questions → Approve goal → Plan → Implement → Validate
+                                                            ↓
+                                        General review → Route specialists
+                                                            ↓
+                                  Evidence / revisions ↔ Reviewers → Report
 ```
 
 ## License

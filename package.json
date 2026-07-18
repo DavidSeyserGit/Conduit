@@ -1,6 +1,6 @@
 {
   "name": "conduit",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "packageManager": "pnpm@11.0.9",
   "description": "Minimal desktop coding chatbot with explicit agent loops",
@@ -13,6 +13,7 @@
     "pretest": "pnpm build:packages",
     "test": "node scripts/run-tests.mjs",
     "smoke:harnesses": "node scripts/smoke-local-harnesses.mjs",
+    "demo:goals": "node scripts/demo-goal-workflow.mjs",
     "release:check": "node scripts/check-release-version.mjs",
     "verify": "pnpm build:packages && pnpm -r typecheck && tsc -p tsconfig.tests.json && node scripts/run-tests.mjs && pnpm --filter @conduit/desktop build",
     "lint": "pnpm -r lint"
