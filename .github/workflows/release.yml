@@ -29,6 +29,36 @@ jobs:
       - name: Check latest.json matches tag
         run: node scripts/verify-release-manifest.mjs "${{ github.ref_name }}" "${{ github.repository }}"
 
+  release-notes:
+    name: Generate release notes
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Generate notes from git history and update release + manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          PREV=$(gh api "repos/$REPO/releases?per_page=2" --jq '.[1].tag_name // empty')
+          if [ -n "$PREV" ]; then
+            gh api -X POST "repos/$REPO/releases/generate-notes" -f tag_name="$TAG" -f previous_tag_name="$PREV" --jq .body > notes.md
+          else
+            gh api -X POST "repos/$REPO/releases/generate-notes" -f tag_name="$TAG" --jq .body > notes.md
+          fi
+          {
+            echo "Download the installer for your operating system from the assets below."
+            echo
+            cat notes.md
+          } > release-body.md
+          gh release edit "$TAG" --notes-file release-body.md
+          mkdir -p tmp && gh release download "$TAG" -p latest.json -D tmp --clobber
+          node -e "const fs=require('fs'); const m=JSON.parse(fs.readFileSync('tmp/latest.json','utf8')); m.notes=fs.readFileSync('release-body.md','utf8'); fs.writeFileSync('tmp/latest.json', JSON.stringify(m, null, 2));"
+          gh release upload "$TAG" tmp/latest.json --clobber
+
   publish:
     name: Build ${{ matrix.label }}
     needs: verify

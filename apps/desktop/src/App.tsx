@@ -71,11 +71,8 @@ export default function App() {
         const { getVersion } = await import("@tauri-apps/api/app");
         const current = await getVersion();
         const lastSeen = useAppStore.getState().settings.lastSeenChangelogVersion;
-        if (!lastSeen) {
-          // Fresh install: record the version silently, no popup.
-          updateSettings({ lastSeenChangelogVersion: current });
-          return;
-        }
+        // A missing lastSeen also shows: users updating from pre-changelog
+        // versions (and fresh installs, as a welcome card) get the notes.
         if (shouldShowChangelog(current, lastSeen)) {
           const { fetchReleaseChangelog } = await import("@/lib/update-prompts");
           const changelog = await fetchReleaseChangelog(current);

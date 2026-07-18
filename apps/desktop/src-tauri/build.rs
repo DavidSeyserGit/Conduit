@@ -15,6 +15,7 @@ fn main() {
         "git_commit_changes",
         "git_push_branch",
         "local_harness_models",
+        "local_harness_health",
         "local_harness_response",
         "local_harness_coding_iteration",
         "local_harness_cancel",
