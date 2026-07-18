@@ -7,3 +7,6 @@ export * from "./prompts.js";
 export * from "./metrics.js";
 export * from "./export-run.js";
 export * from "./judge-presets.js";
+export * from "./goal-analyst.js";
+export * from "./repository-context.js";
+export * from "./goal-definition-runtime.js";

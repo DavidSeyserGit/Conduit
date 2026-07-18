@@ -107,7 +107,7 @@ User Input
     ↓
 App Store (Zustand)
     ↓
-GoalLoopRunner / AskChatRunner
+GoalDefinitionRuntime / GoalLoopRunner / AskChatRunner
     ↓
     ModelProvider (OpenRouter / Codex / Kilo)  ←→  Tools (file, search, command)
     ↓
@@ -119,7 +119,10 @@ Execution Timeline (React)
 ## State Persistence
 
 - App settings and model preferences: Zustand persist (localStorage)
-- Goal run history: In-memory for MVP (SQLite planned for full persistence)
+- Goal definitions, versions, run events, reviews, evidence, and reports: SQLite through the provider-neutral persistence port
+- Large repository context and command artifacts: integrity-checked files referenced by SQLite records
+
+The structured goal lifecycle, approval gate, and restart-safe execution questions are described in [Goal definition runtime](goal-definition-runtime.md). Storage and migration details are in [Goal persistence](goal-persistence.md).
 
 ## Security Model
 

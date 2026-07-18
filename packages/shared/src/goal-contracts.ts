@@ -214,6 +214,44 @@ export const GoalVersionSchema = z.object({
   }
 });
 
+export const GoalAmbiguitySchema = z.object({
+  id: IdSchema,
+  description: NonEmptyStringSchema,
+  userDecisionRequired: z.boolean(),
+  repositoryFacts: z.array(NonEmptyStringSchema),
+}).strict();
+
+export const GoalAnalystOutputSchema = z.object({
+  decisionSummary: NonEmptyStringSchema,
+  ambiguities: z.array(GoalAmbiguitySchema),
+  questionBatches: z.array(GoalQuestionBatchSchema),
+  proposedTitle: NonEmptyStringSchema,
+  proposedDescription: NonEmptyStringSchema,
+  proposedSuccessCriteria: z.array(SuccessCriterionSchema).min(1),
+  proposedConstraints: z.array(ConstraintSchema),
+  proposedDeliverables: z.array(DeliverableSchema).min(1),
+  proposedAssumptions: z.array(AssumptionSchema),
+}).strict().superRefine((analysis, ctx) => {
+  const questionIds = new Set<string>();
+  const batchIds = new Set<string>();
+  for (const [batchIndex, batch] of analysis.questionBatches.entries()) {
+    if (batchIds.has(batch.id)) {
+      ctx.addIssue({ code: "custom", message: "Question batch IDs must be unique", path: ["questionBatches", batchIndex, "id"] });
+    }
+    batchIds.add(batch.id);
+    for (const [questionIndex, question] of batch.questions.entries()) {
+      if (questionIds.has(question.id)) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Question IDs must be unique across batches",
+          path: ["questionBatches", batchIndex, "questions", questionIndex, "id"],
+        });
+      }
+      questionIds.add(question.id);
+    }
+  }
+});
+
 export const EvidenceTypeSchema = z.enum([
   "command",
   "test",
@@ -565,6 +603,8 @@ export type GoalAnswer = z.infer<typeof GoalAnswerSchema>;
 export type GoalStatus = z.infer<typeof GoalStatusSchema>;
 export type GoalDefinition = z.infer<typeof GoalDefinitionSchema>;
 export type GoalVersion = z.infer<typeof GoalVersionSchema>;
+export type GoalAmbiguity = z.infer<typeof GoalAmbiguitySchema>;
+export type GoalAnalystOutput = z.infer<typeof GoalAnalystOutputSchema>;
 export type EvidenceType = z.infer<typeof EvidenceTypeSchema>;
 export type EvidenceFreshness = z.infer<typeof EvidenceFreshnessSchema>;
 export type EvidenceItem = z.infer<typeof EvidenceItemSchema>;

@@ -6,6 +6,7 @@ import {
   EvidenceItemSchema,
   EvidenceRequestSchema,
   GoalDefinitionSchema,
+  GoalAnalystOutputSchema,
   GoalQuestionBatchSchema,
   GoalQuestionSchema,
   GoalReportSchema,
@@ -203,6 +204,30 @@ test("question contracts reject arbitrary UI data and invalid defaults", () => {
     position: 0,
     questions: Array.from({ length: 6 }, (_, index) => ({ ...invalidDefault, id: `q-${index}`, defaultValue: "known" })),
   }).success, false);
+});
+
+test("Goal Analyst output is strict and keeps question identifiers unique across batches", () => {
+  const question = { id: "product-choice", type: "confirmation" as const, title: "Enable persistence?", required: true, defaultValue: true };
+  const output = {
+    decisionSummary: "One product decision remains.",
+    ambiguities: [{ id: "persistence", description: "Preference persistence", userDecisionRequired: true, repositoryFacts: ["Settings storage exists"] }],
+    questionBatches: [{ id: "behavior", title: "Behavior", position: 0, questions: [question] }],
+    proposedTitle: goal.title,
+    proposedDescription: goal.description,
+    proposedSuccessCriteria: goal.successCriteria,
+    proposedConstraints: goal.constraints,
+    proposedDeliverables: goal.deliverables,
+    proposedAssumptions: goal.assumptions,
+  };
+  assert.equal(GoalAnalystOutputSchema.safeParse(output).success, true);
+  assert.equal(GoalAnalystOutputSchema.safeParse({
+    ...output,
+    questionBatches: [
+      ...output.questionBatches,
+      { id: "permissions", title: "Permissions", position: 1, questions: [question] },
+    ],
+  }).success, false);
+  assert.equal(GoalAnalystOutputSchema.safeParse({ ...output, arbitraryUiCode: "<form />" }).success, false);
 });
 
 test("repository, validation, evidence, and reviewer contracts compose", () => {

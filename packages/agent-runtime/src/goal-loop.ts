@@ -6,6 +6,7 @@ import type {
   ModelCostBreakdown,
   ValidationResult,
 } from "@conduit/shared";
+import { GoalDefinitionSchema } from "@conduit/shared";
 import type { ProviderRegistry } from "@conduit/model-providers";
 import type { ToolExecutor, ToolExecutorContext } from "@conduit/tools";
 import { findProviderForModel } from "@conduit/model-providers";
@@ -77,6 +78,22 @@ export class GoalLoopRunner {
       const metrics = computeLoopMetrics(collectedEvents);
       return { ...finalState, metrics };
     };
+
+    if (config.structuredGoal) {
+      const parsedGoal = GoalDefinitionSchema.safeParse(config.structuredGoal);
+      const approvedVersion = config.approvedGoalVersion;
+      if (
+        !parsedGoal.success ||
+        parsedGoal.data.status !== "approved" ||
+        approvedVersion !== parsedGoal.data.version
+      ) {
+        const error = "Implementation requires explicit approval of the exact structured goal version";
+        const finalState = finalizeState({ ...state, status: "failed", finishedAt: new Date().toISOString() });
+        onEvent({ type: "run_failed", error });
+        return { status: "failed", state: finalState, error };
+      }
+      state.goal = formatStructuredGoalContract(parsedGoal.data);
+    }
 
     emit({ type: "run_started", runId: state.id, startedAt: state.startedAt });
 
@@ -331,6 +348,19 @@ export class GoalLoopRunner {
     emit({ type: "run_completed", result });
     return result;
   }
+}
+
+function formatStructuredGoalContract(goal: import("@conduit/shared").GoalDefinition): string {
+  return JSON.stringify({
+    title: goal.title,
+    description: goal.description,
+    successCriteria: goal.successCriteria,
+    constraints: goal.constraints,
+    deliverables: goal.deliverables,
+    assumptions: goal.assumptions,
+    answers: goal.answers,
+    approvedVersion: goal.version,
+  }, null, 2);
 }
 
 async function runValidationContract(
