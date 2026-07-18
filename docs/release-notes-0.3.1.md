@@ -24,6 +24,24 @@ critical security finding, and a permission-gated performance benchmark. The
 normal `pnpm verify`, Rust tests, and packaged Tauri compilation remain required
 before tagging.
 
+## Release acceptance audit
+
+| Contract | Verification |
+|---|---|
+| Repository-grounded questions and versioned goal approval | Goal Analyst, definition-runtime, schema, and Goal Builder tests |
+| No implementation before approval | Runtime approval-gate integration test |
+| Execution questions survive restart | Offline execution-question scenario and SQLite restoration tests |
+| General and routed specialist review | Routing matrix, pipeline, disagreement, and affected-rerun tests |
+| Permission-controlled evidence, reuse, and invalidation | Evidence coordinator tests plus authentication, security-revision, and benchmark scenarios |
+| Actionable failed-review feedback and mandatory approval | Repair-loop, critical-finding, evidence-gate, and policy aggregation tests |
+| Persistent goals, decisions, events, reviews, evidence, and reports | Browser/native persistence and legacy v0.2 migration tests |
+| Interactive report with Markdown and JSON export | Report builder, UI, export, redaction, and native-boundary tests |
+| Provider/tool cancellation and cleanup | Analysis, planning, review, evidence, HTTP/Tauri, and local-process cancellation tests |
+| Five deterministic end-to-end scenarios | `pnpm demo:goals` |
+
+All phases A–H are merged. The release gate passes without live paid models;
+authenticated provider smoke tests remain an optional environment-specific check.
+
 ## Known limitations
 
 Run history is local, screenshot evidence is not automated, authenticated local
