@@ -1,6 +1,7 @@
 fn main() {
     const COMMANDS: &[&str] = &[
         "tool_execute",
+        "report_export_write",
         "github_client_id",
         "github_get_token",
         "github_store_token",

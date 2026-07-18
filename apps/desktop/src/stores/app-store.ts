@@ -12,6 +12,7 @@ import type {
   ModelDescriptor,
   SessionUsage,
   TokenUsage,
+  GoalReport,
 } from "@conduit/shared";
 import {
   DefaultProviderRegistry,
@@ -40,6 +41,7 @@ export interface Project {
 export interface RunHistoryEntry {
   run: GoalRunState;
   events: GoalRunEvent[];
+  report?: GoalReport;
   updatedAt: string;
 }
 
@@ -161,7 +163,7 @@ let localHarnessTransport: LocalHarnessTransport | null = null;
 const tauriGoalRepository = new TauriGoalPersistenceRepository();
 const browserGoalRepository = new BrowserGoalPersistenceRepository();
 
-function goalRepository() {
+export function goalRepository() {
   return inTauri() ? tauriGoalRepository : browserGoalRepository;
 }
 
@@ -827,7 +829,7 @@ export const useAppStore = create<AppState>()(
 
           set((s) => {
             const runHistory = [
-              { run: result.state, events: s.runEvents, updatedAt: new Date().toISOString() },
+              { run: result.state, events: s.runEvents, report: result.report, updatedAt: new Date().toISOString() },
               ...s.runHistory.filter((entry) => entry.run.id !== result.state.id),
             ].slice(0, 50);
             const codingUsage = subtractUsage(result.state.codingTokenUsage, resumeState?.codingTokenUsage);

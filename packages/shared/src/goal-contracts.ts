@@ -466,6 +466,13 @@ export const ReportOverviewSchema = z.object({
   totalIterations: z.number().int().nonnegative(),
   runtimeMs: z.number().nonnegative(),
   estimatedCost: z.number().nonnegative().optional(),
+  tokenUsage: z.object({
+    promptTokens: z.number().int().nonnegative(),
+    completionTokens: z.number().int().nonnegative(),
+    totalTokens: z.number().int().nonnegative(),
+    cacheReadTokens: z.number().int().nonnegative().optional(),
+    cacheWriteTokens: z.number().int().nonnegative().optional(),
+  }).strict().optional(),
 }).strict();
 
 export const ImplementationSummarySchema = z.object({
@@ -509,6 +516,11 @@ export const ReportExportMetadataSchema = z.object({
   format: z.enum(["markdown", "json"]),
   exportedAt: TimestampSchema,
   redacted: z.boolean(),
+}).strict();
+
+export const GoalReportExportSchema = z.object({
+  metadata: ReportExportMetadataSchema,
+  report: GoalReportSchema,
 }).strict();
 
 export const GoalWorkflowPhaseSchema = z.enum([
@@ -634,6 +646,7 @@ export type ImplementationSummary = z.infer<typeof ImplementationSummarySchema>;
 export type FinalDecision = z.infer<typeof FinalDecisionSchema>;
 export type GoalReport = z.infer<typeof GoalReportSchema>;
 export type ReportExportMetadata = z.infer<typeof ReportExportMetadataSchema>;
+export type GoalReportExport = z.infer<typeof GoalReportExportSchema>;
 export type GoalWorkflowPhase = z.infer<typeof GoalWorkflowPhaseSchema>;
 export type GoalWorkflowEvent = z.infer<typeof GoalWorkflowEventSchema>;
 export type GoalDrivenRunRecord = z.infer<typeof GoalDrivenRunRecordSchema>;

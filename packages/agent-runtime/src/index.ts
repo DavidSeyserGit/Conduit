@@ -3,6 +3,7 @@ export { CodingAgent } from "./coding-agent.js";
 export { Judge } from "./judge.js";
 export * from "./review-pipeline.js";
 export * from "./evidence-coordinator.js";
+export * from "./report-builder.js";
 export { AskChatRunner } from "./ask-chat.js";
 export * from "./state.js";
 export * from "./prompts.js";

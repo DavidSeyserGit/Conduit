@@ -26,6 +26,27 @@ pub struct FileEntry {
     pub size: Option<u64>,
 }
 
+#[tauri::command]
+pub fn report_export_write(path: String, content: String) -> Result<(), String> {
+    const MAX_REPORT_BYTES: usize = 2 * 1024 * 1024;
+    if content.len() > MAX_REPORT_BYTES {
+        return Err("Report export exceeds the 2 MiB safety limit".to_string());
+    }
+    let target = PathBuf::from(path);
+    if !target.is_absolute() {
+        return Err("Report export requires an absolute path selected by the user".to_string());
+    }
+    let extension = target
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if extension != "md" && extension != "json" {
+        return Err("Report exports must use .md or .json".to_string());
+    }
+    fs::write(&target, content).map_err(|error| format!("Could not write report export: {error}"))
+}
+
 fn normalize_path(workspace: &str, target: &str) -> Result<PathBuf, String> {
     let workspace = PathBuf::from(workspace)
         .canonicalize()
@@ -687,23 +708,27 @@ pub fn tool_get_git_diff(
             diff_args.extend(["--", path]);
         }
         let mut names_args = vec!["diff", "--name-only", "-z", &baseline_tree, &current_tree];
+        let mut statuses_args = vec!["diff", "--name-status", "-z", &baseline_tree, &current_tree];
         if let Some(path) = path.as_deref() {
             names_args.extend(["--", path]);
+            statuses_args.extend(["--", path]);
         }
         return match (
             run_git(&workspace, &diff_args, None),
             run_git(&workspace, &names_args, None),
+            run_git(&workspace, &statuses_args, None),
         ) {
-            (Ok(diff), Ok(names)) => ToolResult {
+            (Ok(diff), Ok(names), Ok(statuses)) => ToolResult {
                 success: true,
                 result: Some(serde_json::json!({
                     "hasChanges": !diff.is_empty(),
                     "diff": diff,
-                    "changedFiles": names.split('\0').filter(|name| !name.is_empty()).collect::<Vec<_>>()
+                    "changedFiles": names.split('\0').filter(|name| !name.is_empty()).collect::<Vec<_>>(),
+                    "changes": parse_git_name_status(&statuses),
                 })),
                 error: None,
             },
-            (Err(error), _) | (_, Err(error)) => ToolResult {
+            (Err(error), _, _) | (_, Err(error), _) | (_, _, Err(error)) => ToolResult {
                 success: false,
                 result: None,
                 error: Some(error),
@@ -731,6 +756,44 @@ pub fn tool_get_git_diff(
             error: Some(error),
         },
     }
+}
+
+fn parse_git_name_status(value: &str) -> Vec<serde_json::Value> {
+    let fields = value
+        .split('\0')
+        .filter(|field| !field.is_empty())
+        .collect::<Vec<_>>();
+    let mut changes = Vec::new();
+    let mut index = 0;
+    while index < fields.len() {
+        let code = fields[index];
+        index += 1;
+        if code.starts_with('R') || code.starts_with('C') {
+            if index + 1 >= fields.len() {
+                break;
+            }
+            changes.push(serde_json::json!({
+                "path": fields[index + 1],
+                "previousPath": fields[index],
+                "status": "renamed",
+            }));
+            index += 2;
+            continue;
+        }
+        if index >= fields.len() {
+            break;
+        }
+        let status = if code.starts_with('A') {
+            "added"
+        } else if code.starts_with('D') {
+            "deleted"
+        } else {
+            "modified"
+        };
+        changes.push(serde_json::json!({ "path": fields[index], "status": status }));
+        index += 1;
+    }
+    changes
 }
 
 fn keychain_fallback_path(name: &str) -> std::path::PathBuf {
@@ -1796,6 +1859,13 @@ mod tests {
         assert_eq!(files.len(), 2);
         assert!(files.iter().any(|file| file == "plan-b.txt"));
         assert!(files.iter().any(|file| file == "shared.txt"));
+        let changes = result["changes"].as_array().unwrap();
+        assert!(changes
+            .iter()
+            .any(|change| change["path"] == "plan-b.txt" && change["status"] == "added"));
+        assert!(changes
+            .iter()
+            .any(|change| change["path"] == "shared.txt" && change["status"] == "modified"));
         let diff = result["diff"].as_str().unwrap();
         assert!(diff.contains("+plan B"));
         assert!(!diff.contains("accepted-untracked"));
@@ -1818,6 +1888,27 @@ mod tests {
         assert!(!is_github_https_clone_url(
             "https://github.com/owner/repository.git/extra"
         ));
+    }
+
+    #[test]
+    fn report_exports_are_bounded_and_extension_limited() {
+        let temp = tempfile::tempdir().unwrap();
+        let markdown = temp.path().join("report.md");
+        assert!(report_export_write(
+            markdown.to_string_lossy().into_owned(),
+            "# Report\n".to_string()
+        )
+        .is_ok());
+        assert_eq!(fs::read_to_string(markdown).unwrap(), "# Report\n");
+        assert!(report_export_write(
+            temp.path()
+                .join("report.txt")
+                .to_string_lossy()
+                .into_owned(),
+            "report".to_string()
+        )
+        .is_err());
+        assert!(report_export_write("relative.json".to_string(), "{}".to_string()).is_err());
     }
 
     #[test]

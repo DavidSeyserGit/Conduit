@@ -5,6 +5,7 @@
   "windows": ["main"],
   "permissions": [
     "dialog:allow-open",
+    "dialog:allow-save",
     "opener:allow-open-url",
     "opener:allow-default-urls",
     "updater:default",
@@ -12,6 +13,7 @@
     "updater:allow-download-and-install",
     "process:allow-restart",
     "allow-tool-execute",
+    "allow-report-export-write",
     "allow-github-client-id",
     "allow-github-get-token",
     "allow-github-store-token",

@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
+import type { RepositoryChange } from "@conduit/shared";
 import { ToolError } from "@conduit/shared";
 import { assertWorkspaceExists } from "./safety.js";
 
@@ -13,6 +14,7 @@ export interface GitDiffResult {
   diff: string;
   hasChanges: boolean;
   changedFiles: string[];
+  changes: RepositoryChange[];
 }
 
 function runGit(workspacePath: string, args: string[], env?: NodeJS.ProcessEnv): string {
@@ -85,9 +87,36 @@ export function getScopedGitDiff(
     currentTree,
     ...pathArgs,
   ]);
+  const statuses = runGit(workspacePath, [
+    "diff",
+    "--name-status",
+    "-z",
+    baselineTree,
+    currentTree,
+    ...pathArgs,
+  ]);
   return {
     diff,
     hasChanges: diff.length > 0,
     changedFiles: names.split("\0").filter(Boolean),
+    changes: parseNameStatus(statuses),
   };
+}
+
+function parseNameStatus(value: string): RepositoryChange[] {
+  const fields = value.split("\0").filter(Boolean);
+  const changes: RepositoryChange[] = [];
+  for (let index = 0; index < fields.length;) {
+    const code = fields[index++] ?? "M";
+    if (code.startsWith("R") || code.startsWith("C")) {
+      const previousPath = fields[index++];
+      const path = fields[index++];
+      if (path && previousPath) changes.push({ path, previousPath, status: "renamed" });
+      continue;
+    }
+    const path = fields[index++];
+    if (!path) continue;
+    changes.push({ path, status: code.startsWith("A") ? "added" : code.startsWith("D") ? "deleted" : "modified" });
+  }
+  return changes;
 }
