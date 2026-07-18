@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAppStore } from "@/stores/app-store";
 import { ChatHeader } from "@/features/chat/ChatHeader";
 import { ChatTimeline } from "@/features/goal-run/ExecutionTimeline";
@@ -8,7 +8,9 @@ import { LeftSidebar } from "@/features/sidebar/LeftSidebar";
 import { GitDiffPanel } from "@/features/git/GitDiffPanel";
 import { UpdatePill } from "@/features/update/UpdatePill";
 import { WhatsNewDialog } from "@/features/update/WhatsNewDialog";
+import { SupportBubble } from "@/features/support/SupportBubble";
 import { shouldShowChangelog, shouldShowUpdatePopup, type ReleaseChangelog } from "@/lib/update-prompts";
+import { shouldShowSupportPrompt, summarizeSupportUsage } from "@/lib/support-prompt";
 
 export default function App() {
   const initProviders = useAppStore((s) => s.initProviders);
@@ -20,6 +22,8 @@ export default function App() {
   const isRunning = useAppStore((s) => s.isRunning);
   const pendingApproval = useAppStore((s) => s.pendingApproval);
   const currentRun = useAppStore((s) => s.currentRun);
+  const sessions = useAppStore((s) => s.sessions);
+  const showSettings = useAppStore((s) => s.showSettings);
   const previousRunning = useRef(false);
   const previousApprovalId = useRef<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -28,6 +32,9 @@ export default function App() {
   const [updateProgress, setUpdateProgress] = useState<number | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [whatsNew, setWhatsNew] = useState<ReleaseChangelog | null>(null);
+  const [showSupportBubble, setShowSupportBubble] = useState(false);
+  const supportUsage = useMemo(() => summarizeSupportUsage(Object.values(sessions).flat()), [sessions]);
+  const closeSupportBubble = useCallback(() => setShowSupportBubble(false), []);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
@@ -112,6 +119,17 @@ export default function App() {
     return () => window.clearTimeout(timeout);
   }, [notice]);
 
+  useEffect(() => {
+    if (showSupportBubble || notice || updateNotice || whatsNew || showSettings) return;
+    if (!shouldShowSupportPrompt({
+      ...supportUsage,
+      lastShownAt: settings.supportPromptLastShownAt,
+      dismissedAt: settings.supportPromptDismissedAt,
+    })) return;
+    setShowSupportBubble(true);
+    updateSettings({ supportPromptLastShownAt: new Date().toISOString() });
+  }, [notice, settings.supportPromptDismissedAt, settings.supportPromptLastShownAt, showSettings, showSupportBubble, supportUsage, updateNotice, updateSettings, whatsNew]);
+
   const handleUpdateNow = async () => {
     setUpdateError(null);
     setUpdateInstalling(true);
@@ -155,6 +173,15 @@ export default function App() {
         />
       )}
       {whatsNew && <WhatsNewDialog version={whatsNew.version} body={whatsNew.body} publishedAt={whatsNew.publishedAt} onClose={() => setWhatsNew(null)} />}
+      {showSupportBubble && !notice && !updateNotice && !whatsNew && !showSettings && (
+        <SupportBubble
+          onClose={closeSupportBubble}
+          onDismiss={() => {
+            updateSettings({ supportPromptDismissedAt: new Date().toISOString() });
+            closeSupportBubble();
+          }}
+        />
+      )}
     </div>
   );
 }

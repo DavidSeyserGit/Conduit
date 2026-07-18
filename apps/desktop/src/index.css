@@ -125,6 +125,21 @@ html.dark {
   animation: pill-in 0.25s ease-out;
 }
 
+.animate-support-in {
+  animation: pill-in 0.25s ease-out;
+}
+
+.animate-support-out {
+  animation: support-out 0.25s ease-in forwards;
+}
+
+@keyframes support-out {
+  to {
+    transform: translateX(calc(100% + 1.25rem));
+    opacity: 0;
+  }
+}
+
 * {
   box-sizing: border-box;
 }
