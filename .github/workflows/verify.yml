@@ -48,29 +48,54 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Detect Rust changes
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT_NAME" != pull_request ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep -Eq '^(apps/desktop/src-tauri/|\.github/workflows/)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Install Linux system dependencies
+        if: steps.scope.outputs.run == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev
 
       - name: Install Rust
+        if: steps.scope.outputs.run == 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
 
       - name: Cache Rust build artifacts
+        if: steps.scope.outputs.run == 'true'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop/src-tauri -> target
 
       - name: Check lockfile, formatting, lints, and tests
+        if: steps.scope.outputs.run == 'true'
         working-directory: apps/desktop/src-tauri
         run: |
           cargo metadata --format-version 1 --locked --no-deps > /dev/null
           cargo fmt -- --check
           cargo clippy --locked -- -D warnings
           cargo test --locked
+
+      - name: Skip Rust checks for frontend-only changes
+        if: steps.scope.outputs.run != 'true'
+        run: echo "No Rust or CI workflow files changed."
 
   verify:
     name: verify
@@ -94,40 +119,70 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Detect native bundle changes
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT_NAME" != pull_request ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep -Eq '^(apps/desktop/src-tauri/|\.github/workflows/|scripts/|package\.json$|pnpm-lock\.yaml$|pnpm-workspace\.yaml$|tsconfig\.base\.json$|apps/desktop/package\.json$)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Install Linux system dependencies
+        if: steps.scope.outputs.run == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
 
       - name: Install pnpm
+        if: steps.scope.outputs.run == 'true'
         uses: pnpm/action-setup@v6
 
       - name: Set up Node.js
+        if: steps.scope.outputs.run == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
 
       - name: Install Rust
+        if: steps.scope.outputs.run == 'true'
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Rust build artifacts
+        if: steps.scope.outputs.run == 'true'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop/src-tauri -> target
 
       - name: Install dependencies
+        if: steps.scope.outputs.run == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Build workspace packages
+        if: steps.scope.outputs.run == 'true'
         run: pnpm build:packages
 
       - name: Build Debian installer
+        if: steps.scope.outputs.run == 'true'
         run: pnpm --dir apps/desktop tauri build --ci --bundles deb -- --locked
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - name: Verify updater artifact signatures
+        if: steps.scope.outputs.run == 'true'
         run: node scripts/verify-updater-artifacts.mjs apps/desktop/src-tauri/target/release/bundle/deb
+
+      - name: Skip native bundle for frontend-only changes
+        if: steps.scope.outputs.run != 'true'
+        run: echo "No native, dependency, release, or CI workflow files changed."
