@@ -13,6 +13,7 @@ import { shouldShowChangelog, shouldShowUpdatePopup, type ReleaseChangelog } fro
 import { shouldShowSupportPrompt, summarizeSupportUsage } from "@/lib/support-prompt";
 
 export default function App() {
+  const forceSupportBubble = import.meta.env.DEV && import.meta.env.VITE_SHOW_SUPPORT_BUBBLE === "true";
   const initProviders = useAppStore((s) => s.initProviders);
   const loadModels = useAppStore((s) => s.loadModels);
   const hydrateOpenRouterKey = useAppStore((s) => s.hydrateOpenRouterKey);
@@ -32,7 +33,7 @@ export default function App() {
   const [updateProgress, setUpdateProgress] = useState<number | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [whatsNew, setWhatsNew] = useState<ReleaseChangelog | null>(null);
-  const [showSupportBubble, setShowSupportBubble] = useState(false);
+  const [showSupportBubble, setShowSupportBubble] = useState(forceSupportBubble);
   const supportUsage = useMemo(() => summarizeSupportUsage(Object.values(sessions).flat()), [sessions]);
   const closeSupportBubble = useCallback(() => setShowSupportBubble(false), []);
 
