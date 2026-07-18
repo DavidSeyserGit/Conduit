@@ -255,6 +255,7 @@ test("review and evidence invariants reject unsafe or inconsistent data", () => 
   assert.equal(ReviewFindingSchema.safeParse({ ...finding, lineStart: 5, lineEnd: 2 }).success, false);
   assert.equal(ReviewFindingSchema.safeParse({ ...finding, filePath: undefined }).success, false);
   assert.equal(ReviewResultSchema.safeParse({ ...review, confidence: 1.1 }).success, false);
+  assert.equal(ReviewResultSchema.safeParse({ ...review, findings: [finding, finding] }).success, false);
   assert.equal(EvidenceFreshnessSchema.safeParse({ status: "stale" }).success, false);
   assert.equal(EvidenceFreshnessSchema.safeParse({ status: "fresh", staleReason: "changed" }).success, false);
   assert.equal(EvidenceRequestSchema.safeParse({ ...evidenceRequest, unexpectedCommandAuthority: true }).success, false);
