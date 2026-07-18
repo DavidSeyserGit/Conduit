@@ -4,6 +4,11 @@ import type {
   GoalRunState,
   GoalRunEvent,
   ModelCostBreakdown,
+  JudgeResult,
+  GoalDefinition,
+  NormalizedValidationResult,
+  RepositoryContext,
+  RepositoryDiff,
   ValidationResult,
 } from "@conduit/shared";
 import { GoalDefinitionSchema } from "@conduit/shared";
@@ -12,6 +17,12 @@ import type { ToolExecutor, ToolExecutorContext } from "@conduit/tools";
 import { findProviderForModel } from "@conduit/model-providers";
 import { CodingAgent } from "./coding-agent.js";
 import { Judge } from "./judge.js";
+import {
+  GeneralReviewer,
+  ReviewPipeline,
+  createDefaultReviewerRegistry,
+  type ReviewPipelineResult,
+} from "./review-pipeline.js";
 import {
   createInitialGoalState,
   createIteration,
@@ -144,6 +155,39 @@ export class GoalLoopRunner {
       emit,
       this.abortController.signal,
     );
+    const reviewPipeline = new ReviewPipeline(
+      new GeneralReviewer(
+        judgeProviderInfo.provider,
+        config.judgeModelId,
+        state.workspacePath,
+        config.judgeReasoningEffort,
+        undefined,
+        (startedAt) => emit({
+          type: "agent_heartbeat",
+          provider: judgeProviderInfo.provider.name,
+          at: new Date().toISOString(),
+          startedAt,
+          phase: "judging",
+          source: "network",
+          detail: "General reviewer request remains open",
+        }),
+      ),
+      createDefaultReviewerRegistry(
+        judgeProviderInfo.provider,
+        config.judgeModelId,
+        state.workspacePath,
+        config.judgeReasoningEffort,
+        (reviewerId, startedAt) => emit({
+          type: "agent_heartbeat",
+          provider: judgeProviderInfo.provider.name,
+          at: new Date().toISOString(),
+          startedAt,
+          phase: "judging",
+          source: "network",
+          detail: `${reviewerId} reviewer request remains open`,
+        }),
+      ),
+    );
 
     if (!state.plan) {
       try {
@@ -267,22 +311,40 @@ export class GoalLoopRunner {
           config.codingOutputPrice
         );
 
-        const judgeReview = await judge.review({
-          goal: state.goal,
-          plan: state.plan,
-          changedFiles: iteration.changedFiles,
-          validationResults: [
-            ...state.iterations.flatMap((previousIteration) => previousIteration.validationResults),
-            ...iteration.validationResults,
-          ],
-          iteration: state.iteration,
-          agentSummary: agentResult.agentSummary,
-          workspacePath: state.workspacePath,
-          diff: scopedChanges.diff || "",
+        const allValidationResults = [
+          ...state.iterations.flatMap((previousIteration) => previousIteration.validationResults),
+          ...iteration.validationResults,
+        ];
+        const previousIteration = state.iterations.at(-1);
+        emit({ type: "judge_started", iteration: state.iteration });
+        const pipelineResult = await reviewPipeline.run({
+          goal: config.structuredGoal ?? legacyGoalDefinition(state),
+          repositoryContext: runtimeRepositoryContext(state.workspacePath, iteration.changedFiles),
+          diff: runtimeRepositoryDiff(state.baselineTree, iteration.changedFiles),
+          patch: scopedChanges.diff || "",
+          validationResults: normalizeValidationResults(allValidationResults),
+          availableEvidence: [],
+        }, {
+          signal: this.abortController.signal,
+          previousReviews: previousIteration
+            ? [
+                ...(previousIteration.generalReview ? [previousIteration.generalReview] : []),
+                ...(previousIteration.specialistReviews ?? []),
+              ]
+            : [],
+          previousChangedFiles: previousIteration?.changedFiles,
+          round: state.iteration,
+          onGeneralStarted: () => emit({ type: "general_review_started", iteration: state.iteration }),
+          onGeneralCompleted: (result, decision) => {
+            emit({ type: "general_review_completed", iteration: state.iteration, result });
+            emit({ type: "reviews_routed", iteration: state.iteration, decision });
+          },
+          onSpecialistStarted: (reviewerId) => emit({ type: "specialist_review_started", iteration: state.iteration, reviewerId }),
+          onSpecialistCompleted: (result) => emit({ type: "specialist_review_completed", iteration: state.iteration, result }),
         });
-        const judgeResult = judgeReview.result;
-        state.tokenUsage = accumulateTokenUsage(state.tokenUsage, judgeReview.tokenUsage);
-        state.judgeTokenUsage = accumulateTokenUsage(state.judgeTokenUsage, judgeReview.tokenUsage);
+        const judgeResult = compatibilityJudgeResult(pipelineResult);
+        state.tokenUsage = accumulateTokenUsage(state.tokenUsage, pipelineResult.tokenUsage);
+        state.judgeTokenUsage = accumulateTokenUsage(state.judgeTokenUsage, pipelineResult.tokenUsage);
         state.judgeCost = updateCost(
           config.judgeModelId,
           state.judgeTokenUsage,
@@ -292,9 +354,19 @@ export class GoalLoopRunner {
         state.estimatedCost = (state.codingCost?.totalCost || 0) + (state.judgeCost?.totalCost || 0);
 
         iteration.judgeResult = judgeResult;
+        iteration.generalReview = pipelineResult.generalReview;
+        iteration.reviewRouting = pipelineResult.routing;
+        iteration.specialistReviews = pipelineResult.specialistReviews;
         state.iterations.push(iteration);
+        emit({ type: "judge_completed", result: judgeResult });
+        emit({
+          type: "review_pipeline_completed",
+          iteration: state.iteration,
+          approved: pipelineResult.approved,
+          requiredReviewerIds: pipelineResult.routing.requiredReviewers,
+        });
 
-        if (judgeResult.approved) {
+        if (pipelineResult.approved) {
           state.status = "completed";
           state.finishedAt = new Date().toISOString();
           const finalState = finalizeState(state);
@@ -303,20 +375,21 @@ export class GoalLoopRunner {
           return result;
         }
 
-        state.lastJudgeFeedback = Array.from(new Set([
-          ...judgeResult.repairFeedback,
-          ...judgeResult.missingRequirements,
-        ]));
+        state.lastJudgeFeedback = pipelineResult.feedback;
         if (state.lastJudgeFeedback.length > 0) {
           emit({
             type: "agent_status",
             message: `Judge rejected iteration ${state.iteration}; sending ${state.lastJudgeFeedback.length} required fix${state.lastJudgeFeedback.length === 1 ? "" : "es"} to the coding agent…`,
           });
         } else {
-          emit({
-            type: "agent_status",
-            message: `Judge reported no repairable goal requirements; evidence requests and follow-ups were recorded without starting another code iteration.`,
-          });
+          const error = pipelineResult.unresolvedEvidenceRequests.length > 0
+            ? `Review pipeline requires ${pipelineResult.unresolvedEvidenceRequests.length} unresolved evidence item${pipelineResult.unresolvedEvidenceRequests.length === 1 ? "" : "s"}.`
+            : "Review pipeline is blocked without a repairable coding finding.";
+          state.status = "failed";
+          state.finishedAt = new Date().toISOString();
+          const finalState = finalizeState(state);
+          emit({ type: "run_failed", error });
+          return { status: "failed", state: finalState, error };
         }
       } catch (err) {
         if (this.cancelled || this.abortController?.signal.aborted) {
@@ -361,6 +434,101 @@ function formatStructuredGoalContract(goal: import("@conduit/shared").GoalDefini
     answers: goal.answers,
     approvedVersion: goal.version,
   }, null, 2);
+}
+
+function legacyGoalDefinition(state: GoalRunState): GoalDefinition {
+  return {
+    schemaVersion: 1,
+    id: `legacy-${state.id}`,
+    originalRequest: state.goal,
+    title: state.goal.slice(0, 120),
+    description: state.goal,
+    successCriteria: [{ id: "legacy-request", description: state.goal, required: true }],
+    constraints: [],
+    deliverables: [{ id: "legacy-implementation", type: "implementation", description: "Implement the requested goal", required: true }],
+    assumptions: [],
+    answers: [],
+    status: "approved",
+    version: 1,
+    createdAt: state.startedAt,
+    updatedAt: state.startedAt,
+  };
+}
+
+function runtimeRepositoryContext(workspacePath: string, changedFiles: string[]): RepositoryContext {
+  return {
+    workspacePath,
+    summary: `Runtime review context for ${changedFiles.length} run-scoped changed file${changedFiles.length === 1 ? "" : "s"}.`,
+    languages: inferChangedFileLanguages(changedFiles),
+    frameworks: [],
+    testFrameworks: [],
+    instructions: [],
+    relevantFiles: changedFiles.map((path) => ({ path, reason: "Changed during this goal run" })),
+    preparedAt: new Date().toISOString(),
+  };
+}
+
+function runtimeRepositoryDiff(baseRevision: string | undefined, changedFiles: string[]): RepositoryDiff {
+  return {
+    ...(baseRevision ? { baseRevision } : {}),
+    changes: changedFiles.map((path) => ({ path, status: "modified" as const })),
+    collectedAt: new Date().toISOString(),
+  };
+}
+
+function normalizeValidationResults(results: ValidationResult[]): NormalizedValidationResult[] {
+  const collectedAt = new Date().toISOString();
+  return results.map((result, index) => ({
+    id: `validation-${index + 1}`,
+    type: inferValidationType(result.command),
+    command: result.command,
+    passed: result.passed,
+    exitCode: result.exitCode,
+    durationMs: 0,
+    summary: (result.passed ? result.stdout : result.stderr).trim().slice(0, 1_000)
+      || `${result.command} ${result.passed ? "passed" : "failed"} with exit code ${result.exitCode}`,
+    collectedAt,
+  }));
+}
+
+function compatibilityJudgeResult(result: ReviewPipelineResult): JudgeResult {
+  const reviews = [result.generalReview, ...result.specialistReviews];
+  const findings = reviews.flatMap((review) => review.findings);
+  return {
+    approved: result.approved,
+    summary: result.routing.decisionSummary,
+    feedback: findings.map((finding) => finding.title),
+    missingRequirements: result.generalReview.findings
+      .filter((finding) => ["medium", "high", "critical"].includes(finding.severity))
+      .map((finding) => finding.description),
+    repairFeedback: result.feedback,
+    evidenceRequests: result.unresolvedEvidenceRequests.map((request) => request.description),
+    followUps: result.warnings.map((warning) => warning.title),
+    confidence: result.generalReview.confidence,
+  };
+}
+
+function inferValidationType(command: string): NormalizedValidationResult["type"] {
+  if (/\b(test|vitest|jest|pytest|cargo test)\b/i.test(command)) return "test";
+  if (/\b(lint|clippy)\b/i.test(command)) return "lint";
+  if (/\b(typecheck|tsc)\b/i.test(command)) return "typecheck";
+  if (/\b(build|bundle)\b/i.test(command)) return "build";
+  if (/\b(bench|benchmark)\b/i.test(command)) return "benchmark";
+  if (/\bcoverage\b/i.test(command)) return "coverage";
+  return "command";
+}
+
+function inferChangedFileLanguages(paths: string[]): string[] {
+  const languages = new Set<string>();
+  for (const path of paths) {
+    if (/\.tsx?$/.test(path)) languages.add("TypeScript");
+    else if (/\.jsx?$/.test(path)) languages.add("JavaScript");
+    else if (/\.rs$/.test(path)) languages.add("Rust");
+    else if (/\.py$/.test(path)) languages.add("Python");
+    else if (/\.(?:c|cc|cpp|h|hpp)$/.test(path)) languages.add("C/C++");
+    else if (/\.go$/.test(path)) languages.add("Go");
+  }
+  return [...languages];
 }
 
 async function runValidationContract(

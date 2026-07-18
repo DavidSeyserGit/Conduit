@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ReviewResult, ReviewRoutingDecision } from "./goal-contracts.js";
 
 // ─── Model Provider ───────────────────────────────────────────────────────────
 
@@ -202,6 +203,9 @@ export interface GoalIteration {
   changedFiles: string[];
   validationResults: ValidationResult[];
   judgeResult?: JudgeResult;
+  generalReview?: ReviewResult;
+  reviewRouting?: ReviewRoutingDecision;
+  specialistReviews?: ReviewResult[];
 }
 
 export interface IterationMetrics {
@@ -325,6 +329,12 @@ export type GoalRunEvent =
   | { type: "validation_completed"; result: ValidationResult }
   | { type: "judge_started"; iteration: number }
   | { type: "judge_completed"; result: JudgeResult }
+  | { type: "general_review_started"; iteration: number }
+  | { type: "general_review_completed"; iteration: number; result: ReviewResult }
+  | { type: "reviews_routed"; iteration: number; decision: ReviewRoutingDecision }
+  | { type: "specialist_review_started"; iteration: number; reviewerId: string }
+  | { type: "specialist_review_completed"; iteration: number; result: ReviewResult }
+  | { type: "review_pipeline_completed"; iteration: number; approved: boolean; requiredReviewerIds: string[] }
   | { type: "approval_required"; command: string; requestId: string }
   | { type: "run_completed"; result: GoalRunResult }
   | { type: "run_failed"; error: string };
