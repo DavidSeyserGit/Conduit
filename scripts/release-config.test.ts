@@ -58,3 +58,13 @@ test("release publishing is gated and covers every desktop platform", async () =
   assert.doesNotMatch(workflow, /Windows x64/);
   assert.match(workflow, /releaseDraft: false/);
 });
+
+test("release notes commands do not depend on a checked-out git repository", async () => {
+  const workflow = await readFile(".github/workflows/release.yml", "utf8");
+  const releaseNotesJob = workflow.match(/\n  release-notes:\n([\s\S]*?)\n  publish:/)?.[1] ?? "";
+
+  assert.doesNotMatch(releaseNotesJob, /actions\/checkout/);
+  assert.match(releaseNotesJob, /gh release edit "\$TAG" --repo "\$REPO"/);
+  assert.match(releaseNotesJob, /gh release download "\$TAG" --repo "\$REPO"/);
+  assert.match(releaseNotesJob, /gh release upload "\$TAG" tmp\/latest\.json --repo "\$REPO"/);
+});
