@@ -8,6 +8,7 @@ import type {
   ChatMode,
   GoalRunEvent,
   GoalRunState,
+  GoalDefinition,
   ModelDescriptor,
   SessionUsage,
   TokenUsage,
@@ -23,10 +24,10 @@ import {
   type LocalHarnessTransport,
 } from "@conduit/model-providers";
 import { GoalLoopRunner, AskChatRunner } from "@conduit/agent-runtime";
-import { createTauriToolExecutor } from "@/lib/tauri-tools";
-import { createChatWorktree, removeChatWorktree } from "@/lib/git-workflow";
-import { catalogNeedsMigration, normalizePersistedModelId } from "@/lib/model-catalog";
-import { TauriLocalHarnessTransport } from "@/lib/local-harness-transport";
+import { createTauriToolExecutor } from "../lib/tauri-tools.js";
+import { createChatWorktree, removeChatWorktree } from "../lib/git-workflow.js";
+import { catalogNeedsMigration, normalizePersistedModelId } from "../lib/model-catalog.js";
+import { TauriLocalHarnessTransport } from "../lib/local-harness-transport.js";
 
 export interface Project {
   name: string;
@@ -132,7 +133,7 @@ interface AppState {
 
   // Actions
   sendMessage: (content: string) => Promise<void>;
-  startGoalRun: (goal: string, resumeState?: GoalRunState) => Promise<void>;
+  startGoalRun: (goal: string, resumeState?: GoalRunState, structuredGoal?: GoalDefinition, workspaceOverride?: string) => Promise<void>;
   openRun: (runId: string) => void;
   resumeRun: (runId: string) => Promise<void>;
   cancelRun: () => void;
@@ -161,6 +162,10 @@ function getRegistry(): DefaultProviderRegistry {
     providerRegistry = new DefaultProviderRegistry();
   }
   return providerRegistry;
+}
+
+export function getProviderRegistry(): DefaultProviderRegistry {
+  return getRegistry();
 }
 
 function getLocalHarnessTransport(): LocalHarnessTransport {
@@ -736,11 +741,11 @@ export const useAppStore = create<AppState>()(
         }
       },
 
-      startGoalRun: async (goal, resumeState) => {
+      startGoalRun: async (goal, resumeState, structuredGoal, workspaceOverride) => {
         const state = get();
         state.initProviders();
         const activeSession = state.sessions[state.activeProjectPath]?.find((session) => session.id === state.activeSessionId);
-        const workspacePath = resumeState?.workspacePath
+        const workspacePath = resumeState?.workspacePath || workspaceOverride
           || (activeSession ? sessionWorkspace(state.activeProjectPath, activeSession) : state.activeProjectPath || state.workspacePath);
         const codingModelId = resumeState?.codingModelId || state.codingModelId;
         const judgeModelId = resumeState?.judgeModelId || state.judgeModelId;
@@ -781,6 +786,8 @@ export const useAppStore = create<AppState>()(
           const result = await runner.run(
             {
               goal,
+              structuredGoal,
+              approvedGoalVersion: structuredGoal?.version,
               workspacePath,
               codingModelId,
               codingReasoningEffort,

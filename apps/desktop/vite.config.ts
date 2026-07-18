@@ -94,10 +94,10 @@ async function walk(dir: string, root: string, output: any[], depth: number, max
     const absolute = path.join(dir, entry.name);
     const relative = path.relative(root, absolute);
     if (entry.isDirectory()) {
-      output.push({ name: entry.name, path: relative, entry_type: "directory", size: null });
+      output.push({ name: entry.name, path: relative, type: "directory", size: null });
       await walk(absolute, root, output, depth + 1, maxDepth);
     } else if (entry.isFile()) {
-      output.push({ name: entry.name, path: relative, entry_type: "file", size: (await fs.stat(absolute)).size });
+      output.push({ name: entry.name, path: relative, type: "file", size: (await fs.stat(absolute)).size });
     }
   }
 }

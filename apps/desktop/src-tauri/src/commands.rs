@@ -21,6 +21,7 @@ pub struct ToolResult {
 pub struct FileEntry {
     pub name: String,
     pub path: String,
+    #[serde(rename = "type")]
     pub entry_type: String,
     pub size: Option<u64>,
 }
@@ -1692,6 +1693,20 @@ fn execute_tool(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn file_entries_use_the_shared_type_field() {
+        let value = serde_json::to_value(FileEntry {
+            name: "client.cpp".to_string(),
+            path: "src/client.cpp".to_string(),
+            entry_type: "file".to_string(),
+            size: Some(12),
+        })
+        .unwrap();
+
+        assert_eq!(value["type"], "file");
+        assert!(value.get("entry_type").is_none());
+    }
 
     #[test]
     fn rejects_parent_components() {

@@ -5,10 +5,12 @@
     "declaration": false,
     "declarationMap": false,
     "noEmit": true,
-    "types": ["node"]
+    "types": ["node"],
+    "jsx": "react-jsx"
   },
   "include": [
     "apps/**/*.test.ts",
+    "apps/**/*.test.tsx",
     "packages/**/*.test.ts",
     "scripts/**/*.test.ts"
   ],

@@ -2,6 +2,7 @@ import type {
   GoalAnalystOutput,
   GoalAnswer,
   ModelMessage,
+  ModelResponse,
   RepositoryContext,
   TokenUsage,
 } from "@conduit/shared";
@@ -49,15 +50,19 @@ export class GoalAnalyst {
     private provider: ModelProvider,
     private modelId: string,
     private reasoningEffort?: string,
+    private timeoutMs = 3 * 60 * 1_000,
   ) {}
 
   async analyze(request: GoalAnalysisRequest): Promise<GoalAnalysisResult> {
     const messages = this.messages(request);
+    const timeoutSignal = AbortSignal.timeout(this.timeoutMs);
+    const signal = request.signal ? AbortSignal.any([request.signal, timeoutSignal]) : timeoutSignal;
     let usage: TokenUsage | undefined;
     let firstError: unknown;
     for (let attempt = 0; attempt < 2; attempt += 1) {
+      let response: ModelResponse;
       try {
-        const response = await this.provider.createResponse({
+        response = await this.provider.createResponse({
           modelId: this.modelId,
           messages: attempt === 0 ? messages : [
             ...messages,
@@ -69,14 +74,23 @@ export class GoalAnalyst {
           reasoningEffort: this.reasoningEffort,
           temperature: 0.1,
           maxTokens: 6144,
-          signal: request.signal,
+          signal,
         });
+      } catch (error) {
+        if (request.signal?.aborted) throw new Error("Goal analysis cancelled");
+        if (timeoutSignal.aborted) throw new Error(`Goal analysis took longer than ${formatTimeout(this.timeoutMs)} and was stopped. Try again or choose a faster reviewer model.`);
+        throw new Error(`Goal Analyst request failed: ${conciseProviderError(error)}`);
+      }
+      try {
         usage = addUsage(usage, response.usage);
-        const parsed = GoalAnalystOutputSchema.parse(parseStructured(response.structuredOutput ?? response.content));
+        const parsed = GoalAnalystOutputSchema.parse(removeNullObjectProperties(
+          parseStructured(response.structuredOutput ?? response.content),
+        ));
         this.rejectInspectableQuestions(parsed, request.repositoryContext);
         return { analysis: parsed, tokenUsage: usage, repaired: attempt === 1 };
       } catch (error) {
         if (request.signal?.aborted) throw new Error("Goal analysis cancelled");
+        if (timeoutSignal.aborted) throw new Error(`Goal analysis took longer than ${formatTimeout(this.timeoutMs)} and was stopped. Try again or choose a faster reviewer model.`);
         firstError = error;
       }
     }
@@ -115,10 +129,42 @@ Repository facts have already been inspected. Never ask the user for a language,
   }
 }
 
+function formatTimeout(timeoutMs: number): string {
+  if (timeoutMs < 60_000) return `${Math.max(1, Math.round(timeoutMs / 1_000))} seconds`;
+  const minutes = Math.round(timeoutMs / 60_000);
+  return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+}
+
 function parseStructured(raw: unknown): unknown {
   if (typeof raw !== "string") return raw;
   const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
   return JSON.parse(fenced ?? raw.match(/\{[\s\S]*\}/)?.[0] ?? raw);
+}
+
+function removeNullObjectProperties(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(removeNullObjectProperties);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, child]) => child !== null)
+      .map(([key, child]) => [key, removeNullObjectProperties(child)]),
+  );
+}
+
+function conciseProviderError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const apiMessages = [...message.matchAll(/"message"\s*:\s*"((?:\\.|[^"\\])*)"/g)];
+  const encoded = apiMessages.at(-1)?.[1];
+  if (encoded) {
+    try {
+      return JSON.parse(`"${encoded}"`) as string;
+    } catch {
+      return encoded;
+    }
+  }
+  const lines = message.split("\n").map((line) => line.trim()).filter(Boolean);
+  const concise = lines.at(-1) ?? "Unknown provider error";
+  return concise.length > 1_000 ? `${concise.slice(0, 997)}...` : concise;
 }
 
 function addUsage(current: TokenUsage | undefined, next: TokenUsage | undefined): TokenUsage | undefined {
@@ -133,10 +179,73 @@ function addUsage(current: TokenUsage | undefined, next: TokenUsage | undefined)
   };
 }
 
-function criterionJsonSchema() { return { type: "object", additionalProperties: false, required: ["id", "description", "required"], properties: { id: { type: "string" }, description: { type: "string" }, required: { type: "boolean" }, verificationHint: { type: "string" } } }; }
-function constraintJsonSchema() { return { type: "object", additionalProperties: false, required: ["id", "description", "source"], properties: { id: { type: "string" }, description: { type: "string" }, source: { enum: ["user", "repository", "policy", "generated"] } } }; }
-function deliverableJsonSchema() { return { type: "object", additionalProperties: false, required: ["id", "type", "description", "required"], properties: { id: { type: "string" }, type: { enum: ["implementation", "unit_tests", "integration_tests", "documentation", "migration", "benchmark", "other"] }, description: { type: "string" }, required: { type: "boolean" } } }; }
-function assumptionJsonSchema() { return { type: "object", additionalProperties: false, required: ["id", "description", "confirmed"], properties: { id: { type: "string" }, description: { type: "string" }, confirmed: { type: "boolean" } } }; }
-function optionJsonSchema() { return { type: "object", additionalProperties: false, required: ["id", "label"], properties: { id: { type: "string" }, label: { type: "string" }, description: { type: "string" }, recommended: { type: "boolean" } } }; }
-function questionJsonSchema() { return { type: "object", additionalProperties: false, required: ["id", "type", "title", "required"], properties: { id: { type: "string" }, type: { enum: ["single_select", "multi_select", "confirmation", "text", "repository_reference", "constraint_editor", "success_criteria_editor"] }, title: { type: "string" }, description: { type: "string" }, required: { type: "boolean" }, options: { type: "array", items: optionJsonSchema() }, defaultValue: {}, allowCustomAnswer: { type: "boolean" }, sourceReason: { type: "string" } } }; }
+function nullable(schema: Record<string, unknown>) { return { anyOf: [schema, { type: "null" }] }; }
+function criterionJsonSchema() {
+  return strictObject({
+    id: { type: "string", minLength: 1 },
+    description: { type: "string", minLength: 1 },
+    required: { type: "boolean" },
+    verificationHint: nullable({ type: "string", minLength: 1 }),
+  });
+}
+function constraintJsonSchema() {
+  return strictObject({
+    id: { type: "string", minLength: 1 },
+    description: { type: "string", minLength: 1 },
+    source: { type: "string", enum: ["user", "repository", "policy", "generated"] },
+  });
+}
+function deliverableJsonSchema() {
+  return strictObject({
+    id: { type: "string", minLength: 1 },
+    type: { type: "string", enum: ["implementation", "unit_tests", "integration_tests", "documentation", "migration", "benchmark", "other"] },
+    description: { type: "string", minLength: 1 },
+    required: { type: "boolean" },
+  });
+}
+function assumptionJsonSchema() {
+  return strictObject({
+    id: { type: "string", minLength: 1 },
+    description: { type: "string", minLength: 1 },
+    confirmed: { type: "boolean" },
+  });
+}
+function optionJsonSchema() {
+  return strictObject({
+    id: { type: "string", minLength: 1 },
+    label: { type: "string", minLength: 1 },
+    description: nullable({ type: "string", minLength: 1 }),
+    recommended: nullable({ type: "boolean" }),
+  });
+}
+function questionJsonSchema() {
+  const base = {
+    id: { type: "string", minLength: 1 },
+    title: { type: "string", minLength: 1 },
+    description: nullable({ type: "string", minLength: 1 }),
+    required: { type: "boolean" },
+    sourceReason: nullable({ type: "string", minLength: 1 }),
+  };
+  const options = { type: "array", minItems: 1, items: optionJsonSchema() };
+  return {
+    anyOf: [
+      strictObject({ ...base, type: { type: "string", enum: ["single_select"] }, options, defaultValue: nullable({ type: "string", minLength: 1 }), allowCustomAnswer: nullable({ type: "boolean" }) }),
+      strictObject({ ...base, type: { type: "string", enum: ["multi_select"] }, options, defaultValue: nullable({ type: "array", items: { type: "string", minLength: 1 } }), allowCustomAnswer: nullable({ type: "boolean" }) }),
+      strictObject({ ...base, type: { type: "string", enum: ["confirmation"] }, defaultValue: nullable({ type: "boolean" }) }),
+      strictObject({ ...base, type: { type: "string", enum: ["text"] }, defaultValue: nullable({ type: "string" }) }),
+      strictObject({ ...base, type: { type: "string", enum: ["repository_reference"] }, options, defaultValue: nullable({ type: "string", minLength: 1 }), allowCustomAnswer: nullable({ type: "boolean" }) }),
+      strictObject({ ...base, type: { type: "string", enum: ["constraint_editor"] }, defaultValue: nullable({ type: "array", items: constraintJsonSchema() }) }),
+      strictObject({ ...base, type: { type: "string", enum: ["success_criteria_editor"] }, defaultValue: nullable({ type: "array", items: criterionJsonSchema() }) }),
+    ],
+  };
+}
 function questionBatchJsonSchema() { return { type: "object", additionalProperties: false, required: ["id", "title", "position", "questions"], properties: { id: { type: "string" }, title: { type: "string" }, position: { type: "integer", minimum: 0 }, questions: { type: "array", minItems: 1, maxItems: 5, items: questionJsonSchema() } } }; }
+
+function strictObject(properties: Record<string, unknown>) {
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: Object.keys(properties),
+    properties,
+  };
+}

@@ -121,6 +121,7 @@ export class GoalDefinitionRuntime {
         policies: request.policies,
         signal: this.abortController.signal,
       });
+      this.throwIfCancelled();
       const questions = result.analysis.questionBatches.flatMap((batch) => batch.questions);
       const goal = this.buildGoal(provisional, result.analysis, [], questions.length > 0 ? "awaiting_answers" : "awaiting_approval");
       run = { ...run, activeGoalVersion: goal.version, workflowPhase: questions.length > 0 ? "awaiting_goal_answers" : "awaiting_goal_approval", updatedAt: this.timestamp() };
@@ -148,6 +149,8 @@ export class GoalDefinitionRuntime {
     const snapshot = await this.requireSnapshot(runId);
     if (!snapshot.goal) throw new Error("The run has no structured goal");
     if (snapshot.run.workflowPhase !== "awaiting_goal_answers") throw new Error("This run is not awaiting goal answers");
+    this.abortController = new AbortController();
+    this.currentRunId = runId;
     const currentQuestions = snapshot.questions.filter((question) => !snapshot.answers.some((answer) => answer.questionId === question.id));
     const answers = this.normalizeAnswers(currentQuestions, supplied);
     for (const answer of answers) {
@@ -156,8 +159,6 @@ export class GoalDefinitionRuntime {
     }
     const allAnswers = [...snapshot.answers, ...answers];
     const prepared = await prepareRepositoryContext(snapshot.run.workspacePath, snapshot.goal.originalRequest, this.tools, this.now);
-    this.abortController = new AbortController();
-    this.currentRunId = runId;
     const buildingRun = { ...snapshot.run, workflowPhase: "building_goal" as const, updatedAt: this.timestamp() };
     await this.persistence.saveRun(buildingRun);
     await this.transition(buildingRun, "awaiting_goal_answers", "building_goal", "Regenerating the goal from recorded answers");
@@ -170,6 +171,7 @@ export class GoalDefinitionRuntime {
         previousAnswers: allAnswers,
         signal: this.abortController.signal,
       });
+      this.throwIfCancelled();
     } catch (error) {
       const cancelled = this.abortController.signal.aborted;
       await this.finishRun(buildingRun, cancelled ? "cancelled" : "failed", cancelled ? "Goal revision cancelled" : "Goal revision failed");
@@ -187,6 +189,7 @@ export class GoalDefinitionRuntime {
   }
 
   async revise(runId: string, patch: GoalDefinitionPatch, summary = "Goal edited by user"): Promise<GoalDefinition> {
+    this.currentRunId = runId;
     const snapshot = await this.requireSnapshot(runId);
     if (!snapshot.goal) throw new Error("The run has no structured goal");
     if (!["awaiting_goal_answers", "awaiting_goal_approval"].includes(snapshot.run.workflowPhase)) {
@@ -210,6 +213,8 @@ export class GoalDefinitionRuntime {
   }
 
   async reviseAnswer(runId: string, questionId: string, value: GoalAnswerValue): Promise<GoalDefinitionRuntimeResult> {
+    this.abortController = new AbortController();
+    this.currentRunId = runId;
     const snapshot = await this.requireSnapshot(runId);
     if (!snapshot.goal || !["awaiting_goal_answers", "awaiting_goal_approval"].includes(snapshot.run.workflowPhase)) {
       throw new Error("Answers can only be revised before goal approval");
@@ -222,8 +227,6 @@ export class GoalDefinitionRuntime {
     await this.event(runId, { type: "answer_recorded", questionId });
     const latestAnswers = [...snapshot.goal.answers.filter((candidate) => candidate.questionId !== questionId), answer];
     const prepared = await prepareRepositoryContext(snapshot.run.workspacePath, snapshot.goal.originalRequest, this.tools, this.now);
-    this.abortController = new AbortController();
-    this.currentRunId = runId;
     const buildingRun = { ...snapshot.run, workflowPhase: "building_goal" as const, updatedAt: this.timestamp() };
     await this.persistence.saveRun(buildingRun);
     await this.transition(buildingRun, snapshot.run.workflowPhase, "building_goal", "Regenerating the goal after an answer revision");
@@ -235,6 +238,7 @@ export class GoalDefinitionRuntime {
         previousAnswers: latestAnswers,
         signal: this.abortController.signal,
       });
+      this.throwIfCancelled();
       const unanswered = result.analysis.questionBatches.flatMap((batch) => batch.questions)
         .filter((candidate) => !latestAnswers.some((candidateAnswer) => candidateAnswer.questionId === candidate.id));
       const goal = this.buildGoal(snapshot.goal, result.analysis, latestAnswers, unanswered.length > 0 ? "awaiting_answers" : "awaiting_approval");
@@ -251,7 +255,44 @@ export class GoalDefinitionRuntime {
     }
   }
 
+  async regenerate(runId: string): Promise<GoalDefinitionRuntimeResult> {
+    this.abortController = new AbortController();
+    this.currentRunId = runId;
+    const snapshot = await this.requireSnapshot(runId);
+    if (!snapshot.goal || !["awaiting_goal_answers", "awaiting_goal_approval"].includes(snapshot.run.workflowPhase)) {
+      throw new Error("Only a draft goal can be regenerated");
+    }
+    const prepared = await prepareRepositoryContext(snapshot.run.workspacePath, snapshot.goal.originalRequest, this.tools, this.now);
+    const buildingRun = { ...snapshot.run, workflowPhase: "building_goal" as const, updatedAt: this.timestamp() };
+    await this.persistence.saveRun(buildingRun);
+    await this.transition(buildingRun, snapshot.run.workflowPhase, "building_goal", "Regenerating the goal preview");
+    try {
+      const result = await this.analyst().analyze({
+        initialRequest: snapshot.goal.originalRequest,
+        repositoryContext: prepared.context,
+        excerpts: prepared.excerpts,
+        previousAnswers: snapshot.goal.answers,
+        signal: this.abortController.signal,
+      });
+      this.throwIfCancelled();
+      const unanswered = result.analysis.questionBatches.flatMap((batch) => batch.questions)
+        .filter((question) => !snapshot.goal!.answers.some((answer) => answer.questionId === question.id));
+      const goal = this.buildGoal(snapshot.goal, result.analysis, snapshot.goal.answers, unanswered.length > 0 ? "awaiting_answers" : "awaiting_approval");
+      const run = { ...buildingRun, activeGoalVersion: goal.version, workflowPhase: unanswered.length > 0 ? "awaiting_goal_answers" as const : "awaiting_goal_approval" as const, updatedAt: this.timestamp() };
+      await this.persistRevision(run, goal, unanswered, "Goal preview regenerated", "goal_analyst");
+      await this.transition(run, "building_goal", run.workflowPhase, unanswered.length > 0 ? "Regenerated goal requires more input" : "Regenerated goal is ready for approval");
+      return { run, goal, questions: unanswered, analysis: result.analysis, repositoryContext: prepared.context };
+    } catch (error) {
+      const cancelled = this.abortController.signal.aborted;
+      await this.finishRun(buildingRun, cancelled ? "cancelled" : "failed", cancelled ? "Goal regeneration cancelled" : "Goal regeneration failed");
+      throw error;
+    } finally {
+      this.abortController = null;
+    }
+  }
+
   async approve(runId: string, version: number): Promise<GoalDefinition> {
+    this.currentRunId = runId;
     const snapshot = await this.requireSnapshot(runId);
     if (!snapshot.goal || snapshot.run.workflowPhase !== "awaiting_goal_approval") throw new Error("The goal is not awaiting approval");
     if (snapshot.goal.version !== version || snapshot.run.activeGoalVersion !== version) {
@@ -289,6 +330,7 @@ export class GoalDefinitionRuntime {
   }
 
   async answerExecutionQuestion(runId: string, questionId: string, value: GoalAnswerValue, contractPatch?: GoalDefinitionPatch): Promise<GoalDefinition> {
+    this.currentRunId = runId;
     const snapshot = await this.requireSnapshot(runId);
     if (!snapshot.goal || snapshot.run.workflowPhase !== "awaiting_user_input") throw new Error("The run is not awaiting execution input");
     const question = snapshot.questions.find((candidate) => candidate.id === questionId);
@@ -319,7 +361,10 @@ export class GoalDefinitionRuntime {
   }
 
   async cancel(runId: string): Promise<void> {
-    this.abortController?.abort();
+    if (this.abortController) {
+      this.abortController.abort();
+      return;
+    }
     const snapshot = await this.persistence.restoreRun(runId);
     if (snapshot && "workflowPhase" in snapshot.run) await this.finishRun(snapshot.run, "cancelled", "Goal definition cancelled by user");
   }
@@ -400,6 +445,10 @@ export class GoalDefinitionRuntime {
   }
 
   private timestamp(): string { return this.now().toISOString(); }
+
+  private throwIfCancelled(): void {
+    if (this.abortController?.signal.aborted) throw new Error("Goal analysis cancelled");
+  }
 }
 
 function preserveIds<T extends { id: string; description: string }>(previous: T[], next: T[]): T[] {

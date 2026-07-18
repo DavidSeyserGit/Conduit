@@ -14,7 +14,7 @@ import type {
 } from "@conduit/shared";
 import type { ModelProvider } from "@conduit/model-providers";
 import type { ToolExecutor } from "@conduit/tools";
-import { GoalAnalyst } from "./goal-analyst.ts";
+import { GOAL_ANALYST_OUTPUT_SCHEMA, GoalAnalyst } from "./goal-analyst.ts";
 import { GoalDefinitionRuntime } from "./goal-definition-runtime.ts";
 import { prepareRepositoryContext } from "./repository-context.ts";
 
@@ -125,6 +125,29 @@ function runtime(model: ModelProvider, persistence: MemoryPersistence, tools = r
   });
 }
 
+function assertCodexStrictObjects(schema: unknown, path = "$"): void {
+  if (Array.isArray(schema)) {
+    schema.forEach((item, index) => assertCodexStrictObjects(item, `${path}[${index}]`));
+    return;
+  }
+  if (!schema || typeof schema !== "object") return;
+  const record = schema as Record<string, unknown>;
+  if (record.type === "object") {
+    assert.equal(record.additionalProperties, false, `${path} must reject additional properties`);
+    const properties = record.properties as Record<string, unknown> | undefined;
+    assert.ok(properties, `${path} must define properties`);
+    assert.deepEqual(
+      [...((record.required as string[] | undefined) ?? [])].sort(),
+      Object.keys(properties).sort(),
+      `${path} must require every property for Codex structured output`,
+    );
+  }
+  for (const [key, child] of Object.entries(record)) {
+    if (key === "required" || key === "enum") continue;
+    assertCodexStrictObjects(child, `${path}.${key}`);
+  }
+}
+
 test("repository preparation inspects technical facts with read-only tools", async () => {
   const calls: string[] = [];
   const prepared = await prepareRepositoryContext("/repo", "Add a dark theme toggle", repositoryTools(calls), () => new Date(at));
@@ -136,6 +159,36 @@ test("repository preparation inspects technical facts with read-only tools", asy
   assert.ok(calls.includes("ask:search_files"));
 });
 
+test("repository preparation accepts native entry_type listings and recognizes CMake tests", async () => {
+  const nativeTools: ToolExecutor = {
+    async execute(name, args) {
+      if (name === "list_files") return { success: true, result: { entries: [
+        { path: "CMakeLists.txt", entry_type: "file" },
+        { path: "src/client.cpp", entry_type: "file" },
+        { path: "test/client_test.cpp", entry_type: "file" },
+      ] } };
+      if (name === "search_files") return { success: true, result: { matches: [] } };
+      if (name === "read_file") {
+        const path = String(args.path);
+        const content = path === "CMakeLists.txt"
+          ? "find_package(ament_cmake REQUIRED)\nfind_package(rclcpp REQUIRED)\nament_add_gtest(client_test test/client_test.cpp)"
+          : "TEST(ClientTest, ReceivesData) {}";
+        return { success: true, result: { content } };
+      }
+      return { success: false, error: `Unexpected tool ${name}` };
+    },
+  };
+
+  const prepared = await prepareRepositoryContext("/repo", "implement more testing", nativeTools, () => new Date(at));
+
+  assert.match(prepared.context.summary, /3 bounded repository entries/);
+  assert.deepEqual(prepared.context.languages, ["C/C++"]);
+  assert.deepEqual(prepared.context.frameworks, ["ROS 2"]);
+  assert.deepEqual(prepared.context.testFrameworks, ["GoogleTest"]);
+  assert.ok(prepared.context.relevantFiles.some((file) => file.path === "CMakeLists.txt"));
+  assert.ok(prepared.context.relevantFiles.some((file) => file.path === "test/client_test.cpp"));
+});
+
 test("Goal Analyst repairs malformed structured output once and then fails clearly", async () => {
   const requests: ModelRequest[] = [];
   const context = (await prepareRepositoryContext("/repo", "Add toggle", repositoryTools(), () => new Date(at))).context;
@@ -143,6 +196,55 @@ test("Goal Analyst repairs malformed structured output once and then fails clear
   await assert.rejects(() => analyst.analyze({ initialRequest: "Add toggle", repositoryContext: context, excerpts: [] }), /after one repair/);
   assert.equal(requests.length, 2);
   assert.match(requests[1]?.messages.at(-1)?.content ?? "", /corrected JSON only/);
+});
+
+test("Goal Analyst does not retry provider failures and reports their concise API cause", async () => {
+  const requests: ModelRequest[] = [];
+  const context = (await prepareRepositoryContext("/repo", "Add toggle", repositoryTools(), () => new Date(at))).context;
+  const failedProvider = provider([async () => {
+    throw new Error('Codex transcript\nERROR: {"error":{"message":"Invalid structured output schema"}}');
+  }], requests);
+
+  await assert.rejects(
+    () => new GoalAnalyst(failedProvider, "analyst/model").analyze({ initialRequest: "Add toggle", repositoryContext: context, excerpts: [] }),
+    /^Error: Goal Analyst request failed: Invalid structured output schema$/,
+  );
+  assert.equal(requests.length, 1);
+});
+
+test("Goal Analyst bounds an unresponsive provider request", async () => {
+  const context = (await prepareRepositoryContext("/repo", "Add toggle", repositoryTools(), () => new Date(at))).context;
+  const hangingProvider = provider([async (request: ModelRequest) => new Promise<ModelResponse>((_resolve, reject) => {
+    request.signal?.addEventListener("abort", () => reject(new DOMException("Timed out", "AbortError")), { once: true });
+  })]);
+
+  await assert.rejects(
+    () => new GoalAnalyst(hangingProvider, "analyst/model", undefined, 5).analyze({ initialRequest: "Add toggle", repositoryContext: context, excerpts: [] }),
+    /took longer than 1 seconds and was stopped/,
+  );
+});
+
+test("Goal Analyst schema satisfies Codex strict objects and normalizes nullable optional fields", async () => {
+  assertCodexStrictObjects(GOAL_ANALYST_OUTPUT_SCHEMA);
+  const context = (await prepareRepositoryContext("/repo", "Add toggle", repositoryTools(), () => new Date(at))).context;
+  const output = structuredClone(analysis(true)) as Record<string, unknown>;
+  const criteria = output.proposedSuccessCriteria as Array<Record<string, unknown>>;
+  criteria[0]!.verificationHint = null;
+  const batches = output.questionBatches as Array<{ questions: Array<Record<string, unknown>> }>;
+  batches[0]!.questions[0]!.description = null;
+  batches[0]!.questions[0]!.sourceReason = null;
+  batches[0]!.questions[0]!.defaultValue = null;
+
+  const result = await new GoalAnalyst(provider([output]), "analyst/model").analyze({
+    initialRequest: "Add toggle",
+    repositoryContext: context,
+    excerpts: [],
+  });
+
+  assert.equal(result.analysis.proposedSuccessCriteria[0]?.verificationHint, undefined);
+  assert.equal(result.analysis.questionBatches[0]?.questions[0]?.description, undefined);
+  assert.equal(result.analysis.questionBatches[0]?.questions[0]?.sourceReason, undefined);
+  assert.equal(result.analysis.questionBatches[0]?.questions[0]?.defaultValue, undefined);
 });
 
 test("answers create an auditable version and only the exact preview can be approved", async () => {
@@ -227,4 +329,40 @@ test("cancelling repository analysis aborts the provider and persists a cancelle
   await assert.rejects(() => starting, /cancelled/);
   assert.equal(providerAborted, true);
   assert.equal(persistence.runs.get("run-2")?.workflowPhase, "cancelled");
+});
+
+test("cancelling answer regeneration aborts the same active runtime", async () => {
+  const persistence = new MemoryPersistence();
+  let providerAborted = false;
+  const model = provider([analysis(true), async (request: ModelRequest) => new Promise<ModelResponse>((_resolve, reject) => {
+    request.signal?.addEventListener("abort", () => {
+      providerAborted = true;
+      reject(new Error("aborted"));
+    }, { once: true });
+  })]);
+  const goalRuntime = runtime(model, persistence);
+  const started = await goalRuntime.start({ initialRequest: "Add a dark-mode toggle", workspacePath: "/repo" });
+  const submitting = goalRuntime.submitAnswers(started.run.id, [{ questionId: "persist", useDefault: true }]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  await goalRuntime.cancelActive();
+
+  await assert.rejects(() => submitting, /cancelled|aborted/i);
+  assert.equal(providerAborted, true);
+  assert.equal(persistence.runs.get(started.run.id)?.workflowPhase, "cancelled");
+});
+
+test("goal preview regeneration creates a new auditable version", async () => {
+  const persistence = new MemoryPersistence();
+  const regenerated = analysis(false);
+  regenerated.proposedDescription = "A regenerated implementation contract.";
+  regenerated.proposedSuccessCriteria[0]!.id = "replacement-id";
+  const goalRuntime = runtime(provider([analysis(false), regenerated]), persistence);
+  const started = await goalRuntime.start({ initialRequest: "Add a dark-mode toggle", workspacePath: "/repo" });
+
+  const result = await goalRuntime.regenerate(started.run.id);
+  assert.equal(result.goal.version, started.goal.version + 1);
+  assert.equal(result.goal.description, "A regenerated implementation contract.");
+  assert.equal(result.goal.successCriteria[0]?.id, started.goal.successCriteria[0]?.id);
+  assert.equal(persistence.versions.get(result.goal.id)?.length, 3);
 });
