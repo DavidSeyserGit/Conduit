@@ -118,6 +118,9 @@ test("deterministic routing covers representative goal and diff classes", () => 
 
   const documentation = routeReviewers(input("Update setup documentation", ["docs/setup.md"]));
   assert.deepEqual(documentation, { requiredReviewers: ["documentation"], optionalReviewers: [] });
+  const doctorCode = routeReviewers(input("Update doctor handling", ["src/doctor.ts"]));
+  assert.equal(doctorCode.requiredReviewers.includes("testing"), true);
+  assert.equal(doctorCode.requiredReviewers.includes("documentation"), false);
 
   const performance = routeReviewers(input("Improve request latency and add a benchmark", ["src/query.ts"]));
   assert.equal(performance.requiredReviewers.includes("performance"), true);
@@ -266,6 +269,41 @@ test("general review reruns link to the previous result", async () => {
     ["documentation"],
   );
   assert.equal(second.result.supersedesReviewId, first.result.id);
+});
+
+test("unchanged evidence requests preserve collected state across reviewer reruns", async () => {
+  const collected = review("testing", "needs_evidence", {
+    evidenceRequests: [{
+      id: "focused-tests",
+      reviewerId: "testing",
+      type: "test",
+      description: "Run focused tests",
+      required: true,
+      suggestedCommand: "pnpm test",
+      expectedOutcome: "Tests pass",
+      status: "collected",
+      evidenceIds: ["evidence-1"],
+      requestedAt: at,
+      resolvedAt: at,
+    }],
+  });
+  const provider = fakeProvider([{ content: "", structuredOutput: {
+    status: "approved",
+    confidence: 0.95,
+    summary: "Evidence is sufficient.",
+    findings: [],
+    evidenceRequests: [{
+      id: "focused-tests",
+      type: "test",
+      description: "Run focused tests",
+      required: true,
+      suggestedCommand: "pnpm test",
+      expectedOutcome: "Tests pass",
+    }],
+  } }]);
+  const reviewer = new ModelSpecialistReviewer(REVIEWER_DEFINITIONS.testing, provider, "review/model", "/repo");
+  const result = await reviewer.review({ ...input("Add coverage", ["src/feature.ts"]), previousReview: collected });
+  assert.deepEqual(result.result.evidenceRequests[0], collected.evidenceRequests[0]);
 });
 
 function providerWithAbort(onStart: () => void): ModelProvider {

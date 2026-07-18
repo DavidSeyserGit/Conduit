@@ -493,18 +493,24 @@ function normalizeReviewResult(
     ...(finding.criterionId ? { criterionId: finding.criterionId } : {}),
     ...(finding.remediation ? { remediation: finding.remediation } : {}),
   }));
-  const evidenceRequests = raw.evidenceRequests.map((request, index) => ({
-    id: request.id || `${reviewerId}-evidence-${index + 1}`,
-    reviewerId,
-    type: request.type,
-    description: request.description,
-    required: request.required,
-    ...(request.suggestedCommand ? { suggestedCommand: request.suggestedCommand } : {}),
-    ...(request.expectedOutcome ? { expectedOutcome: request.expectedOutcome } : {}),
-    status: "pending" as const,
-    evidenceIds: [],
-    requestedAt: reviewedAt,
-  }));
+  const evidenceRequests = raw.evidenceRequests.map((request, index) => {
+    const preserved = preservedEvidenceState(request, previousReview);
+    return {
+      ...preserved,
+      id: request.id || `${reviewerId}-evidence-${index + 1}`,
+      reviewerId,
+      type: request.type,
+      description: request.description,
+      required: request.required,
+      ...(request.suggestedCommand ? { suggestedCommand: request.suggestedCommand } : {}),
+      ...(request.expectedOutcome ? { expectedOutcome: request.expectedOutcome } : {}),
+      ...(!preserved ? {
+      status: "pending" as const,
+      evidenceIds: [],
+      requestedAt: reviewedAt,
+      } : {}),
+    };
+  });
   return ReviewResultSchema.parse({
     id: `${reviewerId}-review-${crypto.randomUUID()}`,
     reviewerId,
@@ -516,6 +522,27 @@ function normalizeReviewResult(
     reviewedAt,
     ...(previousReview ? { supersedesReviewId: previousReview.id } : {}),
   });
+}
+
+function preservedEvidenceState(
+  request: ReviewDetails["evidenceRequests"][number],
+  previousReview?: ReviewResult,
+): Pick<EvidenceRequest, "status" | "evidenceIds" | "requestedAt" | "resolvedAt"> | undefined {
+  if (!request.id || !previousReview) return undefined;
+  const previous = previousReview.evidenceRequests.find((candidate) => candidate.id === request.id);
+  if (!previous) return undefined;
+  const unchanged = previous.type === request.type
+    && previous.description === request.description
+    && previous.required === request.required
+    && previous.suggestedCommand === (request.suggestedCommand ?? undefined)
+    && previous.expectedOutcome === (request.expectedOutcome ?? undefined);
+  if (!unchanged) return undefined;
+  return {
+    status: previous.status,
+    evidenceIds: previous.evidenceIds,
+    requestedAt: previous.requestedAt,
+    ...(previous.resolvedAt ? { resolvedAt: previous.resolvedAt } : {}),
+  };
 }
 
 function unavailableReview(reviewerId: string, error?: unknown): ReviewResult {
@@ -683,7 +710,9 @@ function reviewerOwnsPath(reviewerId: string, path: string): boolean {
 function isUiPath(path: string): boolean {
   return /\.(css|scss|sass|less|tsx|jsx|vue|svelte)$/.test(path) || /(?:^|\/)(components?|ui|views?|pages?)\//.test(path);
 }
-function isDocumentationPath(path: string): boolean { return /(?:^|\/)(docs?|readme|changelog)|\.(md|mdx|rst)$/.test(path); }
+function isDocumentationPath(path: string): boolean {
+  return /(?:^|\/)docs?(?:\/|$)|(?:^|\/)(?:readme|changelog)(?:\.[^/]*)?$|\.(?:md|mdx|rst)$/.test(path);
+}
 function isTestPath(path: string): boolean { return /(?:^|\/)(tests?|specs?)\/|\.(?:test|spec)\.[^.]+$/.test(path); }
 function isCodePath(path: string): boolean { return /\.(?:ts|tsx|js|jsx|rs|py|go|java|kt|rb|swift|c|cc|cpp|h|hpp)$/.test(path); }
 function matches(value: string, pattern: RegExp): boolean { return pattern.test(value); }
