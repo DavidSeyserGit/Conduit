@@ -6,7 +6,7 @@ import { ChatInput } from "@/features/chat/ChatInput";
 import { SettingsPanel } from "@/features/settings/SettingsPanel";
 import { LeftSidebar } from "@/features/sidebar/LeftSidebar";
 import { GitDiffPanel } from "@/features/git/GitDiffPanel";
-import { UpdateDialog } from "@/features/update/UpdateDialog";
+import { UpdatePill } from "@/features/update/UpdatePill";
 import { WhatsNewDialog } from "@/features/update/WhatsNewDialog";
 import { shouldShowChangelog, shouldShowUpdatePopup, type ReleaseChangelog } from "@/lib/update-prompts";
 
@@ -144,14 +144,13 @@ export default function App() {
       <GitDiffPanel />
       {notice && <div role="status" className="fixed right-5 bottom-5 z-[60] rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 shadow-xl">{notice}</div>}
       {updateNotice && shouldShowUpdatePopup({ available: true, latestVersion: updateNotice.version }, settings.skippedUpdateVersion) && (
-        <UpdateDialog
+        <UpdatePill
           version={updateNotice.version}
-          body={updateNotice.body}
           installing={updateInstalling}
           progress={updateProgress}
           error={updateError}
           onUpdate={() => void handleUpdateNow()}
-          onLater={() => setUpdateNotice(null)}
+          onDismiss={() => setUpdateNotice(null)}
           onSkip={() => { updateSettings({ skippedUpdateVersion: updateNotice.version }); setUpdateNotice(null); }}
         />
       )}

@@ -110,6 +110,21 @@ html.dark {
     ) border-box;
 }
 
+@keyframes pill-in {
+  from {
+    transform: translateX(calc(100% + 1.25rem));
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-pill-in {
+  animation: pill-in 0.25s ease-out;
+}
+
 * {
   box-sizing: border-box;
 }
