@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { GoalRunEvent, GoalRunState } from "@conduit/shared";
+import type { GoalRunEvent, GoalRunState, ReviewResult } from "@conduit/shared";
 import { downloadRunAsJSON } from "@conduit/agent-runtime";
 import ReactMarkdown from "react-markdown";
 import { useAppStore } from "@/stores/app-store";
@@ -87,7 +87,24 @@ export function ChatTimeline() {
               </div>
             );
           }
+          if (event.type === "reviews_routed") {
+            const reviewers = event.decision.requiredReviewers.map(reviewerLabel);
+            return (
+              <div key={`routing-${i}`} className="flex justify-start">
+                <div className="text-xs px-1 text-gray-400">
+                  Review route: {reviewers.length > 0 ? reviewers.join(" · ") : "No specialist review required"}
+                </div>
+              </div>
+            );
+          }
+          if (event.type === "general_review_completed") {
+            return <ReviewResultCard key={`general-review-${i}`} label="General review" result={event.result} />;
+          }
+          if (event.type === "specialist_review_completed") {
+            return <ReviewResultCard key={`specialist-review-${i}`} label={reviewerLabel(event.result.reviewerId)} result={event.result} />;
+          }
           if (event.type === "judge_completed") {
+            if (runEvents.some((candidate) => candidate.type === "general_review_completed")) return null;
             const r = event.result;
             const percent = (r.confidence * 100).toFixed(0);
             const barColor = r.confidence >= 0.7 ? "bg-emerald-500" : r.confidence >= 0.4 ? "bg-amber-500" : "bg-red-500";
@@ -165,6 +182,43 @@ export function ChatTimeline() {
       </div>
     </div>
   );
+}
+
+function ReviewResultCard({ label, result }: { label: string; result: ReviewResult }) {
+  const approved = result.status === "approved" || result.status === "approved_with_warnings";
+  const warning = result.status === "approved_with_warnings" || result.status === "needs_evidence";
+  const statusColor = approved ? "text-emerald-600" : warning ? "text-amber-600" : "text-red-500";
+  return (
+    <div className="flex justify-start">
+      <div className="max-w-[82%]">
+        <div className="flex items-center gap-2 text-[11px] font-medium text-gray-400 mb-1 px-1">
+          <span>{label}</span>
+          <span>· {Math.round(result.confidence * 100)}% confidence</span>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-md px-4 py-3 shadow-sm space-y-2">
+          <div className={`text-sm font-semibold ${statusColor}`}>{formatReviewStatus(result.status)}</div>
+          <p className="text-sm text-gray-700">{result.summary}</p>
+          {result.findings.map((finding) => (
+            <div key={finding.id} className="text-xs text-gray-600 pl-2">
+              <span className="font-medium uppercase text-[10px]">{finding.severity}</span> · {finding.title}
+              {finding.filePath ? <span className="text-gray-400"> — {finding.filePath}{finding.lineStart ? `:${finding.lineStart}` : ""}</span> : null}
+            </div>
+          ))}
+          {result.evidenceRequests.map((request) => (
+            <p key={request.id} className="text-xs text-amber-700 pl-2">Evidence: {request.description}</p>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function reviewerLabel(id: string): string {
+  return id.split("_").map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`).join(" ");
+}
+
+function formatReviewStatus(status: ReviewResult["status"]): string {
+  return status.split("_").map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`).join(" ");
 }
 
 function RunSummary({

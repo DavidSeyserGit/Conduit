@@ -51,6 +51,23 @@ const toolExecutor: ToolExecutor = {
   },
 };
 
+function generalReview(goalStatus: "incomplete" | "implemented" = "implemented", findings: unknown[] = [], evidenceRequests: unknown[] = []) {
+  return {
+    goalStatus,
+    confidence: goalStatus === "implemented" ? 0.95 : 0.65,
+    summary: goalStatus === "implemented" ? "The requested behavior is implemented." : "A goal requirement remains incomplete.",
+    findings,
+    evidenceRequests,
+    requiredReviewers: [],
+    optionalReviewers: [],
+    evidenceIds: [],
+  };
+}
+
+function specialistReview(status: "approved" | "approved_with_warnings" = "approved") {
+  return { status, confidence: 0.95, summary: "The specialist review passed.", findings: [], evidenceRequests: [] };
+}
+
 test("Goal loop executes its planned validation contract before judging", async () => {
   const registry = new DefaultProviderRegistry();
   const timeline: string[] = [];
@@ -89,16 +106,8 @@ test("Goal loop executes its planned validation contract before judging", async 
       };
     }
     judgePrompts.push(request.messages.at(-1)?.content || "");
-    return {
-      content: "",
-      structuredOutput: {
-        approved: true,
-        summary: "The title change is complete",
-        feedback: [],
-        missingRequirements: [],
-        confidence: 0.98,
-      },
-    };
+    if (request.structuredOutput?.name === "general_review") return { content: "", structuredOutput: generalReview() };
+    return { content: "", structuredOutput: specialistReview() };
   }));
   const events: GoalRunEvent[] = [];
 
@@ -114,13 +123,15 @@ test("Goal loop executes its planned validation contract before judging", async 
   assert.equal(result.state.plan?.summary, "Rename and validate");
   assert.deepEqual(result.state.iterations[0]?.changedFiles, ["src/title.ts"]);
   assert.deepEqual(result.state.iterations[0]?.validationResults.map((validation) => validation.command), ["pnpm test"]);
-  assert.match(judgePrompts[0] || "", /Command: pnpm test/);
+  assert.match(judgePrompts[0] || "", /pnpm test/);
   assert.equal(result.state.iterations[0]?.judgeResult?.approved, true);
   assert.deepEqual(timeline, [
     "judge:implementation_plan",
     "coding:coding/model",
     "coding:coding/model",
-    "judge:judge_evaluation",
+    "judge:general_review",
+    "judge:review_code_quality",
+    "judge:review_testing",
   ]);
   assert.equal(events.some((event) => event.type === "run_completed"), true);
   assert.equal(events.some((event) => event.type === "run_failed"), false);
@@ -177,7 +188,7 @@ test("Goal loop sends only classified repair feedback to the next coding iterati
     secondCodingPrompt = request.messages.at(-1)?.content || "";
     return { content: "Applied the requested title correction" };
   }));
-  registry.register(provider("judge", async (_request) => {
+  registry.register(provider("judge", async (request) => {
     judgeCalls += 1;
     if (judgeCalls === 1) return {
       content: "",
@@ -187,20 +198,29 @@ test("Goal loop sends only classified repair feedback to the next coding iterati
         validation: { strategy: "not_applicable", rationale: "This isolated text update has no available automated check.", commands: [] },
       },
     };
-    if (judgeCalls === 2) return {
+    if (request.structuredOutput?.name === "general_review" && judgeCalls === 2) return {
       content: "",
-      structuredOutput: {
-        approved: false,
-        summary: "One title requirement remains.",
-        feedback: ["Consider formatting the surrounding documentation."],
-        missingRequirements: [],
-        repairFeedback: ["Update the visible application title to the requested value."],
-        evidenceRequests: ["Confirm the resulting title in the desktop window."],
-        followUps: ["Consider a broader documentation review."],
-        confidence: 0.6,
-      },
+      structuredOutput: generalReview("incomplete", [{
+        id: "title-incomplete",
+        severity: "high",
+        title: "Visible title is incomplete",
+        description: "Update the visible application title to the requested value.",
+        filePath: "src/title.ts",
+        lineStart: 1,
+        lineEnd: 1,
+        criterionId: null,
+        remediation: "Update the visible application title to the requested value.",
+      }], [{
+        id: "visual-confirmation",
+        type: "file",
+        description: "Confirm the resulting title in the desktop window.",
+        required: false,
+        suggestedCommand: null,
+        expectedOutcome: null,
+      }]),
     };
-    return { content: "", structuredOutput: { approved: true, summary: "Complete", feedback: [], missingRequirements: [], repairFeedback: [], evidenceRequests: [], followUps: [], confidence: 0.95 } };
+    if (request.structuredOutput?.name === "general_review") return { content: "", structuredOutput: generalReview() };
+    return { content: "", structuredOutput: specialistReview() };
   }));
 
   const result = await new GoalLoopRunner(registry).run(config(), toolExecutor, {}, () => {});
@@ -230,30 +250,20 @@ test("Goal loop keeps one scoped baseline across judge repair iterations", async
     };
     if (judgeCalls === 2) return {
       content: "",
-      structuredOutput: {
-        approved: false,
-        summary: "One repair remains",
-        feedback: [],
-        missingRequirements: [],
-        repairFeedback: ["Finish the title update."],
-        evidenceRequests: [],
-        followUps: [],
-        confidence: 0.7,
-      },
+      structuredOutput: generalReview("incomplete", [{
+        id: "finish-title",
+        severity: "medium",
+        title: "Title remains incomplete",
+        description: "Finish the title update.",
+        filePath: "src/title.ts",
+        lineStart: 1,
+        lineEnd: 1,
+        criterionId: null,
+        remediation: "Finish the title update.",
+      }]),
     };
-    return {
-      content: "",
-      structuredOutput: {
-        approved: true,
-        summary: "Complete",
-        feedback: [],
-        missingRequirements: [],
-        repairFeedback: [],
-        evidenceRequests: [],
-        followUps: [],
-        confidence: 0.95,
-      },
-    };
+    if (judgeCalls === 3) return { content: "", structuredOutput: generalReview() };
+    return { content: "", structuredOutput: specialistReview() };
   }));
 
   const scopedExecutor: ToolExecutor = {
@@ -303,18 +313,9 @@ test("resumed runs reuse their original scoped baseline", async () => {
   };
 
   registry.register(provider("coding", async () => ({ content: "Finished the resumed change" })));
-  registry.register(provider("judge", async () => ({
+  registry.register(provider("judge", async (request) => ({
     content: "",
-    structuredOutput: {
-      approved: true,
-      summary: "Complete",
-      feedback: [],
-      missingRequirements: [],
-      repairFeedback: [],
-      evidenceRequests: [],
-      followUps: [],
-      confidence: 0.95,
-    },
+    structuredOutput: request.structuredOutput?.name === "general_review" ? generalReview() : specialistReview(),
   })));
   const scopedExecutor: ToolExecutor = {
     async execute(name, args) {
