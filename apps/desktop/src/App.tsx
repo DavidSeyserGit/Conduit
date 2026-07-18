@@ -42,6 +42,28 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
+    const isTauri = Boolean((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
+    if (!isTauri) return;
+    void (async () => {
+      try {
+        const { TauriGoalPersistenceRepository, migrateLegacyRunHistoryFromLocalStorage } = await import("@/lib/goal-persistence");
+        const repository = new TauriGoalPersistenceRepository();
+        const status = await repository.status();
+        if (!status.available) {
+          setNotice(`Goal history storage is unavailable: ${status.error || "unknown error"}`);
+          return;
+        }
+        const migration = await migrateLegacyRunHistoryFromLocalStorage(repository);
+        if (migration.skipped > 0) {
+          setNotice(`${migration.skipped} existing goal run${migration.skipped === 1 ? "" : "s"} could not be migrated and remain in local storage.`);
+        }
+      } catch (error) {
+        setNotice(`Goal history migration failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
     void (async () => {
       await hydrateOpenRouterKey();
       initProviders();

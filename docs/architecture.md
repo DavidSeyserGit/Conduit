@@ -1,5 +1,8 @@
 # Architecture
 
+Goal-run storage and artifact lifecycle are documented in
+[Goal-run persistence](./goal-persistence.md).
+
 Conduit is a monorepo with clear separation between the UI, agent runtime, model providers, and tools.
 
 ## Package Boundaries

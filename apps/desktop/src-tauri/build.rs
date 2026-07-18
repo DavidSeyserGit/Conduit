@@ -19,6 +19,12 @@ fn main() {
         "local_harness_response",
         "local_harness_coding_iteration",
         "local_harness_cancel",
+        "goal_storage_status",
+        "goal_storage_write",
+        "goal_storage_read",
+        "goal_artifact_write",
+        "goal_artifact_read",
+        "goal_artifact_cleanup",
     ];
 
     let attributes = tauri_build::Attributes::new()

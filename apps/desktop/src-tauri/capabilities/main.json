@@ -30,6 +30,12 @@
     "allow-local-harness-response",
     "allow-local-harness-coding-iteration",
     "allow-local-harness-cancel",
+    "allow-goal-storage-status",
+    "allow-goal-storage-write",
+    "allow-goal-storage-read",
+    "allow-goal-artifact-write",
+    "allow-goal-artifact-read",
+    "allow-goal-artifact-cleanup",
     "core:app:allow-version"
   ]
 }
