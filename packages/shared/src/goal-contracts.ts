@@ -357,6 +357,9 @@ export const ReviewFindingSchema = z.object({
   criterionId: IdSchema.optional(),
   remediation: NonEmptyStringSchema.optional(),
 }).strict().superRefine((finding, ctx) => {
+  if ((finding.lineStart || finding.lineEnd) && !finding.filePath) {
+    ctx.addIssue({ code: "custom", message: "Line locations require a filePath", path: ["filePath"] });
+  }
   if (finding.lineEnd && !finding.lineStart) {
     ctx.addIssue({ code: "custom", message: "lineEnd requires lineStart", path: ["lineEnd"] });
   }
@@ -514,7 +517,14 @@ export const GoalDrivenRunRecordSchema = z.object({
   startedAt: TimestampSchema,
   updatedAt: TimestampSchema,
   finishedAt: TimestampSchema.optional(),
-}).strict();
+}).strict().superRefine((run, ctx) => {
+  if (Date.parse(run.updatedAt) < Date.parse(run.startedAt)) {
+    ctx.addIssue({ code: "custom", message: "updatedAt cannot precede startedAt", path: ["updatedAt"] });
+  }
+  if (run.finishedAt && Date.parse(run.finishedAt) < Date.parse(run.startedAt)) {
+    ctx.addIssue({ code: "custom", message: "finishedAt cannot precede startedAt", path: ["finishedAt"] });
+  }
+});
 
 /**
  * Compatibility boundary for v0.2 run records. It is intentionally isolated
@@ -532,7 +542,11 @@ export const LegacyGoalRunStateSchema = z.object({
   iterations: z.array(z.unknown()),
   startedAt: TimestampSchema,
   finishedAt: TimestampSchema.optional(),
-}).passthrough();
+}).passthrough().superRefine((run, ctx) => {
+  if ("formatVersion" in run) {
+    ctx.addIssue({ code: "custom", message: "Versioned run records cannot be parsed as legacy", path: ["formatVersion"] });
+  }
+});
 
 export const CompatiblePersistedRunSchema = z.union([
   GoalDrivenRunRecordSchema,

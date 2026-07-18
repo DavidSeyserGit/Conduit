@@ -228,6 +228,7 @@ test("repository, validation, evidence, and reviewer contracts compose", () => {
 
 test("review and evidence invariants reject unsafe or inconsistent data", () => {
   assert.equal(ReviewFindingSchema.safeParse({ ...finding, lineStart: 5, lineEnd: 2 }).success, false);
+  assert.equal(ReviewFindingSchema.safeParse({ ...finding, filePath: undefined }).success, false);
   assert.equal(ReviewResultSchema.safeParse({ ...review, confidence: 1.1 }).success, false);
   assert.equal(EvidenceFreshnessSchema.safeParse({ status: "stale" }).success, false);
   assert.equal(EvidenceFreshnessSchema.safeParse({ status: "fresh", staleReason: "changed" }).success, false);
@@ -335,5 +336,8 @@ test("persisted-run compatibility accepts v0.2 and strict v0.3 records only", ()
   assert.equal(CompatiblePersistedRunSchema.safeParse(legacy).success, true);
   assert.equal(CompatiblePersistedRunSchema.safeParse(current).success, true);
   assert.equal(CompatiblePersistedRunSchema.safeParse({ ...current, formatVersion: 2 }).success, false);
+  assert.equal(CompatiblePersistedRunSchema.safeParse({ ...legacy, formatVersion: 2 }).success, false);
+  assert.equal(CompatiblePersistedRunSchema.safeParse({ ...current, updatedAt: "2026-07-18T07:59:00.000Z" }).success, false);
+  assert.equal(CompatiblePersistedRunSchema.safeParse({ ...current, finishedAt: "2026-07-18T07:59:00.000Z" }).success, false);
   assert.equal(CompatiblePersistedRunSchema.safeParse({ ...legacy, status: "future_status" }).success, false);
 });
