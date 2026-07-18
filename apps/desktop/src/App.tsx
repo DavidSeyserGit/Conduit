@@ -11,6 +11,8 @@ import { WhatsNewDialog } from "@/features/update/WhatsNewDialog";
 import { SupportBubble } from "@/features/support/SupportBubble";
 import { shouldShowChangelog, shouldShowUpdatePopup, type ReleaseChangelog } from "@/lib/update-prompts";
 import { shouldShowSupportPrompt, summarizeSupportUsage } from "@/lib/support-prompt";
+import { seedGoalBuilderDemo, useGoalBuilderStore } from "@/stores/goal-builder-store";
+import { GoalBuilderErrorBoundary } from "@/features/goal-builder/GoalBuilderErrorBoundary";
 
 export default function App() {
   const forceSupportBubble = import.meta.env.DEV && import.meta.env.VITE_SHOW_SUPPORT_BUBBLE === "true";
@@ -36,10 +38,20 @@ export default function App() {
   const [showSupportBubble, setShowSupportBubble] = useState(forceSupportBubble);
   const supportUsage = useMemo(() => summarizeSupportUsage(Object.values(sessions).flat()), [sessions]);
   const closeSupportBubble = useCallback(() => setShowSupportBubble(false), []);
+  const restoreGoalBuilder = useGoalBuilderStore((state) => state.restore);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
   }, [theme]);
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const demo = new URLSearchParams(window.location.search).get("goal-builder-demo");
+    if (demo === "questions" || demo === "preview" || demo === "execution") {
+      useAppStore.getState().setMode("goal");
+      seedGoalBuilderDemo(demo);
+    }
+  }, []);
 
   useEffect(() => {
     const isTauri = Boolean((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
@@ -68,6 +80,8 @@ export default function App() {
       await hydrateOpenRouterKey();
       initProviders();
       await loadModels();
+      if (import.meta.env.DEV && new URLSearchParams(window.location.search).has("goal-builder-demo")) return;
+      await restoreGoalBuilder();
     })();
   }, []);
 
@@ -178,7 +192,7 @@ export default function App() {
       <LeftSidebar />
       <main className="flex-1 flex flex-col min-h-0">
         <ChatHeader />
-        <ChatTimeline />
+        <GoalBuilderErrorBoundary><ChatTimeline /></GoalBuilderErrorBoundary>
       <ChatInput />
       </main>
       <SettingsPanel />

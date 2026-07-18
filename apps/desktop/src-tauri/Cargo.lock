@@ -506,7 +506,7 @@ dependencies = [
 
 [[package]]
 name = "conduit-desktop"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "dirs",

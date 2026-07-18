@@ -4,6 +4,7 @@ import { useAppStore } from "@/stores/app-store";
 import { ModelSelectors } from "@/features/model-picker/ModelPicker";
 import { getModeColor } from "@/lib/mode-colors";
 import { GoalModelSetup } from "@/features/goal-run/QualityLanes";
+import { useGoalBuilderStore } from "@/stores/goal-builder-store";
 
 export function ChatInput() {
   const [input, setInput] = useState("");
@@ -14,7 +15,8 @@ export function ChatInput() {
   const judgeModelId = useAppStore((s) => s.judgeModelId);
   const codingModel = useAppStore((s) => s.models.find((model) => model.id === s.codingModelId));
   const sendMessage = useAppStore((s) => s.sendMessage);
-  const startGoalRun = useAppStore((s) => s.startGoalRun);
+  const startGoalDefinition = useGoalBuilderStore((s) => s.start);
+  const goalBuilderPhase = useGoalBuilderStore((s) => s.phase);
   const goalDraft = useAppStore((s) => s.goalDraft);
   const setGoalDraft = useAppStore((s) => s.setGoalDraft);
   const cancelRun = useAppStore((s) => s.cancelRun);
@@ -30,7 +32,7 @@ export function ChatInput() {
 
   const canSend =
     input.trim().length > 0 &&
-    !isRunning &&
+    !isRunning && goalBuilderPhase === "idle" &&
     workspacePath &&
     codingModelId &&
     codingModel?.supportsTools &&
@@ -44,7 +46,7 @@ export function ChatInput() {
     if (mode === "ask") {
       sendMessage(content);
     } else {
-      startGoalRun(content);
+      void startGoalDefinition(content);
     }
   };
 
@@ -54,6 +56,8 @@ export function ChatInput() {
       handleSubmit();
     }
   };
+
+  if (mode === "goal" && goalBuilderPhase !== "idle") return null;
 
   return (
     <div className="bg-white px-4 pt-3 pb-6 shrink-0">
@@ -93,7 +97,7 @@ export function ChatInput() {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={
-              mode === "goal" ? "Describe your goal..." : "Ask Conduit anything..."
+              mode === "goal" ? "Start with a rough request…" : "Ask Conduit anything..."
             }
             disabled={isRunning}
             className="flex-1 bg-transparent px-4 py-7 text-sm text-gray-900 placeholder-gray-400 outline-none disabled:opacity-50"

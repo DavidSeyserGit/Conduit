@@ -16,10 +16,11 @@ export interface PreparedRepositoryContext {
 const MANIFEST_NAMES = new Set([
   "package.json", "pnpm-workspace.yaml", "Cargo.toml", "pyproject.toml",
   "requirements.txt", "go.mod", "Gemfile", "pom.xml", "build.gradle",
+  "CMakeLists.txt", "Makefile",
 ]);
 const INSTRUCTION_NAMES = new Set(["AGENTS.md", "CONTRIBUTING.md", "README.md"]);
 const STOP_WORDS = new Set([
-  "add", "and", "change", "create", "from", "into", "make", "please", "support", "that", "the", "this", "with",
+  "add", "and", "change", "create", "from", "into", "make", "more", "please", "support", "that", "the", "this", "with",
 ]);
 
 export async function prepareRepositoryContext(
@@ -32,8 +33,8 @@ export async function prepareRepositoryContext(
   if (!listing.success || !listing.result) {
     throw new Error(`Repository inspection failed: ${listing.error ?? "could not list files"}`);
   }
-  const entries = ((listing.result as { entries?: Array<{ path: string; type: string }> }).entries ?? [])
-    .filter((entry) => entry.type === "file");
+  const entries = ((listing.result as { entries?: Array<{ path: string; type?: string; entry_type?: string }> }).entries ?? [])
+    .filter((entry) => (entry.type ?? entry.entry_type) === "file");
   const allPaths = entries.map((entry) => entry.path).sort();
   const instructionPaths = allPaths.filter((path) => INSTRUCTION_NAMES.has(fileName(path))).slice(0, 8);
   const manifestPaths = allPaths.filter((path) => MANIFEST_NAMES.has(fileName(path))).slice(0, 10);
@@ -41,6 +42,9 @@ export async function prepareRepositoryContext(
   const relevantPaths = new Map<string, string>();
   for (const path of manifestPaths) relevantPaths.set(path, "Repository manifest or build configuration");
   for (const path of instructionPaths) relevantPaths.set(path, "Repository instructions or project documentation");
+  for (const path of allPaths.filter(isTestPath).slice(0, 6)) {
+    relevantPaths.set(path, "Existing test implementation or test configuration");
+  }
 
   const searchTerms = [...new Set(initialRequest.toLowerCase().match(/[a-z][a-z0-9_-]{3,}/g) ?? [])]
     .filter((term) => !STOP_WORDS.has(term))
@@ -100,6 +104,10 @@ function extensionOf(path: string): string {
   return index > 0 ? name.slice(index).toLowerCase() : "";
 }
 
+function isTestPath(path: string): boolean {
+  return /(^|\/)(test|tests|spec|specs)(\/|$)|(?:^|[._-])(test|spec)\.[^/]+$/i.test(path);
+}
+
 function inferLanguages(extensions: string[]): string[] {
   const mappings: Array<[string, string[]]> = [
     ["TypeScript", [".ts", ".tsx"]], ["JavaScript", [".js", ".jsx", ".mjs", ".cjs"]],
@@ -114,6 +122,7 @@ function inferFrameworks(content: string): string[] {
     ["React", /["']react["']/], ["Tauri", /["']@tauri-apps\//], ["Next.js", /["']next["']/],
     ["Vue", /["']vue["']/], ["Svelte", /["']svelte["']/], ["Express", /["']express["']/],
     ["Django", /django/], ["Rails", /rails/], ["Axum", /\baxum\b/],
+    ["ROS 2", /\b(?:ament_cmake|rclcpp|rosidl)\b/],
   ];
   return candidates.filter(([, pattern]) => pattern.test(content)).map(([name]) => name);
 }
@@ -124,6 +133,9 @@ function inferTests(content: string, paths: string[]): string[] {
   if (/jest/.test(content)) tests.push("Jest");
   if (/playwright/.test(content)) tests.push("Playwright");
   if (/pytest/.test(content)) tests.push("pytest");
+  if (/\b(?:gtest|googletest|ament_add_gtest)\b/.test(content)) tests.push("GoogleTest");
+  if (/\bcatch2\b/.test(content)) tests.push("Catch2");
+  if (/\b(?:enable_testing|add_test)\s*\(/.test(content)) tests.push("CTest");
   if (paths.some((path) => path.endsWith(".test.ts") || path.endsWith(".test.tsx")) && tests.length === 0) tests.push("Node test runner");
   if (paths.some((path) => path.endsWith(".rs")) && /cargo/.test(content)) tests.push("Cargo test");
   return tests;

@@ -7,6 +7,8 @@ import { getModeColor } from "@/lib/mode-colors";
 import { GoalCanvasOverlay } from "@/features/goal-run/GoalCanvasOverlay";
 import { formatToolCall } from "@/features/goal-run/tool-call-display";
 import { GitHandoff } from "@/features/git/GitHandoff";
+import { GoalBuilder } from "@/features/goal-builder/GoalBuilder";
+import { useGoalBuilderStore } from "@/stores/goal-builder-store";
 
 export function ChatTimeline() {
   const messages = useAppStore((s) => s.messages);
@@ -14,6 +16,7 @@ export function ChatTimeline() {
   const currentRun = useAppStore((s) => s.currentRun);
   const isRunning = useAppStore((s) => s.isRunning);
   const mode = useAppStore((s) => s.mode);
+  const goalBuilderPhase = useGoalBuilderStore((s) => s.phase);
   const settings = useAppStore((s) => s.settings);
   const modeStatusColor = getModeColor(settings, mode);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -24,6 +27,8 @@ export function ChatTimeline() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, runEvents, currentRun, isRunning]);
+
+  if (mode === "goal" && goalBuilderPhase !== "idle") return <GoalBuilder />;
 
   if (messages.length === 0 && runEvents.length === 0) {
     return (

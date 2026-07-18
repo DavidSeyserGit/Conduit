@@ -12,7 +12,7 @@ async function collectTests(directory) {
     if (entry.isDirectory() && ignoredDirectories.has(entry.name)) continue;
     const entryPath = path.join(directory, entry.name);
     if (entry.isDirectory()) tests.push(...await collectTests(entryPath));
-    else if (entry.isFile() && entry.name.endsWith(".test.ts")) tests.push(entryPath);
+    else if (entry.isFile() && (entry.name.endsWith(".test.ts") || entry.name.endsWith(".test.tsx"))) tests.push(entryPath);
   }
   return tests;
 }
@@ -25,7 +25,7 @@ if (tests.length === 0) {
 const child = spawn(
   process.execPath,
   ["--import", "tsx", "--test", "--test-concurrency=1", ...tests],
-  { cwd: process.cwd(), env: process.env, stdio: "inherit" },
+  { cwd: process.cwd(), env: { ...process.env, TSX_TSCONFIG_PATH: path.resolve("tsconfig.tests.json") }, stdio: "inherit" },
 );
 child.once("error", (error) => {
   console.error(error);
