@@ -276,6 +276,9 @@ export interface ExportedRun {
 
 export interface GoalRunConfig {
   goal: string;
+  /** When present, implementation is gated on approval of this exact structured goal version. */
+  structuredGoal?: import("./goal-contracts.js").GoalDefinition;
+  approvedGoalVersion?: number;
   workspacePath: string;
   codingModelId: string;
   codingReasoningEffort?: string;

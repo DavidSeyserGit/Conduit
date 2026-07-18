@@ -126,6 +126,44 @@ test("Goal loop executes its planned validation contract before judging", async 
   assert.equal(events.some((event) => event.type === "run_failed"), false);
 });
 
+test("structured Goal implementation is blocked before providers and tools until the exact version is approved", async () => {
+  const registry = new DefaultProviderRegistry();
+  let toolCalls = 0;
+  const gatedTools: ToolExecutor = {
+    async execute() {
+      toolCalls += 1;
+      return { success: true };
+    },
+  };
+  const structuredGoal = {
+    schemaVersion: 1 as const,
+    id: "goal-1",
+    originalRequest: "Rename the title",
+    title: "Rename the title",
+    description: "Rename the product title.",
+    successCriteria: [{ id: "criterion-1", description: "The new title is visible", required: true }],
+    constraints: [],
+    deliverables: [{ id: "deliverable-1", type: "implementation" as const, description: "Updated title", required: true }],
+    assumptions: [],
+    answers: [],
+    status: "awaiting_approval" as const,
+    version: 2,
+    createdAt: "2026-07-18T12:00:00.000Z",
+    updatedAt: "2026-07-18T12:00:00.000Z",
+  };
+  const events: GoalRunEvent[] = [];
+  const result = await new GoalLoopRunner(registry).run(
+    config({ structuredGoal, approvedGoalVersion: 1 }),
+    gatedTools,
+    {},
+    (event) => events.push(event),
+  );
+  assert.equal(result.status, "failed");
+  assert.match(result.error ?? "", /exact structured goal version/);
+  assert.equal(toolCalls, 0);
+  assert.deepEqual(events.map((event) => event.type), ["run_failed"]);
+});
+
 test("Goal loop sends only classified repair feedback to the next coding iteration", async () => {
   const registry = new DefaultProviderRegistry();
   let codingCalls = 0;
