@@ -28,6 +28,8 @@ import { createTauriToolExecutor } from "../lib/tauri-tools.js";
 import { createChatWorktree, removeChatWorktree } from "../lib/git-workflow.js";
 import { catalogNeedsMigration, normalizePersistedModelId } from "../lib/model-catalog.js";
 import { TauriLocalHarnessTransport } from "../lib/local-harness-transport.js";
+import { TauriGoalPersistenceRepository } from "../lib/goal-persistence.js";
+import { BrowserGoalPersistenceRepository } from "../lib/browser-goal-persistence.js";
 
 export interface Project {
   name: string;
@@ -133,7 +135,7 @@ interface AppState {
 
   // Actions
   sendMessage: (content: string) => Promise<void>;
-  startGoalRun: (goal: string, resumeState?: GoalRunState, structuredGoal?: GoalDefinition, workspaceOverride?: string) => Promise<void>;
+  startGoalRun: (goal: string, resumeState?: GoalRunState, structuredGoal?: GoalDefinition, workspaceOverride?: string, workflowRunId?: string) => Promise<void>;
   openRun: (runId: string) => void;
   resumeRun: (runId: string) => Promise<void>;
   cancelRun: () => void;
@@ -156,6 +158,12 @@ const inTauri = () => Boolean((window as unknown as { __TAURI_INTERNALS__?: unkn
 let providerRegistry: DefaultProviderRegistry | null = null;
 let openRouterProvider: OpenRouterProvider | null = null;
 let localHarnessTransport: LocalHarnessTransport | null = null;
+const tauriGoalRepository = new TauriGoalPersistenceRepository();
+const browserGoalRepository = new BrowserGoalPersistenceRepository();
+
+function goalRepository() {
+  return inTauri() ? tauriGoalRepository : browserGoalRepository;
+}
 
 function getRegistry(): DefaultProviderRegistry {
   if (!providerRegistry) {
@@ -741,7 +749,7 @@ export const useAppStore = create<AppState>()(
         }
       },
 
-      startGoalRun: async (goal, resumeState, structuredGoal, workspaceOverride) => {
+      startGoalRun: async (goal, resumeState, structuredGoal, workspaceOverride, workflowRunId) => {
         const state = get();
         state.initProviders();
         const activeSession = state.sessions[state.activeProjectPath]?.find((session) => session.id === state.activeSessionId);
@@ -766,7 +774,7 @@ export const useAppStore = create<AppState>()(
           });
         }
 
-        const runner = new GoalLoopRunner(getRegistry());
+        const runner = new GoalLoopRunner(getRegistry(), goalRepository());
         const toolExecutor = createTauriToolExecutor(
           () => get().workspacePath,
           { onApprovalRequired: (requestId, command) => set({ pendingApproval: { requestId, command } }) },
@@ -786,6 +794,7 @@ export const useAppStore = create<AppState>()(
           const result = await runner.run(
             {
               goal,
+              runId: workflowRunId,
               structuredGoal,
               approvedGoalVersion: structuredGoal?.version,
               workspacePath,

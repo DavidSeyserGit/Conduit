@@ -1,4 +1,4 @@
-import type { ToolDefinition } from "@conduit/shared";
+import type { CommandPermissionMode, ToolDefinition } from "@conduit/shared";
 
 export type ToolMode = "ask" | "goal";
 
@@ -12,8 +12,16 @@ export interface ToolExecutor {
   execute(
     name: string,
     args: Record<string, unknown>,
-    mode: ToolMode
+    mode: ToolMode,
+    options?: ToolExecutionOptions,
   ): Promise<ToolCallResult>;
+}
+
+export interface ToolExecutionOptions {
+  /** A runtime-enforced override used only after an outer coordinator approved the exact command. */
+  permissionMode?: CommandPermissionMode;
+  signal?: AbortSignal;
+  timeoutMs?: number;
 }
 
 export interface ToolExecutorContext {

@@ -40,11 +40,13 @@ export class CommandExecutor {
     options: {
       timeout?: number;
       onApprovalRequired?: (requestId: string, command: string) => void;
+      permissionMode?: CommandPermissionMode;
+      signal?: AbortSignal;
     } = {}
   ): Promise<RunCommandResult> {
     assertWorkspaceExists(this.workspacePath);
 
-    if (requiresApproval(command, this.permissionMode)) {
+    if (requiresApproval(command, options.permissionMode ?? this.permissionMode)) {
       const requestId = crypto.randomUUID();
       const approved = await this.requestApproval(
         requestId,
@@ -63,6 +65,7 @@ export class CommandExecutor {
       const { stdout, stderr } = await execAsync(command, {
         cwd: this.workspacePath,
         timeout,
+        signal: options.signal,
         maxBuffer: 4 * 1024 * 1024,
         env: { ...process.env, FORCE_COLOR: "0" },
       });

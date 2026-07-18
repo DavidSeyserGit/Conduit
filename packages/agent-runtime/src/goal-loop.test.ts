@@ -137,6 +137,66 @@ test("Goal loop executes its planned validation contract before judging", async 
   assert.equal(events.some((event) => event.type === "run_failed"), false);
 });
 
+test("Goal loop collects requested evidence and reruns the requesting reviewer", async () => {
+  const registry = new DefaultProviderRegistry();
+  const events: GoalRunEvent[] = [];
+  let generalReviewCalls = 0;
+  let evidenceCommandCalls = 0;
+
+  registry.register(provider("coding", async () => ({ content: "Implemented the requested title change" })));
+  registry.register(provider("judge", async (request) => {
+    if (request.structuredOutput?.name === "implementation_plan") {
+      return {
+        content: "",
+        structuredOutput: {
+          summary: "Rename the title",
+          tasks: [{ id: "1", description: "Update the title", status: "pending" }],
+          validation: { strategy: "not_applicable", rationale: "The reviewer will request targeted evidence.", commands: [] },
+        },
+      };
+    }
+    if (request.structuredOutput?.name === "general_review") {
+      generalReviewCalls += 1;
+      const hasEvidence = request.messages.at(-1)?.content.includes("pnpm test finished with exit code 0") ?? false;
+      return {
+        content: "",
+        structuredOutput: generalReview("implemented", [], hasEvidence ? [] : [{
+          id: "title-tests",
+          type: "test",
+          description: "Run the title regression tests.",
+          required: true,
+          suggestedCommand: "pnpm test",
+          expectedOutcome: "The regression tests pass.",
+        }]),
+      };
+    }
+    return { content: "", structuredOutput: specialistReview() };
+  }));
+
+  const evidenceTools: ToolExecutor = {
+    async execute(name) {
+      if (name === "capture_git_snapshot") return { success: true, result: { tree: "a".repeat(40) } };
+      if (name === "get_git_diff") return { success: true, result: { diff: "+FarmBot", changedFiles: ["src/title.ts"] } };
+      if (name === "run_command") {
+        evidenceCommandCalls += 1;
+        return { success: true, result: { command: "pnpm test", exitCode: 0, stdout: "passed", stderr: "", durationMs: 10 } };
+      }
+      return { success: false, error: `Unexpected tool: ${name}` };
+    },
+  };
+
+  const result = await new GoalLoopRunner(registry).run(config(), evidenceTools, {}, (event) => events.push(event));
+
+  assert.equal(result.status, "completed");
+  assert.equal(generalReviewCalls, 2);
+  assert.equal(evidenceCommandCalls, 1);
+  assert.equal(result.state.iterations[0]?.evidence?.[0]?.type, "test");
+  assert.equal(result.state.iterations[0]?.evidenceRequests?.[0]?.status, "collected");
+  assert.equal(events.some((event) => event.type === "evidence_collection_started"), true);
+  assert.equal(events.some((event) => event.type === "evidence_collected"), true);
+  assert.equal(events.some((event) => event.type === "evidence_collection_completed"), true);
+});
+
 test("structured Goal implementation is blocked before providers and tools until the exact version is approved", async () => {
   const registry = new DefaultProviderRegistry();
   let toolCalls = 0;

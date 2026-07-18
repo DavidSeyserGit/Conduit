@@ -296,7 +296,7 @@ export const useGoalBuilderStore = create<GoalBuilderState>()(persist((set, get)
       if (!operations.isCurrent(operation)) return;
       set({ goal: approved, statusMessage: "Starting implementation…" });
       await handoffImplementation(
-        () => useAppStore.getState().startGoalRun(approved.originalRequest, undefined, approved, state.workspacePath),
+        () => useAppStore.getState().startGoalRun(approved.originalRequest, undefined, approved, state.workspacePath, state.runId ?? undefined),
         () => {
           if (operations.isCurrent(operation)) {
             handedOff = true;

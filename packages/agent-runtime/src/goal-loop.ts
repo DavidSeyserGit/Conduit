@@ -6,6 +6,9 @@ import type {
   ModelCostBreakdown,
   JudgeResult,
   GoalDefinition,
+  GoalPersistenceRepository,
+  EvidenceRequest,
+  ReviewResult,
   NormalizedValidationResult,
   RepositoryContext,
   RepositoryDiff,
@@ -31,6 +34,7 @@ import {
 } from "./state.js";
 import { computeLoopMetrics } from "./metrics.js";
 import { estimateCost } from "./state.js";
+import { EvidenceCoordinator, invalidateEvidence } from "./evidence-coordinator.js";
 
 export type GoalRunEventHandler = (event: GoalRunEvent) => void;
 
@@ -39,11 +43,16 @@ export class GoalLoopRunner {
   private abortController: AbortController | null = null;
   private pendingApprovals = new Map<string, (approved: boolean) => void>();
 
-  constructor(private registry: ProviderRegistry) {}
+  constructor(
+    private registry: ProviderRegistry,
+    private persistence?: GoalPersistenceRepository,
+  ) {}
 
   cancel(): void {
     this.cancelled = true;
     this.abortController?.abort();
+    for (const resolve of this.pendingApprovals.values()) resolve(false);
+    this.pendingApprovals.clear();
   }
 
   approveCommand(requestId: string): void {
@@ -60,6 +69,19 @@ export class GoalLoopRunner {
       resolve(false);
       this.pendingApprovals.delete(requestId);
     }
+  }
+
+  private requestEvidenceApproval(
+    evidenceRequestId: string,
+    command: string,
+    emit: GoalRunEventHandler,
+  ): Promise<boolean> {
+    if (this.cancelled) return Promise.resolve(false);
+    const requestId = `evidence-${evidenceRequestId}-${crypto.randomUUID()}`;
+    return new Promise((resolve) => {
+      this.pendingApprovals.set(requestId, resolve);
+      emit({ type: "approval_required", command, requestId });
+    });
   }
 
   async run(
@@ -188,6 +210,7 @@ export class GoalLoopRunner {
         }),
       ),
     );
+    const evidenceCoordinator = new EvidenceCoordinator(toolExecutor, this.persistence);
 
     if (!state.plan) {
       try {
@@ -317,31 +340,98 @@ export class GoalLoopRunner {
         ];
         const previousIteration = state.iterations.at(-1);
         emit({ type: "judge_started", iteration: state.iteration });
-        const pipelineResult = await reviewPipeline.run({
+        let availableEvidence = invalidateEvidence(
+          state.iterations.flatMap((completed) => completed.evidence ?? []),
+          iteration.changedFiles,
+        );
+        for (const stale of availableEvidence.filter((item) => item.freshness.status === "stale")) {
+          await this.persistence?.saveEvidence(state.id, stale);
+        }
+        const reviewInput = {
           goal: config.structuredGoal ?? legacyGoalDefinition(state),
           repositoryContext: runtimeRepositoryContext(state.workspacePath, iteration.changedFiles),
           diff: runtimeRepositoryDiff(state.baselineTree, iteration.changedFiles),
           patch: scopedChanges.diff || "",
           validationResults: normalizeValidationResults(allValidationResults),
-          availableEvidence: [],
-        }, {
-          signal: this.abortController.signal,
-          previousReviews: previousIteration
-            ? [
-                ...(previousIteration.generalReview ? [previousIteration.generalReview] : []),
-                ...(previousIteration.specialistReviews ?? []),
-              ]
-            : [],
-          previousChangedFiles: previousIteration?.changedFiles,
-          round: state.iteration,
-          onGeneralStarted: () => emit({ type: "general_review_started", iteration: state.iteration }),
-          onGeneralCompleted: (result, decision) => {
-            emit({ type: "general_review_completed", iteration: state.iteration, result });
-            emit({ type: "reviews_routed", iteration: state.iteration, decision });
-          },
-          onSpecialistStarted: (reviewerId) => emit({ type: "specialist_review_started", iteration: state.iteration, reviewerId }),
-          onSpecialistCompleted: (result) => emit({ type: "specialist_review_completed", iteration: state.iteration, result }),
-        });
+          availableEvidence,
+        };
+        let previousReviews = previousIteration
+          ? [
+              ...(previousIteration.generalReview ? [previousIteration.generalReview] : []),
+              ...(previousIteration.specialistReviews ?? []),
+            ]
+          : [];
+        previousReviews = invalidateReviewEvidence(previousReviews, availableEvidence);
+        for (const review of previousReviews) {
+          for (const request of review.evidenceRequests.filter((item) => item.status === "stale")) {
+            await this.persistence?.saveEvidenceRequest(state.id, request);
+          }
+        }
+        let pipelineResult: ReviewPipelineResult | undefined;
+        let reviewTokenUsage: GoalRunState["tokenUsage"];
+        for (let evidenceRound = 0; evidenceRound < 3; evidenceRound += 1) {
+          pipelineResult = await reviewPipeline.run({ ...reviewInput, availableEvidence }, {
+            signal: this.abortController.signal,
+            previousReviews,
+            previousChangedFiles: evidenceRound === 0 ? previousIteration?.changedFiles : iteration.changedFiles,
+            round: state.iteration,
+            onGeneralStarted: () => emit({ type: "general_review_started", iteration: state.iteration }),
+            onGeneralCompleted: (result, decision) => {
+              emit({ type: "general_review_completed", iteration: state.iteration, result });
+              emit({ type: "reviews_routed", iteration: state.iteration, decision });
+            },
+            onSpecialistStarted: (reviewerId) => emit({ type: "specialist_review_started", iteration: state.iteration, reviewerId }),
+            onSpecialistCompleted: (result) => emit({ type: "specialist_review_completed", iteration: state.iteration, result }),
+          });
+          reviewTokenUsage = accumulateTokenUsage(reviewTokenUsage, pipelineResult.tokenUsage);
+          await this.persistence?.saveReview(state.id, pipelineResult.generalReview);
+          for (const review of pipelineResult.specialistReviews) await this.persistence?.saveReview(state.id, review);
+          if (pipelineResult.evidenceRequests.length === 0) break;
+
+          emit({
+            type: "evidence_collection_started",
+            iteration: state.iteration,
+            requestIds: pipelineResult.evidenceRequests.map((request) => request.id),
+          });
+          const collection = await evidenceCoordinator.collect(pipelineResult.evidenceRequests, {
+            runId: state.id,
+            goal: reviewInput.goal,
+            workspacePath: state.workspacePath,
+            permissionMode: config.commandPermissionMode ?? "auto_approve_safe",
+            existingEvidence: availableEvidence,
+            signal: this.abortController.signal,
+            requestApproval: (request, command) => this.requestEvidenceApproval(request.id, command, emit),
+            onProgress: (progress) => {
+              if (progress.type === "request_updated") {
+                emit({ type: "evidence_request_updated", iteration: state.iteration, request: progress.request });
+              } else {
+                emit({
+                  type: "evidence_collected",
+                  iteration: state.iteration,
+                  requestId: progress.request.id,
+                  evidence: progress.evidence,
+                  reused: progress.type === "evidence_reused",
+                });
+              }
+            },
+          });
+          iteration.evidenceRequests = mergeEvidenceRequests(iteration.evidenceRequests ?? [], collection.requests);
+          iteration.evidence = collection.evidence;
+          availableEvidence = collection.evidence;
+          emit({
+            type: "evidence_collection_completed",
+            iteration: state.iteration,
+            requestIds: collection.requests.map((request) => request.id),
+            evidenceIds: uniqueValues([...collection.collected, ...collection.reused].map((item) => item.id)),
+          });
+          previousReviews = applyEvidenceRequestUpdates(
+            [pipelineResult.generalReview, ...pipelineResult.specialistReviews],
+            collection.requests,
+          );
+          if (collection.collected.length === 0 && collection.reused.length === 0) break;
+        }
+        if (!pipelineResult) throw new Error("Review pipeline did not produce a result");
+        pipelineResult = { ...pipelineResult, tokenUsage: reviewTokenUsage };
         const judgeResult = compatibilityJudgeResult(pipelineResult);
         state.tokenUsage = accumulateTokenUsage(state.tokenUsage, pipelineResult.tokenUsage);
         state.judgeTokenUsage = accumulateTokenUsage(state.judgeTokenUsage, pipelineResult.tokenUsage);
@@ -529,6 +619,38 @@ function inferChangedFileLanguages(paths: string[]): string[] {
     else if (/\.go$/.test(path)) languages.add("Go");
   }
   return [...languages];
+}
+
+function mergeEvidenceRequests(previous: EvidenceRequest[], current: EvidenceRequest[]): EvidenceRequest[] {
+  const merged = new Map(previous.map((request) => [request.id, request]));
+  for (const request of current) merged.set(request.id, request);
+  return [...merged.values()];
+}
+
+function applyEvidenceRequestUpdates(reviews: ReviewResult[], requests: EvidenceRequest[]): ReviewResult[] {
+  const updates = new Map(requests.map((request) => [request.id, request]));
+  return reviews.map((review) => ({
+    ...review,
+    evidenceRequests: review.evidenceRequests.map((request) => updates.get(request.id) ?? request),
+  }));
+}
+
+function invalidateReviewEvidence(reviews: ReviewResult[], evidence: import("@conduit/shared").EvidenceItem[]): ReviewResult[] {
+  const staleIds = new Set(evidence.filter((item) => item.freshness.status === "stale").map((item) => item.id));
+  if (staleIds.size === 0) return reviews;
+  return reviews.map((review) => {
+    let invalidated = false;
+    const evidenceRequests = review.evidenceRequests.map((request) => {
+      if (!request.evidenceIds.some((id) => staleIds.has(id))) return request;
+      invalidated = true;
+      return { ...request, status: "stale" as const, resolvedAt: undefined };
+    });
+    return invalidated ? { ...review, status: "needs_evidence" as const, evidenceRequests } : review;
+  });
+}
+
+function uniqueValues<T>(values: T[]): T[] {
+  return [...new Set(values)];
 }
 
 async function runValidationContract(

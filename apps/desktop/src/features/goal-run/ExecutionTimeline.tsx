@@ -103,6 +103,33 @@ export function ChatTimeline() {
           if (event.type === "specialist_review_completed") {
             return <ReviewResultCard key={`specialist-review-${i}`} label={reviewerLabel(event.result.reviewerId)} result={event.result} />;
           }
+          if (event.type === "evidence_collection_started") {
+            return (
+              <div key={`evidence-started-${i}`} className="flex justify-start">
+                <div className="text-xs px-1 text-gray-400">
+                  Collecting {event.requestIds.length} evidence item{event.requestIds.length === 1 ? "" : "s"}…
+                </div>
+              </div>
+            );
+          }
+          if (event.type === "evidence_collected") {
+            return (
+              <div key={`evidence-collected-${i}`} className="flex justify-start">
+                <div className="text-xs px-1 text-emerald-600">
+                  ✓ {event.reused ? "Reused" : "Collected"} {event.evidence.title}
+                </div>
+              </div>
+            );
+          }
+          if (event.type === "evidence_request_updated" && ["failed", "rejected", "stale"].includes(event.request.status)) {
+            return (
+              <div key={`evidence-request-${i}`} className="flex justify-start">
+                <div className="text-xs px-1 text-amber-600">
+                  Evidence {event.request.status}: {event.request.description}
+                </div>
+              </div>
+            );
+          }
           if (event.type === "judge_completed") {
             if (runEvents.some((candidate) => candidate.type === "general_review_completed")) return null;
             const r = event.result;

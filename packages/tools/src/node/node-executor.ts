@@ -1,5 +1,5 @@
 import type { CommandPermissionMode } from "@conduit/shared";
-import type { ToolExecutor, ToolMode, ToolCallResult, ToolExecutorContext } from "../definitions.js";
+import type { ToolExecutor, ToolMode, ToolCallResult, ToolExecutorContext, ToolExecutionOptions } from "../definitions.js";
 import { GOAL_ONLY_TOOLS } from "../definitions.js";
 import {
   listFiles,
@@ -25,7 +25,8 @@ export function createNodeToolExecutor(
     async execute(
       name: string,
       args: Record<string, unknown>,
-      mode: ToolMode
+      mode: ToolMode,
+      options?: ToolExecutionOptions,
     ): Promise<ToolCallResult> {
       if (mode === "ask" && GOAL_ONLY_TOOLS.has(name)) {
         return { success: false, error: `${name} is not available in Ask mode` };
@@ -37,7 +38,8 @@ export function createNodeToolExecutor(
           args,
           workspacePath,
           commandExecutor,
-          context
+          context,
+          options,
         );
         return { success: true, result };
       } catch (err) {
@@ -55,7 +57,8 @@ async function dispatchNodeTool(
   args: Record<string, unknown>,
   workspacePath: string,
   commandExecutor: CommandExecutor,
-  context: ToolExecutorContext
+  context: ToolExecutorContext,
+  options?: ToolExecutionOptions,
 ): Promise<unknown> {
   switch (name) {
     case "list_files":
@@ -110,6 +113,9 @@ async function dispatchNodeTool(
     case "run_command":
       return commandExecutor.runCommand(args.command as string, {
         onApprovalRequired: context.onApprovalRequired,
+        permissionMode: options?.permissionMode,
+        signal: options?.signal,
+        timeout: options?.timeoutMs,
       });
 
     case "get_git_diff":
