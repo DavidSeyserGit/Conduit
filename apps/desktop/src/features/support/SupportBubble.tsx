@@ -20,12 +20,16 @@ export function SupportBubble({ onClose, onDismiss }: { onClose: () => void; onD
 
   const openSupportPage = async () => {
     const isTauri = Boolean((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
-    if (isTauri) {
-      const { openUrl } = await import("@tauri-apps/plugin-opener");
-      await openUrl(SUPPORT_PROJECT_URL);
-      return;
+    try {
+      if (isTauri) {
+        const { openUrl } = await import("@tauri-apps/plugin-opener");
+        await openUrl(SUPPORT_PROJECT_URL);
+        return;
+      }
+      window.open(SUPPORT_PROJECT_URL, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      console.error("[Conduit] Failed to open support page", error);
     }
-    window.open(SUPPORT_PROJECT_URL, "_blank", "noopener,noreferrer");
   };
 
   return (
