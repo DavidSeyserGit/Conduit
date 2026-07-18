@@ -4,6 +4,9 @@ import type {
   GoalRunConfig,
   GoalRunEvent,
   GoalRunState,
+  GoalPersistenceRepository,
+  GoalReport,
+  GoalRunSnapshot,
   ModelRequest,
   ModelResponse,
 } from "@conduit/shared";
@@ -110,8 +113,9 @@ test("Goal loop executes its planned validation contract before judging", async 
     return { content: "", structuredOutput: specialistReview() };
   }));
   const events: GoalRunEvent[] = [];
+  const persistence = reportPersistence();
 
-  const result = await new GoalLoopRunner(registry).run(
+  const result = await new GoalLoopRunner(registry, persistence).run(
     config(),
     toolExecutor,
     {},
@@ -135,6 +139,9 @@ test("Goal loop executes its planned validation contract before judging", async 
   ]);
   assert.equal(events.some((event) => event.type === "run_completed"), true);
   assert.equal(events.some((event) => event.type === "run_failed"), false);
+  assert.equal(result.report?.overview.finalStatus, "achieved");
+  assert.equal(persistence.report?.runId, result.state.id);
+  assert.deepEqual((await persistence.restoreRun(result.state.id))?.report, result.report);
 });
 
 test("Goal loop collects requested evidence and reruns the requesting reviewer", async () => {
@@ -458,3 +465,23 @@ test("Goal loop reports unknown model namespaces before planning", async () => {
   assert.equal(result.status, "failed");
   assert.equal(result.error, "No provider found for judge model: missing/model");
 });
+
+function reportPersistence(): GoalPersistenceRepository & { report: GoalReport | null } {
+  let imported: GoalRunState | null = null;
+  const repository: GoalPersistenceRepository & { report: GoalReport | null } = {
+    report: null,
+    async status() { return { available: true }; },
+    async saveGoal() {}, async saveGoalVersion() {}, async replaceQuestions() {}, async saveAnswer() {}, async saveRun() {},
+    async appendEvent() { return 1; }, async saveReview() {}, async saveEvidenceRequest() {}, async saveEvidence() {},
+    async saveReport(report) { repository.report = report; }, async deleteRun() {}, async deleteGoal() {},
+    async importLegacyRun(run) { imported = structuredClone(run); }, async getGoal() { return null; },
+    async restoreRun(): Promise<GoalRunSnapshot | null> {
+      if (!imported) return null;
+      return { run: imported, goal: null, versions: [], questions: [], answers: [], events: [], reviews: [], findings: [], evidenceRequests: [], evidence: [], report: repository.report };
+    },
+    async listRuns() { return imported ? [imported] : []; },
+    async writeArtifact(runId, content, contentType = "text/plain") { return { id: "artifact", runId, relativePath: "artifact", sha256: "hash", size: content.length, contentType, createdAt: "2026-07-18T12:00:00.000Z" }; },
+    async readArtifact() { throw new Error("not used"); }, async cleanupArtifacts() { return 0; },
+  };
+  return repository;
+}

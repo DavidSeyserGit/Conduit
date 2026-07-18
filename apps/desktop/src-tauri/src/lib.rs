@@ -21,6 +21,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             commands::tool_execute,
+            commands::report_export_write,
             commands::github_client_id,
             commands::github_get_token,
             commands::github_store_token,

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { EvidenceItem, EvidenceRequest, ReviewResult, ReviewRoutingDecision } from "./goal-contracts.js";
+import type { EvidenceItem, EvidenceRequest, GoalReport, RepositoryChange, ReviewResult, ReviewRoutingDecision } from "./goal-contracts.js";
 
 // ─── Model Provider ───────────────────────────────────────────────────────────
 
@@ -201,6 +201,7 @@ export interface GoalIteration {
   agentMessages: StoredMessage[];
   toolCalls: StoredToolCall[];
   changedFiles: string[];
+  fileChanges?: RepositoryChange[];
   validationResults: ValidationResult[];
   judgeResult?: JudgeResult;
   generalReview?: ReviewResult;
@@ -308,6 +309,7 @@ export interface GoalRunResult {
   status: "completed" | "cancelled" | "iteration_limit_reached" | "failed";
   state: GoalRunState;
   error?: string;
+  report?: GoalReport;
 }
 
 // ─── Events ───────────────────────────────────────────────────────────────────

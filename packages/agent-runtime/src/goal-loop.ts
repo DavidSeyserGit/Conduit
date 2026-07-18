@@ -13,6 +13,7 @@ import type {
   RepositoryContext,
   RepositoryDiff,
   ValidationResult,
+  GoalReport,
 } from "@conduit/shared";
 import { GoalDefinitionSchema } from "@conduit/shared";
 import type { ProviderRegistry } from "@conduit/model-providers";
@@ -35,6 +36,7 @@ import {
 import { computeLoopMetrics } from "./metrics.js";
 import { estimateCost } from "./state.js";
 import { EvidenceCoordinator, invalidateEvidence } from "./evidence-coordinator.js";
+import { ReportBuilder } from "./report-builder.js";
 
 export type GoalRunEventHandler = (event: GoalRunEvent) => void;
 
@@ -84,6 +86,57 @@ export class GoalLoopRunner {
     });
   }
 
+  private async withReport(result: GoalRunResult, configuredGoal?: GoalDefinition, error?: string): Promise<GoalRunResult> {
+    const parsedGoal = configuredGoal ? GoalDefinitionSchema.safeParse(configuredGoal) : undefined;
+    let snapshot = await this.persistence?.restoreRun(result.state.id);
+    if (this.persistence && !snapshot) {
+      await this.persistence.importLegacyRun(result.state, []);
+      snapshot = await this.persistence.restoreRun(result.state.id);
+    }
+    const report: GoalReport = new ReportBuilder().build({
+      run: result.state,
+      goal: snapshot?.goal ?? (parsedGoal?.success ? parsedGoal.data : undefined),
+      questions: snapshot?.questions,
+      versions: snapshot?.versions,
+      reviews: snapshot?.reviews,
+      evidenceRequests: snapshot?.evidenceRequests,
+      evidence: snapshot?.evidence,
+      error,
+    });
+    if (this.persistence) {
+      const timestamp = report.generatedAt;
+      if (snapshot?.run && "workflowPhase" in snapshot.run) {
+        const reportingRun = { ...snapshot.run, workflowPhase: "reporting" as const, updatedAt: timestamp };
+        await this.persistence.saveRun(reportingRun);
+        await this.persistence.appendEvent({
+          id: `event-${crypto.randomUUID()}`,
+          runId: result.state.id,
+          occurredAt: timestamp,
+          type: "workflow_state_transitioned",
+          from: snapshot.run.workflowPhase,
+          to: "reporting",
+          summary: "Building the deterministic run report",
+        });
+        await this.persistence.saveReport(report);
+        await this.persistence.appendEvent({ id: `event-${crypto.randomUUID()}`, runId: result.state.id, occurredAt: timestamp, type: "report_created", reportId: report.id });
+        const terminalPhase = result.status === "completed" ? "completed" as const : result.status === "cancelled" ? "cancelled" as const : "failed" as const;
+        await this.persistence.saveRun({ ...reportingRun, workflowPhase: terminalPhase, updatedAt: timestamp, finishedAt: result.state.finishedAt ?? timestamp });
+        await this.persistence.appendEvent({
+          id: `event-${crypto.randomUUID()}`,
+          runId: result.state.id,
+          occurredAt: timestamp,
+          type: "workflow_state_transitioned",
+          from: "reporting",
+          to: terminalPhase,
+          summary: report.finalDecision.summary,
+        });
+      } else {
+        await this.persistence.saveReport(report);
+      }
+    }
+    return { ...result, report };
+  }
+
   async run(
     config: GoalRunConfig,
     toolExecutor: ToolExecutor,
@@ -111,6 +164,7 @@ export class GoalLoopRunner {
       const metrics = computeLoopMetrics(collectedEvents);
       return { ...finalState, metrics };
     };
+    const complete = (result: GoalRunResult, error?: string) => this.withReport(result, config.structuredGoal, error);
 
     if (config.structuredGoal) {
       const parsedGoal = GoalDefinitionSchema.safeParse(config.structuredGoal);
@@ -123,7 +177,7 @@ export class GoalLoopRunner {
         const error = "Implementation requires explicit approval of the exact structured goal version";
         const finalState = finalizeState({ ...state, status: "failed", finishedAt: new Date().toISOString() });
         onEvent({ type: "run_failed", error });
-        return { status: "failed", state: finalState, error };
+        return complete({ status: "failed", state: finalState, error }, error);
       }
       state.goal = formatStructuredGoalContract(parsedGoal.data);
     }
@@ -141,16 +195,16 @@ export class GoalLoopRunner {
 
     if (!codingProviderInfo) {
       const error = `No provider found for coding model: ${config.codingModelId}`;
-      const finalState = finalizeState({ ...state, status: "failed" });
+      const finalState = finalizeState({ ...state, status: "failed", finishedAt: new Date().toISOString() });
       emit({ type: "run_failed", error });
-      return { status: "failed", state: finalState, error };
+      return complete({ status: "failed", state: finalState, error }, error);
     }
 
     if (!judgeProviderInfo) {
       const error = `No provider found for judge model: ${config.judgeModelId}`;
-      const finalState = finalizeState({ ...state, status: "failed" });
+      const finalState = finalizeState({ ...state, status: "failed", finishedAt: new Date().toISOString() });
       emit({ type: "run_failed", error });
-      return { status: "failed", state: finalState, error };
+      return complete({ status: "failed", state: finalState, error }, error);
     }
 
     if (!state.baselineTree) {
@@ -163,7 +217,7 @@ export class GoalLoopRunner {
         const error = `Could not capture the goal change baseline: ${snapshot.error || "Git snapshot failed"}`;
         const finalState = finalizeState({ ...state, status: "failed", finishedAt: new Date().toISOString() });
         emit({ type: "run_failed", error });
-        return { status: "failed", state: finalState, error };
+        return complete({ status: "failed", state: finalState, error }, error);
       }
       state.baselineTree = tree;
     }
@@ -232,15 +286,16 @@ export class GoalLoopRunner {
           state.finishedAt = new Date().toISOString();
           const finalState = finalizeState(state);
           const result: GoalRunResult = { status: "cancelled", state: finalState };
-          emit({ type: "run_completed", result });
-          return result;
+          const completed = await complete(result);
+          emit({ type: "run_completed", result: completed });
+          return completed;
         }
         const error = `Judge could not create an implementation plan: ${err instanceof Error ? err.message : String(err)}`;
         state.status = "failed";
         state.finishedAt = new Date().toISOString();
         const finalState = finalizeState(state);
         emit({ type: "run_failed", error });
-        return { status: "failed", state: finalState, error };
+        return complete({ status: "failed", state: finalState, error }, error);
       }
     }
 
@@ -250,8 +305,9 @@ export class GoalLoopRunner {
         state.finishedAt = new Date().toISOString();
         const finalState = finalizeState(state);
         const result: GoalRunResult = { status: "cancelled", state: finalState };
-        emit({ type: "run_completed", result });
-        return result;
+        const completed = await complete(result);
+        emit({ type: "run_completed", result: completed });
+        return completed;
       }
 
       state.iteration += 1;
@@ -305,8 +361,11 @@ export class GoalLoopRunner {
         const scopedChanges = scopedDiffResult.result as {
           diff?: string;
           changedFiles?: string[];
+          changes?: import("@conduit/shared").RepositoryChange[];
         };
         iteration.changedFiles = scopedChanges.changedFiles || [];
+        iteration.fileChanges = scopedChanges.changes
+          ?? iteration.changedFiles.map((path) => ({ path, status: "modified" as const }));
 
         if (agentResult.agentSummary) {
           addAgentMessage(iteration, "assistant", agentResult.agentSummary);
@@ -461,8 +520,9 @@ export class GoalLoopRunner {
           state.finishedAt = new Date().toISOString();
           const finalState = finalizeState(state);
           const result: GoalRunResult = { status: "completed", state: finalState };
-          emit({ type: "run_completed", result });
-          return result;
+          const completed = await complete(result);
+          emit({ type: "run_completed", result: completed });
+          return completed;
         }
 
         state.lastJudgeFeedback = pipelineResult.feedback;
@@ -479,7 +539,7 @@ export class GoalLoopRunner {
           state.finishedAt = new Date().toISOString();
           const finalState = finalizeState(state);
           emit({ type: "run_failed", error });
-          return { status: "failed", state: finalState, error };
+          return complete({ status: "failed", state: finalState, error }, error);
         }
       } catch (err) {
         if (this.cancelled || this.abortController?.signal.aborted) {
@@ -488,8 +548,9 @@ export class GoalLoopRunner {
           state.iterations.push(iteration);
           const finalState = finalizeState(state);
           const result: GoalRunResult = { status: "cancelled", state: finalState };
-          emit({ type: "run_completed", result });
-          return result;
+          const completed = await complete(result);
+          emit({ type: "run_completed", result: completed });
+          return completed;
         }
         const error = err instanceof Error ? err.message : String(err);
         state.status = "failed";
@@ -497,7 +558,7 @@ export class GoalLoopRunner {
         state.iterations.push(iteration);
         const finalState = finalizeState(state);
         emit({ type: "run_failed", error });
-        return { status: "failed", state: finalState, error };
+        return complete({ status: "failed", state: finalState, error }, error);
       }
     }
 
@@ -508,8 +569,9 @@ export class GoalLoopRunner {
       status: "iteration_limit_reached",
       state: finalState,
     };
-    emit({ type: "run_completed", result });
-    return result;
+    const completed = await complete(result);
+    emit({ type: "run_completed", result: completed });
+    return completed;
   }
 }
 

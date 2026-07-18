@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { GoalRunEvent, GoalRunState, ReviewResult } from "@conduit/shared";
+import type { GoalReport, GoalRunEvent, GoalRunState, ReviewResult } from "@conduit/shared";
 import { downloadRunAsJSON } from "@conduit/agent-runtime";
 import ReactMarkdown from "react-markdown";
 import { useAppStore } from "@/stores/app-store";
@@ -9,6 +9,7 @@ import { formatToolCall } from "@/features/goal-run/tool-call-display";
 import { GitHandoff } from "@/features/git/GitHandoff";
 import { GoalBuilder } from "@/features/goal-builder/GoalBuilder";
 import { useGoalBuilderStore } from "@/stores/goal-builder-store";
+import { ReportViewer } from "@/features/goal-run/ReportViewer";
 
 export function ChatTimeline() {
   const messages = useAppStore((s) => s.messages);
@@ -18,6 +19,7 @@ export function ChatTimeline() {
   const mode = useAppStore((s) => s.mode);
   const goalBuilderPhase = useGoalBuilderStore((s) => s.phase);
   const settings = useAppStore((s) => s.settings);
+  const runHistory = useAppStore((s) => s.runHistory);
   const modeStatusColor = getModeColor(settings, mode);
   const bottomRef = useRef<HTMLDivElement>(null);
   const hasActiveRun = mode === "goal"
@@ -202,7 +204,12 @@ export function ChatTimeline() {
         )}
 
         {currentRun && !isRunning && (
-          <RunSummary run={currentRun} events={runEvents} />
+          <RunSummary
+            run={currentRun}
+            events={runEvents}
+            report={runHistory.find((entry) => entry.run.id === currentRun.id)?.report
+              ?? [...runEvents].reverse().find((event) => event.type === "run_completed")?.result.report}
+          />
         )}
         <div ref={bottomRef} />
         </div>
@@ -251,12 +258,19 @@ function formatReviewStatus(status: ReviewResult["status"]): string {
 function RunSummary({
   run,
   events,
+  report,
 }: {
   run: GoalRunState;
   events: GoalRunEvent[];
+  report?: GoalReport;
 }) {
+  const [showReport, setShowReport] = useState(Boolean(report));
   const openGitDiff = useAppStore((s) => s.openGitDiff);
   const models = useAppStore((s) => s.models);
+  const goalColor = getModeColor(useAppStore((s) => s.settings), "goal");
+  useEffect(() => {
+    if (report) setShowReport(true);
+  }, [report]);
   const elapsed = run.finishedAt
     ? Math.round(
         (new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime()) / 1000
@@ -274,13 +288,16 @@ function RunSummary({
     downloadRunAsJSON(run, events);
   };
 
+  if (report && showReport) return <ReportViewer report={report} onClose={() => setShowReport(false)} />;
+
   return (
-    <div className="border border-gray-200 rounded-xl p-4 bg-white text-xs space-y-2">
+    <div className="goal-builder border border-gray-200 rounded-xl p-4 bg-white text-xs space-y-2" style={{ "--goal-accent": goalColor } as React.CSSProperties}>
       <div className="flex items-center justify-between">
         <div className="font-semibold text-gray-900 text-sm">
           {statusLabel[run.status] ?? run.status}
         </div>
         <div className="flex items-center gap-2">
+          {report ? <button onClick={() => setShowReport(true)} className="goal-accent-soft px-3 py-1.5 text-xs rounded-lg transition-colors font-medium">View report</button> : null}
           <button
             onClick={handleExport}
             className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors font-medium flex items-center gap-1.5"
