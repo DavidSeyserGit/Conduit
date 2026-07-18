@@ -54,10 +54,10 @@ jobs:
             echo
             cat notes.md
           } > release-body.md
-          gh release edit "$TAG" --notes-file release-body.md
-          mkdir -p tmp && gh release download "$TAG" -p latest.json -D tmp --clobber
+          gh release edit "$TAG" --repo "$REPO" --notes-file release-body.md
+          mkdir -p tmp && gh release download "$TAG" --repo "$REPO" -p latest.json -D tmp --clobber
           node -e "const fs=require('fs'); const m=JSON.parse(fs.readFileSync('tmp/latest.json','utf8')); m.notes=fs.readFileSync('release-body.md','utf8'); fs.writeFileSync('tmp/latest.json', JSON.stringify(m, null, 2));"
-          gh release upload "$TAG" tmp/latest.json --clobber
+          gh release upload "$TAG" tmp/latest.json --repo "$REPO" --clobber
 
   publish:
     name: Build ${{ matrix.label }}
