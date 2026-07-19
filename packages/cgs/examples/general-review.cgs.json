@@ -1,0 +1,20 @@
+{
+  "cgsVersion": "0.1.0",
+  "kind": "review-result",
+  "id": "review_general_1",
+  "createdAt": "2026-07-18T13:00:00Z",
+  "runId": "run_reset_1",
+  "goalId": "goal_password_reset",
+  "reviewerId": "conduit.general",
+  "reviewRequestId": "review_request_general_1",
+  "status": "approved",
+  "summary": "All required criteria are implemented and supported by current evidence.",
+  "confidence": 0.94,
+  "criterionResults": [
+    { "criterionId": "criterion_request", "status": "passed", "explanation": "Request behavior is implemented and tested.", "evidenceReferences": ["evidence_test_1"] },
+    { "criterionId": "criterion_expiry", "status": "passed", "explanation": "Expiry is configured and tested.", "evidenceReferences": ["evidence_test_1"] }
+  ],
+  "findings": [],
+  "evidenceRequests": [],
+  "reviewedAt": "2026-07-18T13:00:00Z"
+}

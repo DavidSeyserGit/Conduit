@@ -4,16 +4,15 @@ import type {
   GoalAnswer,
   GoalDefinition,
   GoalDrivenRunRecord,
-  GoalPersistenceRepository,
   GoalQuestion,
   GoalReport,
-  GoalRunEvent,
-  GoalRunSnapshot,
-  GoalRunState,
   GoalVersion,
   GoalWorkflowEvent,
   ReviewResult,
-} from "@conduit/shared";
+} from "@conduit/cgs/legacy";
+import type { GoalPersistenceRepository, GoalRunEvent, GoalRunSnapshot, GoalRunState } from "@conduit/shared";
+import { CgsArtifactUnionSchema, type CgsArtifactValue } from "@conduit/cgs";
+import type { CgsArtifactRepository } from "@conduit/runtime";
 
 interface BrowserGoalStorage {
   goals: Record<string, GoalDefinition>;
@@ -26,17 +25,18 @@ interface BrowserGoalStorage {
   evidenceRequests: Record<string, EvidenceRequest[]>;
   evidence: Record<string, EvidenceItem[]>;
   reports: Record<string, GoalReport>;
+  cgsArtifacts: Record<string, CgsArtifactValue>;
   artifacts: Record<string, { runId: string; content: string; contentType: string; createdAt: string }>;
 }
 
 const STORAGE_KEY = "conduit-goal-runtime-browser-v1";
 
 function emptyStorage(): BrowserGoalStorage {
-  return { goals: {}, versions: {}, questions: {}, answers: {}, runs: {}, events: {}, reviews: {}, evidenceRequests: {}, evidence: {}, reports: {}, artifacts: {} };
+  return { goals: {}, versions: {}, questions: {}, answers: {}, runs: {}, events: {}, reviews: {}, evidenceRequests: {}, evidence: {}, reports: {}, cgsArtifacts: {}, artifacts: {} };
 }
 
 /** Browser-development persistence with the same port as the native SQLite adapter. */
-export class BrowserGoalPersistenceRepository implements GoalPersistenceRepository {
+export class BrowserGoalPersistenceRepository implements GoalPersistenceRepository, CgsArtifactRepository {
   private read(): BrowserGoalStorage {
     try {
       const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null") as BrowserGoalStorage | null;
@@ -51,6 +51,9 @@ export class BrowserGoalPersistenceRepository implements GoalPersistenceReposito
     mutator(storage);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(storage));
   }
+
+  async saveCgsArtifact(artifact: CgsArtifactValue) { const parsed = CgsArtifactUnionSchema.parse(artifact); this.update((storage) => { (storage.cgsArtifacts ??= {})[parsed.id] = parsed; }); }
+  async getCgsArtifact(id: string) { const value = this.read().cgsArtifacts?.[id]; return value ? CgsArtifactUnionSchema.parse(value) : null; }
 
   async status() { return { available: true, schemaVersion: 1, databasePath: "browser-local-storage", artifactRoot: "browser-local-storage" }; }
   async saveGoal(goal: GoalDefinition) { this.update((storage) => { storage.goals[goal.id] = goal; }); }

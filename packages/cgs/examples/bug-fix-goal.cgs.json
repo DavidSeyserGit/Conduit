@@ -1,0 +1,12 @@
+{
+  "cgsVersion": "0.1.0", "kind": "goal", "id": "goal_fix_retry", "createdAt": "2026-07-19T08:00:00Z",
+  "title": "Fix duplicate retry requests", "description": "Prevent a failed request from scheduling more than one retry.",
+  "successCriteria": [{ "id": "criterion_single_retry", "description": "One failed request schedules at most one retry.", "priority": "required" }],
+  "constraints": [{ "id": "constraint_api", "description": "Preserve the public request API.", "category": "compatibility", "required": true }],
+  "deliverables": [{ "id": "deliverable_fix", "description": "Retry fix", "type": "code", "required": true }, { "id": "deliverable_regression", "description": "Regression test", "type": "test", "required": true }],
+  "assumptions": [],
+  "permissions": { "allowFileReads": true, "allowFileWrites": true, "allowCommandExecution": true, "allowNetworkAccess": false, "allowDependencyChanges": false, "allowGitOperations": false },
+  "clarificationHistory": [],
+  "reviewPipeline": { "generalReviewer": { "reviewerId": "conduit.general", "required": true }, "specialistReviewers": [{ "reviewerId": "conduit.testing", "required": true }], "routingMode": "explicit", "completionPolicy": "all_required_approve" },
+  "status": "approved", "revision": 1
+}

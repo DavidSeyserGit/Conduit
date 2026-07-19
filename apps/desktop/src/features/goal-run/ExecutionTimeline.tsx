@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import type { GoalReport, GoalRunEvent, GoalRunState, ReviewResult } from "@conduit/shared";
-import { downloadRunAsJSON } from "@conduit/agent-runtime";
+import type { GoalRunEvent, GoalRunState } from "@conduit/shared";
+import type { GoalReport, ReviewResult } from "@conduit/cgs/legacy";
+import type { GoalReport as CgsGoalReport } from "@conduit/cgs";
+import { downloadRunAsJSON } from "@conduit/runtime";
 import ReactMarkdown from "react-markdown";
 import { useAppStore } from "@/stores/app-store";
 import { getModeColor } from "@/lib/mode-colors";
@@ -207,7 +209,9 @@ export function ChatTimeline() {
           <RunSummary
             run={currentRun}
             events={runEvents}
-            report={runHistory.find((entry) => entry.run.id === currentRun.id)?.report
+            report={runHistory.find((entry) => entry.run.id === currentRun.id)?.cgsReport
+              ?? runHistory.find((entry) => entry.run.id === currentRun.id)?.report
+              ?? [...runEvents].reverse().find((event) => event.type === "run_completed")?.result.cgsReport
               ?? [...runEvents].reverse().find((event) => event.type === "run_completed")?.result.report}
           />
         )}
@@ -262,7 +266,7 @@ function RunSummary({
 }: {
   run: GoalRunState;
   events: GoalRunEvent[];
-  report?: GoalReport;
+  report?: GoalReport | CgsGoalReport;
 }) {
   const [showReport, setShowReport] = useState(Boolean(report));
   const openGitDiff = useAppStore((s) => s.openGitDiff);
@@ -391,6 +395,7 @@ function ProofOfWorkCard({
     `Goal: ${run.goal}`,
     `Worker: ${worker}`,
     `Judge: ${judge}`,
+    `Versions: Desktop ${run.conduitDesktopVersion ?? "legacy"} · Runtime ${run.conduitRuntimeVersion ?? "legacy"} · CGS ${run.cgsVersion ?? "legacy"}`,
     `Evidence: ${changedFiles.size} files changed · ${passedValidations}/${validationResults.length} validations passed · ${totalTools} tool calls · ${formatElapsed(elapsed)}`,
     latestJudge?.summary ? `Judge: ${latestJudge.summary}` : "",
   ].filter(Boolean).join("\n");
@@ -425,6 +430,7 @@ function ProofOfWorkCard({
           <EvidenceItem label="Judge" value={judge} />
           <EvidenceItem label="Evidence" value={`${changedFiles.size} files · ${totalTools} tools`} />
           <EvidenceItem label="Validation" value={validationResults.length ? `${passedValidations}/${validationResults.length} passed` : "Not run"} />
+          <EvidenceItem label="Contracts" value={`Runtime ${run.conduitRuntimeVersion ?? "legacy"} · CGS ${run.cgsVersion ?? "legacy"}`} />
         </div>
 
         <div className="flex items-center justify-between gap-3 pt-0.5 text-[10px] text-gray-400">

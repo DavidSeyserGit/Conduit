@@ -3,17 +3,30 @@
 Goal-run storage and artifact lifecycle are documented in
 [Goal-run persistence](./goal-persistence.md).
 
-Conduit is a monorepo with clear separation between the UI, agent runtime, model providers, and tools.
+Conduit is a goal-driven software engineering system. Conduit Desktop is its
+first user-facing client, and the Conduit Goal Specification (CGS) defines the
+portable goals, clarification decisions, reviews, evidence, runs, and reports
+used throughout the workflow.
 
 ## Package Boundaries
 
+### `@conduit/cgs` 0.1
+
+The application-independent specification and reference implementation:
+
+- Versioned goal, question, answer, review, evidence, run, and report artifacts
+- Runtime and safe validators, canonical JSON serialization, and report renderers
+- Checked-in JSON Schemas, examples, compatibility rules, and lifecycle documentation
+
+CGS imports no Desktop, runtime, provider, tool, database, or UI package.
+`@conduit/cgs/legacy` is the isolated, deprecated 0.3 development-data reader.
+
 ### `@conduit/shared`
 
-Shared TypeScript types and Zod schemas used across all packages:
+Non-domain infrastructure shared by provider, tool, runtime, and Desktop code:
 
-- Goal, question, answer, review, evidence, report, and workflow-event schemas
 - `ModelDescriptor`, `ModelRequest`, `ModelResponse`
-- `GoalRunEvent` — runtime events for UI decoupling
+- compatibility progress events and provider/tool execution state
 - Error classes (`ConduitError`, `WorkspaceError`, etc.)
 
 ### `@conduit/tools`
@@ -47,26 +60,29 @@ Implementations:
 | `OpenAICompatibleProvider` | Supported | Any OpenAI-compatible API endpoint |
 | `ACPAgentProvider` | Experimental | Agent Client Protocol integration |
 
-### `@conduit/agent-runtime`
+### `@conduit/runtime` 0.4
 
 The core loop engine:
 
-- **`GoalDefinitionRuntime`** — Inspects context, asks structured questions, versions goals, and enforces approval
+- **`DefaultConduitRuntime`** — Public, headless CGS API and UI-neutral event stream
+- **`GoalDefinitionRuntime`** — Feature-parity adapter that inspects context, asks structured questions, versions goals, and writes canonical CGS artifacts
 - **`GoalLoopRunner`** — Orchestrates planning, implementation, validation, reviews, evidence, revision, and reporting
 - **`CodingAgent`** — Tool-call loop for implementation
 - **`GeneralReviewer` / `ReviewRouter`** — Verify functional completion and select applicable specialist reviewers
 - **Specialist reviewers** — Narrow security, testing, quality, architecture, performance, documentation, UI, accessibility, migration, API, and dependency checks
-- **`EvidenceCoordinator`** — Safely fulfills reviewer evidence requests through the tool boundary and invalidates stale results
+- **CGS `Reviewer` / `EvidenceCoordinator`** — Common reviewer contract and permission/tool-only evidence execution boundary
 - **`ReportBuilder`** — Produces a linked in-app, Markdown, and JSON account of the run
 - **`AskChatRunner`** — Read-only chat for Ask mode
 
-Events are emitted rather than controlling the UI directly, enabling future CLI or web clients.
+The runtime has no Desktop dependency. Events contain CGS artifacts or snapshots
+instead of UI instructions, enabling future CLI, CI, web, and third-party clients.
 
 ### `apps/desktop`
 
 Tauri desktop shell with React frontend:
 
 - **Zustand** store for app state with local persistence
+- **CGS client components** for question rendering, goal preview, run/version display, and report presentation
 - **Tailwind CSS** for styling
 - **react-markdown** for message rendering
 - **`backend/local-harness.ts`** for Codex/Kilo process policy, command construction,
@@ -109,15 +125,15 @@ The following invariants are enforced by tests:
 ```
 Rough Request
     ↓
-App Store (Zustand)
+Conduit Desktop
     ↓
-GoalDefinitionRuntime (inspect → questions → approval)
+@conduit/runtime (inspect → CGS questions/answers → approved CGS goal)
     ↓
-GoalLoopRunner (plan → implement → validate → route reviews ↔ evidence/revision)
+CGS run (plan → implement → validate → CGS reviews ↔ evidence/revision)
     ↓                                      ↕
 ModelProvider (OpenRouter / Codex / Kilo)  Tools (file, search, command)
     ↓
-Persisted GoalWorkflowEvents + Report
+Lossless persisted CGS artifacts + RuntimeEvents + canonical GoalReport
     ↓
 Execution Timeline (React)
 ```
@@ -125,7 +141,8 @@ Execution Timeline (React)
 ## State Persistence
 
 - App settings and model preferences: Zustand persist (localStorage)
-- Goal definitions, versions, run events, reviews, evidence, and reports: SQLite through the provider-neutral persistence port
+- CGS artifacts: lossless validated JSON in the generic SQLite `cgs_artifacts` store, with indexed legacy projections during the release-candidate migration
+- Legacy goal definitions, versions, run events, reviews, evidence, and reports: compatibility projections through the provider-neutral persistence port
 - Large repository context and command artifacts: integrity-checked files referenced by SQLite records
 
 The structured goal lifecycle, approval gate, and restart-safe execution questions are described in [Goal definition runtime](goal-definition-runtime.md). Review, evidence, and reporting are described in [Evidence and reports](evidence-and-reports.md). Storage and migration details are in [Goal persistence](goal-persistence.md).

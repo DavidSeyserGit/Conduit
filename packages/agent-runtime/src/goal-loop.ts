@@ -5,17 +5,11 @@ import type {
   GoalRunEvent,
   ModelCostBreakdown,
   JudgeResult,
-  GoalDefinition,
   GoalPersistenceRepository,
-  EvidenceRequest,
-  ReviewResult,
-  NormalizedValidationResult,
-  RepositoryContext,
-  RepositoryDiff,
   ValidationResult,
-  GoalReport,
 } from "@conduit/shared";
-import { GoalDefinitionSchema } from "@conduit/shared";
+import type { EvidenceRequest, GoalDefinition, GoalReport, NormalizedValidationResult, RepositoryContext, RepositoryDiff, ReviewResult } from "@conduit/cgs/legacy";
+import { GoalDefinitionSchema } from "@conduit/cgs/legacy";
 import type { ProviderRegistry } from "@conduit/model-providers";
 import type { ToolExecutor, ToolExecutorContext } from "@conduit/tools";
 import { findProviderForModel } from "@conduit/model-providers";
@@ -35,11 +29,13 @@ import {
 } from "./state.js";
 import { computeLoopMetrics } from "./metrics.js";
 import { estimateCost } from "./state.js";
-import { EvidenceCoordinator, invalidateEvidence } from "./evidence-coordinator.js";
+import { LegacyEvidenceCoordinator, invalidateEvidence } from "./evidence-coordinator.js";
 import { ReportBuilder } from "./report-builder.js";
+import { legacyEvidenceRequestToCgs, legacyEvidenceToCgs, legacyReportToCgs, legacyReviewToCgs, legacyRunRecordToCgs } from "./legacy-cgs-migration.js";
+import type { CgsArtifactRepository } from "./persistence.js";
 
 export type GoalRunEventHandler = (event: GoalRunEvent) => void;
-type GoalWorkflowEventBody<T = import("@conduit/shared").GoalWorkflowEvent> = T extends unknown
+type GoalWorkflowEventBody<T = import("@conduit/cgs/legacy").GoalWorkflowEvent> = T extends unknown
   ? Omit<T, "id" | "runId" | "occurredAt">
   : never;
 
@@ -50,7 +46,7 @@ export class GoalLoopRunner {
 
   constructor(
     private registry: ProviderRegistry,
-    private persistence?: GoalPersistenceRepository,
+    private persistence?: GoalPersistenceRepository & Partial<CgsArtifactRepository>,
   ) {}
 
   cancel(): void {
@@ -91,7 +87,7 @@ export class GoalLoopRunner {
 
   private async transitionWorkflow(
     runId: string,
-    to: import("@conduit/shared").GoalWorkflowPhase,
+    to: import("@conduit/cgs/legacy").GoalWorkflowPhase,
     summary: string,
   ): Promise<void> {
     if (!this.persistence) return;
@@ -100,12 +96,14 @@ export class GoalLoopRunner {
     const occurredAt = new Date().toISOString();
     const from = snapshot.run.workflowPhase;
     const terminal = ["completed", "failed", "cancelled"].includes(to);
-    await this.persistence.saveRun({
+    const updatedRun = {
       ...snapshot.run,
       workflowPhase: to,
       updatedAt: occurredAt,
       ...(terminal ? { finishedAt: occurredAt } : {}),
-    });
+    };
+    await this.persistence.saveRun(updatedRun);
+    if (this.persistence.saveCgsArtifact) await this.persistence.saveCgsArtifact(legacyRunRecordToCgs(updatedRun));
     await this.persistence.appendEvent({
       id: `event-${crypto.randomUUID()}`,
       runId,
@@ -119,7 +117,7 @@ export class GoalLoopRunner {
 
   private async appendWorkflowEvent(
     runId: string,
-    event: GoalWorkflowEventBody,
+      event: GoalWorkflowEventBody,
   ): Promise<void> {
     if (!this.persistence) return;
     const snapshot = await this.persistence.restoreRun(runId);
@@ -129,7 +127,25 @@ export class GoalLoopRunner {
       id: `event-${crypto.randomUUID()}`,
       runId,
       occurredAt: new Date().toISOString(),
-    } as import("@conduit/shared").GoalWorkflowEvent);
+    } as import("@conduit/cgs/legacy").GoalWorkflowEvent);
+  }
+
+  private async saveReviewArtifacts(runId: string, goal: GoalDefinition, review: ReviewResult, changedFiles: string[]): Promise<void> {
+    await this.persistence?.saveReview(runId, review);
+    if (!this.persistence?.saveCgsArtifact) return;
+    const canonical = legacyReviewToCgs(runId, goal, review, changedFiles);
+    await this.persistence.saveCgsArtifact(canonical.request);
+    for (const request of canonical.evidenceRequests) await this.persistence.saveCgsArtifact(request);
+    await this.persistence.saveCgsArtifact(canonical.result);
+  }
+
+  private async saveEvidenceArtifacts(runId: string, goal: GoalDefinition, requests: EvidenceRequest[], evidence: import("@conduit/cgs/legacy").EvidenceItem[]): Promise<void> {
+    if (!this.persistence?.saveCgsArtifact) return;
+    for (const request of requests) await this.persistence.saveCgsArtifact(legacyEvidenceRequestToCgs(runId, goal.id, request));
+    for (const item of evidence) {
+      const requestId = requests.find((request) => request.evidenceIds.includes(item.id))?.id;
+      await this.persistence.saveCgsArtifact(legacyEvidenceToCgs(runId, goal.id, item, requestId));
+    }
   }
 
   private async withReport(result: GoalRunResult, configuredGoal?: GoalDefinition, error?: string): Promise<GoalRunResult> {
@@ -180,7 +196,9 @@ export class GoalLoopRunner {
         await this.persistence.saveReport(report);
       }
     }
-    return { ...result, report };
+    const cgsReport = legacyReportToCgs(report, result.state);
+    if (this.persistence?.saveCgsArtifact) await this.persistence.saveCgsArtifact(cgsReport);
+    return { ...result, report, cgsReport };
   }
 
   async run(
@@ -310,7 +328,7 @@ export class GoalLoopRunner {
         }),
       ),
     );
-    const evidenceCoordinator = new EvidenceCoordinator(toolExecutor, this.persistence);
+    const evidenceCoordinator = new LegacyEvidenceCoordinator(toolExecutor, this.persistence);
 
     if (!state.plan) {
       try {
@@ -411,7 +429,7 @@ export class GoalLoopRunner {
         const scopedChanges = scopedDiffResult.result as {
           diff?: string;
           changedFiles?: string[];
-          changes?: import("@conduit/shared").RepositoryChange[];
+          changes?: import("@conduit/cgs/legacy").RepositoryChange[];
         };
         iteration.changedFiles = scopedChanges.changedFiles || [];
         iteration.fileChanges = scopedChanges.changes
@@ -489,7 +507,7 @@ export class GoalLoopRunner {
               emit({ type: "general_review_started", iteration: state.iteration });
             },
             onGeneralCompleted: async (result, decision) => {
-              await this.persistence?.saveReview(state.id, result);
+              await this.saveReviewArtifacts(state.id, reviewInput.goal, result, iteration.changedFiles);
               await this.appendWorkflowEvent(state.id, { type: "review_completed", reviewId: result.id, reviewerId: result.reviewerId, status: result.status });
               await this.transitionWorkflow(state.id, "routing_reviews", "General review completed and specialist routing was selected");
               await this.appendWorkflowEvent(state.id, { type: "review_routed", requiredReviewerIds: decision.requiredReviewers, optionalReviewerIds: decision.optionalReviewers });
@@ -501,14 +519,14 @@ export class GoalLoopRunner {
               emit({ type: "specialist_review_started", iteration: state.iteration, reviewerId });
             },
             onSpecialistCompleted: async (result) => {
-              await this.persistence?.saveReview(state.id, result);
+              await this.saveReviewArtifacts(state.id, reviewInput.goal, result, iteration.changedFiles);
               await this.appendWorkflowEvent(state.id, { type: "review_completed", reviewId: result.id, reviewerId: result.reviewerId, status: result.status });
               emit({ type: "specialist_review_completed", iteration: state.iteration, result });
             },
           });
           reviewTokenUsage = accumulateTokenUsage(reviewTokenUsage, pipelineResult.tokenUsage);
-          await this.persistence?.saveReview(state.id, pipelineResult.generalReview);
-          for (const review of pipelineResult.specialistReviews) await this.persistence?.saveReview(state.id, review);
+          await this.saveReviewArtifacts(state.id, reviewInput.goal, pipelineResult.generalReview, iteration.changedFiles);
+          for (const review of pipelineResult.specialistReviews) await this.saveReviewArtifacts(state.id, reviewInput.goal, review, iteration.changedFiles);
           if (pipelineResult.evidenceRequests.length === 0) break;
 
           emit({
@@ -546,6 +564,7 @@ export class GoalLoopRunner {
           iteration.evidenceRequests = mergeEvidenceRequests(iteration.evidenceRequests ?? [], collection.requests);
           iteration.evidence = collection.evidence;
           availableEvidence = collection.evidence;
+          await this.saveEvidenceArtifacts(state.id, reviewInput.goal, collection.requests, collection.evidence);
           for (const request of collection.requests) {
             for (const evidenceId of request.evidenceIds) {
               await this.appendWorkflowEvent(state.id, { type: "evidence_collected", evidenceId, requestId: request.id });
@@ -650,7 +669,7 @@ export class GoalLoopRunner {
   }
 }
 
-function formatStructuredGoalContract(goal: import("@conduit/shared").GoalDefinition): string {
+function formatStructuredGoalContract(goal: import("@conduit/cgs/legacy").GoalDefinition): string {
   return JSON.stringify({
     title: goal.title,
     description: goal.description,
@@ -772,7 +791,7 @@ function applyEvidenceRequestUpdates(reviews: ReviewResult[], requests: Evidence
   }));
 }
 
-function invalidateReviewEvidence(reviews: ReviewResult[], evidence: import("@conduit/shared").EvidenceItem[]): ReviewResult[] {
+function invalidateReviewEvidence(reviews: ReviewResult[], evidence: import("@conduit/cgs/legacy").EvidenceItem[]): ReviewResult[] {
   const staleIds = new Set(evidence.filter((item) => item.freshness.status === "stale").map((item) => item.id));
   if (staleIds.size === 0) return reviews;
   return reviews.map((review) => {

@@ -10,7 +10,7 @@ import type {
   GoalWorkflowEvent,
   ReviewFinding,
   ReviewResult,
-} from "./goal-contracts.js";
+} from "@conduit/cgs/legacy";
 import type { GoalRunEvent, GoalRunState } from "./schemas.js";
 
 export interface GoalStorageStatus {

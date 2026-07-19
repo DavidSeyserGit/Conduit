@@ -1,14 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { EvidenceItem, EvidenceRequest } from "@conduit/cgs/legacy";
 import type {
-  EvidenceItem,
-  EvidenceRequest,
   GoalPersistenceRepository,
   GoalRunSnapshot,
 } from "@conduit/shared";
 import type { ToolExecutor } from "@conduit/tools";
 import {
-  EvidenceCoordinator,
+  LegacyEvidenceCoordinator,
   invalidateEvidence,
   isForbiddenEvidenceCommand,
 } from "./evidence-coordinator.ts";
@@ -46,7 +45,7 @@ function request(type: EvidenceRequest["type"], suggestedCommand?: string, overr
   };
 }
 
-function options(overrides: Partial<Parameters<EvidenceCoordinator["collect"]>[1]> = {}) {
+function options(overrides: Partial<Parameters<LegacyEvidenceCoordinator["collect"]>[1]> = {}) {
   return {
     runId: "run-1",
     goal,
@@ -67,7 +66,7 @@ test("command evidence is normalized from exit status and large output is stored
     assert.equal(args.command, "pnpm test");
     return { success: true, result: { command: "pnpm test", exitCode: 1, stdout: "x".repeat(200), stderr: "failed", durationMs: 25 } };
   });
-  const result = await new EvidenceCoordinator(tools, persistence).collect(
+  const result = await new LegacyEvidenceCoordinator(tools, persistence).collect(
     [request("test", "pnpm test")],
     options({ summaryLimit: 80 }),
   );
@@ -87,9 +86,9 @@ test("fresh evidence is reused across reviewers and after coordinator restart", 
     executions += 1;
     return { success: true, result: { command: "pnpm test", exitCode: 0, stdout: "passed", stderr: "" } };
   });
-  const first = await new EvidenceCoordinator(tools).collect([request("test", "pnpm test")], options());
+  const first = await new LegacyEvidenceCoordinator(tools).collect([request("test", "pnpm test")], options());
   const secondRequest = request("test", "pnpm test", { id: "security-test", reviewerId: "security" });
-  const second = await new EvidenceCoordinator(tools).collect([secondRequest], options({ existingEvidence: first.evidence }));
+  const second = await new LegacyEvidenceCoordinator(tools).collect([secondRequest], options({ existingEvidence: first.evidence }));
 
   assert.equal(executions, 1);
   assert.equal(second.reused[0]?.id, first.evidence[0]?.id);
@@ -112,7 +111,7 @@ test("a stale request reruns instead of reusing stale evidence", async () => {
     freshness: { status: "stale", scopeFingerprint: "old", staleReason: "Source changed", invalidatedAt: at },
   };
 
-  const result = await new EvidenceCoordinator(tools).collect(
+  const result = await new LegacyEvidenceCoordinator(tools).collect(
     [staleRequest],
     options({ existingEvidence: [staleEvidence] }),
   );
@@ -129,7 +128,7 @@ test("workspace escapes, forbidden commands, and rejected approvals fail closed"
     executions += 1;
     return { success: true, result: {} };
   });
-  const coordinator = new EvidenceCoordinator(tools);
+  const coordinator = new LegacyEvidenceCoordinator(tools);
   const escaped = await coordinator.collect([request("file", "../secret")], options());
   const forbidden = await coordinator.collect([request("command", "rm -rf build")], options({ permissionMode: "auto_approve_all" }));
   const rejected = await coordinator.collect([request("build", "pnpm build")], options({
@@ -153,7 +152,7 @@ test("permission modes distinguish safe commands from user-approved commands", a
     executionModes.push(executionOptions?.permissionMode);
     return { success: true, result: { command: args.command, exitCode: 0, stdout: "ok", stderr: "" } };
   });
-  const coordinator = new EvidenceCoordinator(tools);
+  const coordinator = new LegacyEvidenceCoordinator(tools);
   const safe = await coordinator.collect([request("test", "pnpm test")], options({
     requestApproval: async (_request, command) => { approvals.push(command); return true; },
   }));
@@ -170,11 +169,11 @@ test("permission modes distinguish safe commands from user-approved commands", a
 test("cancellation throws and timeout records a failed attempt", async () => {
   const hanging = toolExecutor(async () => new Promise(() => {}));
   const controller = new AbortController();
-  const cancelled = new EvidenceCoordinator(hanging).collect([request("test", "pnpm test")], options({ signal: controller.signal }));
+  const cancelled = new LegacyEvidenceCoordinator(hanging).collect([request("test", "pnpm test")], options({ signal: controller.signal }));
   controller.abort();
   await assert.rejects(cancelled, /cancelled/);
 
-  const timedOut = await new EvidenceCoordinator(hanging).collect(
+  const timedOut = await new LegacyEvidenceCoordinator(hanging).collect(
     [request("test", "pnpm test")],
     options({ timeoutMs: 5 }),
   );
@@ -198,7 +197,7 @@ test("all initial evidence types normalize or reuse through approved tool plans"
     request("search", "unsafeCall"), request("diff"), request("dependency", "pnpm audit"),
   ];
   const userAnswerRequest = request("user_answer", "decision-1", { id: "answer-request" });
-  const result = await new EvidenceCoordinator(tools).collect(
+  const result = await new LegacyEvidenceCoordinator(tools).collect(
     [...requests, userAnswerRequest],
     options({
       permissionMode: "auto_approve_all",

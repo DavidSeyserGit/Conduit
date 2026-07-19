@@ -1,7 +1,7 @@
 [package]
 name = "conduit-desktop"
-version = "0.3.2"
-description = "Conduit - Minimal desktop coding chatbot"
+version = "0.4.0-rc.1"
+description = "Conduit - Goal-driven software engineering desktop client"
 authors = ["Conduit"]
 edition = "2021"
 

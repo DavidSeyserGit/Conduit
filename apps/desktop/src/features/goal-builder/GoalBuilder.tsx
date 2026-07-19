@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
-import type { GoalAnswerValue } from "@conduit/shared";
+import type { GoalAnswerValue } from "@conduit/cgs/legacy";
+import type { JsonValue } from "@conduit/cgs";
 import { useGoalBuilderStore } from "../../stores/goal-builder-store.js";
 import { QuestionRenderer } from "./QuestionRenderer";
 import { GoalPreview } from "./GoalPreview";
 import { hasRecommendedDefault, validateQuestionAnswer } from "./question-utils";
 import { useAppStore } from "../../stores/app-store.js";
 import { getModeColor } from "../../lib/mode-colors.js";
+import { legacyGoalToCgs, legacyQuestionBatchesToCgs } from "@conduit/runtime";
 
 export function GoalBuilder() {
   const phase = useGoalBuilderStore((state) => state.phase);
@@ -37,6 +39,9 @@ export function GoalBuilder() {
   const busy = Boolean(statusMessage) || phase === "analyzing" || phase === "approving";
   const progress = batches.length > 0 ? Math.round(((batchIndex + 1) / batches.length) * 100) : 0;
   const hasDefaults = useMemo(() => batch?.questions.some(hasRecommendedDefault) ?? false, [batch]);
+  const cgsGoal = useMemo(() => goal ? legacyGoalToCgs(goal) : null, [goal]);
+  const cgsBatches = useMemo(() => legacyQuestionBatchesToCgs(goal?.id ?? "goal-pending", batches, goal?.updatedAt ?? "2026-01-01T00:00:00Z"), [goal?.id, goal?.updatedAt, batches]);
+  const cgsBatch = cgsBatches[batchIndex];
 
   if (phase === "idle") return null;
 
@@ -57,9 +62,16 @@ export function GoalBuilder() {
     return <GoalBuilderShell request={initialRequest}><div className="flex min-h-[360px] flex-col items-center justify-center px-6 text-center"><div className="mb-4 flex size-11 items-center justify-center rounded-full bg-red-50 text-red-600">!</div><h2 className="text-lg font-semibold text-gray-900">Goal setup stopped</h2><p role="alert" className="mt-2 max-w-lg text-sm leading-6 text-red-600">{error}</p><div className="mt-6 flex gap-2"><button type="button" onClick={() => void cancel()} className="rounded-xl border border-gray-200 px-4 py-2 text-xs font-semibold text-gray-600">Start over</button><button type="button" onClick={() => void start(initialRequest)} className="rounded-xl bg-gray-900 px-4 py-2 text-xs font-semibold text-white">Try again</button></div></div></GoalBuilderShell>;
   }
 
-  if (phase === "preview" && goal) {
+  if (phase === "preview" && cgsGoal) {
     return <GoalBuilderShell request={initialRequest} wide>
-      <GoalPreview goal={goal} busy={busy} canReviseAnswers={batches.length > 0} onSave={editGoal} onReviseAnswers={reviseAnswers} onRegenerate={regenerate} onApprove={approveAndStart} />
+      <GoalPreview goal={cgsGoal} busy={busy} canReviseAnswers={batches.length > 0} onSave={async (patch) => editGoal({
+        ...(patch.title !== undefined ? { title: patch.title } : {}),
+        ...(patch.description !== undefined ? { description: patch.description } : {}),
+        ...(patch.successCriteria ? { successCriteria: patch.successCriteria.map((criterion) => ({ id: criterion.id, description: criterion.description, required: criterion.priority === "required", ...(criterion.verification?.[0]?.description ? { verificationHint: criterion.verification[0].description } : {}) })) } : {}),
+        ...(patch.constraints ? { constraints: patch.constraints.map((constraint) => ({ id: constraint.id, description: constraint.description, source: "user" as const })) } : {}),
+        ...(patch.deliverables ? { deliverables: patch.deliverables.map((deliverable) => ({ id: deliverable.id, description: deliverable.description, required: deliverable.required, type: deliverable.type === "test" ? "unit_tests" as const : deliverable.type === "documentation" || deliverable.type === "migration" || deliverable.type === "other" ? deliverable.type : "implementation" as const })) } : {}),
+        ...(patch.assumptions ? { assumptions: patch.assumptions.map((assumption) => ({ id: assumption.id, description: assumption.description, confirmed: assumption.confirmed ?? false })) } : {}),
+      })} onReviseAnswers={reviseAnswers} onRegenerate={regenerate} onApprove={approveAndStart} />
       <LiveStatus status={statusMessage} error={error} elapsedSeconds={elapsedSeconds} />
     </GoalBuilderShell>;
   }
@@ -97,7 +109,7 @@ export function GoalBuilder() {
         </div>
 
         {hasDefaults && <button type="button" onClick={useRecommendedDefaults} className="goal-accent-soft mb-4 rounded-xl border px-3.5 py-2 text-xs font-semibold transition">Use recommended defaults</button>}
-        <div className="space-y-4">{batch.questions.map((question) => <div key={question.id}><QuestionRenderer question={question} value={answers[question.id]} error={errors[question.id]} onChange={(value: GoalAnswerValue) => { setAnswer(question.id, value); setErrors((current) => { const next = { ...current }; delete next[question.id]; return next; }); }} />{!question.required && answers[question.id] !== null && <button type="button" onClick={() => setAnswer(question.id, null)} className="ml-3 mt-2 text-xs font-medium text-gray-400 hover:text-gray-700">Skip this optional question</button>}</div>)}</div>
+        <div className="space-y-4">{cgsBatch?.questions.map((question) => <div key={question.id}><QuestionRenderer question={question} value={answers[question.id] as JsonValue | undefined} error={errors[question.id]} onChange={(value: JsonValue) => { setAnswer(question.id, value as GoalAnswerValue); setErrors((current) => { const next = { ...current }; delete next[question.id]; return next; }); }} />{!question.required && answers[question.id] !== null && <button type="button" onClick={() => setAnswer(question.id, null)} className="ml-3 mt-2 text-xs font-medium text-gray-400 hover:text-gray-700">Skip this optional question</button>}</div>)}</div>
 
         <LiveStatus status={statusMessage} error={error} elapsedSeconds={elapsedSeconds} />
         <div className="mt-6 flex items-center justify-between gap-3">

@@ -1,4 +1,18 @@
 fn main() {
+    // Tauri's generated macOS development bundle embeds these assets, but Cargo
+    // does not otherwise know that changing an icon requires rerunning this
+    // build script. Keep development and release bundles in sync with the
+    // checked-in application branding.
+    for icon in [
+        "icons/32x32.png",
+        "icons/128x128.png",
+        "icons/128x128@2x.png",
+        "icons/icon.icns",
+        "icons/icon.ico",
+    ] {
+        println!("cargo:rerun-if-changed={icon}");
+    }
+
     const COMMANDS: &[&str] = &[
         "tool_execute",
         "report_export_write",

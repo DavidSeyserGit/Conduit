@@ -1,4 +1,6 @@
-# Conduit
+<p align="center">
+  <img src="apps/desktop/public/conduit-wordmark.png" alt="Conduit" width="420" />
+</p>
 
 Local desktop application for goal-driven software engineering with independently selectable models.
 

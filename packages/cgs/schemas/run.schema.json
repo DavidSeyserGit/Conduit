@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://conduit.dev/cgs/0.1/run.schema.json", "title": "CGS 0.1 Run", "type": "object",
+  "required": ["cgsVersion", "kind", "id", "createdAt", "goalId", "goalRevision", "conduitRuntimeVersion", "status", "implementationAttempts", "reviewResultIds", "evidenceArtifactIds"],
+  "properties": { "cgsVersion": { "const": "0.1.0" }, "kind": { "const": "run" }, "id": { "type": "string", "minLength": 1 }, "createdAt": { "type": "string", "format": "date-time" }, "goalId": { "type": "string", "minLength": 1 }, "goalRevision": { "type": "integer", "minimum": 1 }, "conduitRuntimeVersion": { "type": "string", "minLength": 1 }, "status": { "enum": ["created", "analyzing_goal", "awaiting_goal_answers", "awaiting_goal_approval", "planning", "implementing", "general_review", "specialist_review", "collecting_evidence", "awaiting_user_input", "revising", "reporting", "completed", "failed", "cancelled"] }, "implementationAttempts": { "type": "array" }, "reviewResultIds": { "type": "array", "items": { "type": "string" } }, "evidenceArtifactIds": { "type": "array", "items": { "type": "string" } } },
+  "additionalProperties": true
+}

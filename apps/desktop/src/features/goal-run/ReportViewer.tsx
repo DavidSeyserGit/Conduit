@@ -1,5 +1,6 @@
 import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
-import type { GoalReport, ReviewFinding, ReviewResult } from "@conduit/shared";
+import type { GoalReport, ReviewFinding, ReviewResult } from "@conduit/cgs/legacy";
+import type { GoalReport as CgsGoalReport } from "@conduit/cgs";
 import { exportGoalReport } from "@/lib/report-export";
 import { getModeColor } from "@/lib/mode-colors";
 import { goalRepository, useAppStore } from "@/stores/app-store";
@@ -23,7 +24,43 @@ const reportViews: Array<{ id: ReportViewId; label: string; description: string 
 
 type Tone = "success" | "warning" | "danger" | "neutral";
 
-export function ReportViewer({ report, onClose }: { report: GoalReport; onClose: () => void }) {
+export function ReportViewer({ report, onClose }: { report: GoalReport | CgsGoalReport; onClose: () => void }) {
+  return isCgsReport(report)
+    ? <CanonicalReportViewer report={report} onClose={onClose} />
+    : <LegacyReportViewer report={report} onClose={onClose} />;
+}
+
+function isCgsReport(report: GoalReport | CgsGoalReport): report is CgsGoalReport {
+  return (report as { kind?: unknown }).kind === "report" && (report as { cgsVersion?: unknown }).cgsVersion === "0.1.0";
+}
+
+function CanonicalReportViewer({ report, onClose }: { report: CgsGoalReport; onClose: () => void }) {
+  const [exportMessage, setExportMessage] = useState<string | null>(null);
+  const runExport = async (format: "markdown" | "json") => {
+    try { if (await exportGoalReport(report, format)) setExportMessage(`${format === "markdown" ? "Markdown" : "JSON"} report saved.`); }
+    catch (error) { setExportMessage(`Could not export report: ${error instanceof Error ? error.message : String(error)}`); }
+  };
+  const achieved = report.decision === "completed" || report.decision === "completed_with_warnings";
+  return <article className="overflow-hidden rounded-2xl border border-gray-200 bg-white text-sm text-gray-700 shadow-sm" aria-labelledby="cgs-report-title">
+    <header className="border-b border-gray-200 bg-gradient-to-b from-white to-gray-50 px-6 py-5">
+      <div className="flex items-start justify-between gap-4"><div><div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-400">CGS {report.cgsVersion} report · Goal revision {report.goalRevision}</div><h2 id="cgs-report-title" className="mt-2 text-2xl font-semibold text-gray-900">{report.goalSnapshot.title}</h2><p className="mt-2 max-w-3xl leading-6 text-gray-600">{report.summary}</p></div><button type="button" onClick={onClose} aria-label="Close report" className="rounded-lg px-3 py-2 text-gray-500 hover:bg-gray-100">Close</button></div>
+      <div className="mt-4 flex flex-wrap gap-2"><span className={`rounded-full px-3 py-1 text-xs font-semibold ${achieved ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>{humanize(report.decision)}</span><button type="button" onClick={() => void runExport("markdown")} className="rounded-lg border border-gray-200 px-3 py-1 text-xs font-semibold">Export Markdown</button><button type="button" onClick={() => void runExport("json")} className="rounded-lg border border-gray-200 px-3 py-1 text-xs font-semibold">Export JSON</button></div>
+      {exportMessage ? <p role="status" className="mt-3 text-xs text-gray-500">{exportMessage}</p> : null}
+    </header>
+    <div className="grid gap-5 p-6 lg:grid-cols-2">
+      <CanonicalSection title="Success criteria">{report.goalSnapshot.successCriteria.map((criterion) => <CanonicalItem key={criterion.id} title={criterion.description} detail={criterion.priority} />)}</CanonicalSection>
+      <CanonicalSection title="Implementation"><p>{report.implementationSummary.summary}</p><p className="mt-2 text-xs text-gray-500">{report.implementationSummary.filesAdded.length} added · {report.implementationSummary.filesChanged.length} changed · {report.implementationSummary.filesDeleted.length} deleted · {report.implementationSummary.attempts} attempts</p></CanonicalSection>
+      <CanonicalSection title="Validation and evidence"><p>{report.validationSummary.summary}</p><p className="mt-2 text-xs text-gray-500">{report.evidenceSummary.summary}</p>{report.evidenceSummary.staleArtifactIds.length ? <p className="mt-2 text-xs font-medium text-amber-700">{report.evidenceSummary.staleArtifactIds.length} stale artifacts excluded</p> : null}</CanonicalSection>
+      <CanonicalSection title="Reviewer outcomes">{report.reviewerSummaries.length ? report.reviewerSummaries.map((review) => <CanonicalItem key={review.reviewResultId} title={`${review.reviewerId} · ${humanize(review.status)}`} detail={review.summary} />) : <p className="text-gray-400">No reviewer summaries.</p>}</CanonicalSection>
+      {(report.knownRisks.length || report.suggestedFollowUps.length) ? <CanonicalSection title="Risks and follow-ups">{report.knownRisks.map((risk) => <CanonicalItem key={risk.id} title={risk.description} detail={`${risk.severity} risk`} />)}{report.suggestedFollowUps.map((followUp) => <CanonicalItem key={followUp.id} title={followUp.description} detail={followUp.priority} />)}</CanonicalSection> : null}
+    </div>
+  </article>;
+}
+
+function CanonicalSection({ title, children }: { title: string; children: ReactNode }) { return <section className="rounded-xl border border-gray-200 p-4"><h3 className="mb-3 font-semibold text-gray-900">{title}</h3><div className="space-y-3">{children}</div></section>; }
+function CanonicalItem({ title, detail }: { title: string; detail: string }) { return <div><p className="font-medium text-gray-800">{title}</p><p className="mt-0.5 text-xs text-gray-500">{detail}</p></div>; }
+
+function LegacyReportViewer({ report, onClose }: { report: GoalReport; onClose: () => void }) {
   const [activeView, setActiveView] = useState<ReportViewId>("summary");
   const [artifact, setArtifact] = useState<{ title: string; content?: string; error?: string } | null>(null);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
@@ -67,7 +104,7 @@ export function ReportViewer({ report, onClose }: { report: GoalReport; onClose:
           <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-400">
             <span className="goal-accent-dot h-2 w-2 rounded-full" aria-hidden="true" />
             Run report
-            <span className="font-normal normal-case tracking-normal text-gray-400">· Goal v{report.goal.version}</span>
+            <span className="font-normal normal-case tracking-normal text-gray-400">· Goal v{report.goal.version} · Runtime {report.overview.conduitRuntimeVersion ?? "legacy"} · CGS {report.overview.cgsVersion ?? "legacy"}</span>
           </div>
           <div className="flex items-center gap-1.5">
             <div className="relative" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setShowExportMenu(false); }}>

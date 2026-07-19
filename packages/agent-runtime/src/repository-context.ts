@@ -1,5 +1,5 @@
-import type { RepositoryContext } from "@conduit/shared";
-import { RepositoryContextSchema } from "@conduit/shared";
+import type { RepositoryContext } from "@conduit/cgs/legacy";
+import { RepositoryContextSchema } from "@conduit/cgs/legacy";
 import type { ToolExecutor } from "@conduit/tools";
 
 export interface RepositoryExcerpt {
@@ -12,6 +12,17 @@ export interface PreparedRepositoryContext {
   context: RepositoryContext;
   excerpts: RepositoryExcerpt[];
 }
+
+export interface RepositoryPreparationOptions {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  onProgress?: (message: string) => void;
+}
+
+const DEFAULT_INSPECTION_TIMEOUT_MS = 20_000;
+const TOOL_TIMEOUT_MS = 10_000;
+const MAX_RELEVANT_FILES = 12;
+const MAX_CONTEXT_CHARACTERS = 12_000;
 
 const MANIFEST_NAMES = new Set([
   "package.json", "pnpm-workspace.yaml", "Cargo.toml", "pyproject.toml",
@@ -28,8 +39,11 @@ export async function prepareRepositoryContext(
   initialRequest: string,
   tools: ToolExecutor,
   now = () => new Date(),
+  options: RepositoryPreparationOptions = {},
 ): Promise<PreparedRepositoryContext> {
-  const listing = await tools.execute("list_files", { path: ".", max_depth: 4 }, "ask");
+  const inspection = inspectionTools(tools, options);
+  options.onProgress?.("Listing repository files…");
+  const listing = await inspection.execute("list_files", { path: ".", max_depth: 3 });
   if (!listing.success || !listing.result) {
     throw new Error(`Repository inspection failed: ${listing.error ?? "could not list files"}`);
   }
@@ -49,24 +63,31 @@ export async function prepareRepositoryContext(
   const searchTerms = [...new Set(initialRequest.toLowerCase().match(/[a-z][a-z0-9_-]{3,}/g) ?? [])]
     .filter((term) => !STOP_WORDS.has(term))
     .slice(0, 4);
-  for (const term of searchTerms) {
-    const result = await tools.execute("search_files", { query: term, case_sensitive: false }, "ask");
-    if (!result.success || !result.result) continue;
-    const matches = (result.result as { matches?: Array<{ path: string }> }).matches ?? [];
-    for (const match of matches.slice(0, 4)) {
-      if (relevantPaths.size >= 18) break;
-      relevantPaths.set(match.path, `Matches request term “${term}”`);
+  if (searchTerms.length > 0) {
+    options.onProgress?.("Locating relevant code…");
+    const query = searchTerms.map(escapeRegex).join("|");
+    const result = await inspection.execute("search_files", { query, regex: true, case_sensitive: false });
+    if (result.success && result.result) {
+      const matches = (result.result as { matches?: Array<{ path: string }> }).matches ?? [];
+      for (const match of matches) {
+        if (relevantPaths.size >= MAX_RELEVANT_FILES) break;
+        relevantPaths.set(match.path, "Matches terminology from the request");
+      }
     }
   }
 
+  options.onProgress?.("Reading relevant project files…");
+  const reads = await Promise.all([...relevantPaths].slice(0, MAX_RELEVANT_FILES).map(async ([path, reason]) => {
+    const result = await inspection.execute("read_file", { path, offset: 0, limit: 120 });
+    if (!result.success || !result.result) return null;
+    return { path, reason, raw: String((result.result as { content?: unknown }).content ?? "") };
+  }));
   const excerpts: RepositoryExcerpt[] = [];
-  let remainingCharacters = 24_000;
-  for (const [path, reason] of relevantPaths) {
-    if (remainingCharacters <= 0) break;
-    const result = await tools.execute("read_file", { path, offset: 0, limit: 160 }, "ask");
-    if (!result.success || !result.result) continue;
-    const raw = String((result.result as { content?: unknown }).content ?? "");
-    const content = raw.slice(0, Math.min(remainingCharacters, 6_000));
+  let remainingCharacters = MAX_CONTEXT_CHARACTERS;
+  for (const read of reads) {
+    if (!read || remainingCharacters <= 0) continue;
+    const { path, reason, raw } = read;
+    const content = raw.slice(0, Math.min(remainingCharacters, 3_000));
     if (!content.trim()) continue;
     excerpts.push({ path, content, reason });
     remainingCharacters -= content.length;
@@ -92,6 +113,36 @@ export async function prepareRepositoryContext(
     preparedAt: now().toISOString(),
   });
   return { context, excerpts };
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function inspectionTools(tools: ToolExecutor, options: RepositoryPreparationOptions) {
+  const timeoutSignal = AbortSignal.timeout(options.timeoutMs ?? DEFAULT_INSPECTION_TIMEOUT_MS);
+  const signal = options.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal;
+  return {
+    async execute(name: string, args: Record<string, unknown>) {
+      try {
+        signal.throwIfAborted();
+        return await abortable(tools.execute(name, args, "ask", { signal, timeoutMs: TOOL_TIMEOUT_MS }), signal);
+      } catch (error) {
+        if (options.signal?.aborted) throw new Error("Repository inspection cancelled");
+        if (timeoutSignal.aborted) throw new Error(`Repository inspection took longer than ${Math.max(1, Math.round((options.timeoutMs ?? DEFAULT_INSPECTION_TIMEOUT_MS) / 1_000))} seconds and was stopped`);
+        throw error;
+      }
+    },
+  };
+}
+
+async function abortable<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) throw signal.reason;
+  return await new Promise<T>((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    signal.addEventListener("abort", abort, { once: true });
+    operation.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+  });
 }
 
 function fileName(path: string): string {

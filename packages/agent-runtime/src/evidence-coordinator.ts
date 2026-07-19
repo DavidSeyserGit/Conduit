@@ -1,11 +1,9 @@
 import type {
   CommandPermissionMode,
-  EvidenceItem,
-  EvidenceRequest,
-  GoalDefinition,
   GoalPersistenceRepository,
 } from "@conduit/shared";
-import { EvidenceItemSchema, EvidenceRequestSchema, GoalDefinitionSchema } from "@conduit/shared";
+import type { EvidenceItem, EvidenceRequest, GoalDefinition } from "@conduit/cgs/legacy";
+import { EvidenceItemSchema, EvidenceRequestSchema, GoalDefinitionSchema } from "@conduit/cgs/legacy";
 import type { ToolExecutor, ToolCallResult } from "@conduit/tools";
 
 const COMMAND_EVIDENCE = new Set<EvidenceRequest["type"]>([
@@ -50,7 +48,8 @@ export interface CollectionPlan {
   filePath?: string;
 }
 
-export class EvidenceCoordinator {
+/** @deprecated Conduit 0.3 evidence compatibility coordinator. */
+export class LegacyEvidenceCoordinator {
   constructor(
     private tools: ToolExecutor,
     private persistence?: GoalPersistenceRepository,

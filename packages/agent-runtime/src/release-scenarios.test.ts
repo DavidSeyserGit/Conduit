@@ -5,21 +5,23 @@ import test from "node:test";
 import type {
   EvidenceItem,
   EvidenceRequest,
-  CommandPermissionMode,
   GoalAnswer,
   GoalDefinition,
   GoalDrivenRunRecord,
-  GoalPersistenceRepository,
   GoalQuestion,
   GoalReport,
+  GoalVersion,
+  GoalWorkflowEvent,
+  ReviewResult,
+} from "@conduit/cgs/legacy";
+import type {
+  CommandPermissionMode,
+  GoalPersistenceRepository,
   GoalRunEvent,
   GoalRunSnapshot,
   GoalRunState,
-  GoalVersion,
-  GoalWorkflowEvent,
   ModelRequest,
   ModelResponse,
-  ReviewResult,
 } from "@conduit/shared";
 import type { ModelProvider } from "@conduit/model-providers";
 import { DefaultProviderRegistry } from "@conduit/model-providers";

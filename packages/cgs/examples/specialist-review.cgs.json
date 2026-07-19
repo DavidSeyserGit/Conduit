@@ -1,0 +1,8 @@
+{
+  "cgsVersion": "0.1.0", "kind": "review-result", "id": "review_security_1", "createdAt": "2026-07-18T13:02:00Z",
+  "runId": "run_reset_1", "goalId": "goal_password_reset", "reviewerId": "conduit.security", "reviewRequestId": "review_request_security_1",
+  "status": "changes_requested", "summary": "The reset token is written to a debug log.", "confidence": 0.98,
+  "criterionResults": [{ "criterionId": "criterion_request", "status": "failed", "explanation": "Sensitive token material is exposed in logs." }],
+  "findings": [{ "id": "finding_token_log", "severity": "critical", "title": "Reset token logged", "description": "A debug statement records the live reset token.", "filePath": "src/auth/reset.ts", "lineStart": 42, "relatedCriterionIds": ["criterion_request"], "remediation": "Remove the token from all log fields and add a regression assertion.", "blocksCompletion": true }],
+  "evidenceRequests": [], "reviewedAt": "2026-07-18T13:02:00Z"
+}

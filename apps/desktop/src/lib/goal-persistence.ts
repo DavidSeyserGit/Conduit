@@ -1,4 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
+import { CgsArtifactUnionSchema, type CgsArtifactValue } from "@conduit/cgs";
+import type { CgsArtifactRepository } from "@conduit/runtime";
 import {
   CompatiblePersistedRunSchema,
   EvidenceItemSchema,
@@ -17,18 +19,20 @@ import {
   type GoalAnswer,
   type GoalDefinition,
   type GoalDrivenRunRecord,
-  type GoalArtifactContent,
-  type GoalArtifactMetadata,
-  type GoalPersistenceRepository,
   type GoalQuestion,
   type GoalReport,
-  type GoalRunSnapshot,
-  type GoalRunEvent,
-  type GoalRunState,
   type GoalVersion,
-  type GoalStorageStatus,
   type GoalWorkflowEvent,
   type ReviewResult,
+} from "@conduit/cgs/legacy";
+import type {
+  GoalArtifactContent,
+  GoalArtifactMetadata,
+  GoalPersistenceRepository,
+  GoalRunSnapshot,
+  GoalRunEvent,
+  GoalRunState,
+  GoalStorageStatus,
 } from "@conduit/shared";
 
 type InvokeFn = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
@@ -39,11 +43,20 @@ export interface LegacyMigrationResult {
   alreadyCompleted: boolean;
 }
 
-export class TauriGoalPersistenceRepository implements GoalPersistenceRepository {
+export class TauriGoalPersistenceRepository implements GoalPersistenceRepository, CgsArtifactRepository {
   constructor(private readonly invokeCommand: InvokeFn = invoke) {}
 
   status(): Promise<GoalStorageStatus> {
     return this.invokeCommand("goal_storage_status");
+  }
+
+  async saveCgsArtifact(artifact: CgsArtifactValue): Promise<void> {
+    await this.write({ operation: "upsert_cgs_artifact", artifact: CgsArtifactUnionSchema.parse(artifact) });
+  }
+
+  async getCgsArtifact(id: string): Promise<CgsArtifactValue | null> {
+    const value = await this.read({ query: "cgs_artifact", id });
+    return value === null ? null : CgsArtifactUnionSchema.parse(value);
   }
 
   async saveGoal(goal: GoalDefinition): Promise<void> {

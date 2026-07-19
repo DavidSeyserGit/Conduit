@@ -1,0 +1,15 @@
+{
+  "cgsVersion": "0.1.0",
+  "kind": "evidence-artifact",
+  "id": "evidence_test_1",
+  "createdAt": "2026-07-18T12:50:00Z",
+  "runId": "run_reset_1",
+  "goalId": "goal_password_reset",
+  "requestId": "evidence_request_test_1",
+  "type": "test_result",
+  "status": "success",
+  "summary": "Password reset tests passed.",
+  "payload": { "command": "pnpm test", "exitCode": 0, "passed": 12, "failed": 0 },
+  "repositoryState": { "gitCommit": "9ea3f73", "gitTreeHash": "tree-reset-1", "capturedAt": "2026-07-18T12:50:00Z" },
+  "producedAt": "2026-07-18T12:50:00Z"
+}

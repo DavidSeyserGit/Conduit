@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type { GoalReport } from "@conduit/cgs/legacy";
 import type {
   GoalRunConfig,
   GoalRunEvent,
   GoalRunState,
   GoalPersistenceRepository,
-  GoalReport,
   GoalRunSnapshot,
   ModelRequest,
   ModelResponse,

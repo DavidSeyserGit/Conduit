@@ -4,9 +4,16 @@ import {
   TauriGoalPersistenceRepository,
   migrateLegacyRunHistoryFromLocalStorage,
 } from "./goal-persistence.js";
+import { CGS_VERSION, type GoalSpecification } from "@conduit/cgs";
 
 const at = "2026-07-18T08:00:00.000Z";
 const later = "2026-07-18T08:01:00.000Z";
+const cgsGoal: GoalSpecification = {
+  cgsVersion: CGS_VERSION, kind: "goal", id: "goal-cgs-1", createdAt: at, title: "Portable goal", description: "Keep it portable.",
+  successCriteria: [{ id: "criterion-1", description: "It works", priority: "required" }], constraints: [], deliverables: [], assumptions: [],
+  permissions: { allowFileReads: true, allowFileWrites: false, allowCommandExecution: false, allowNetworkAccess: false, allowDependencyChanges: false, allowGitOperations: false },
+  clarificationHistory: [], reviewPipeline: { generalReviewer: { reviewerId: "conduit.general", required: true }, specialistReviewers: [], routingMode: "hybrid", completionPolicy: "all_required_approve" }, status: "approved", revision: 1,
+};
 
 const currentRun = {
   formatVersion: 1 as const,
@@ -68,6 +75,15 @@ test("typed persistence rejects invalid records before invoking native storage",
 
   await assert.rejects(() => repository.saveRun({ ...currentRun, updatedAt: "2026-07-18T07:00:00.000Z" }));
   assert.equal(invoked, false);
+});
+
+test("CGS persistence validates and round-trips the lossless artifact JSON", async () => {
+  const calls: unknown[] = [];
+  const writer = new TauriGoalPersistenceRepository(async <T>(_command: string, args?: Record<string, unknown>) => { calls.push(args?.operation); return {} as T; });
+  await writer.saveCgsArtifact({ ...cgsGoal, extensionField: { retained: true } });
+  assert.equal((calls[0] as Record<string, unknown>).operation, "upsert_cgs_artifact");
+  const reader = new TauriGoalPersistenceRepository(async <T>() => ({ ...cgsGoal, extensionField: { retained: true } } as T));
+  assert.deepEqual((await reader.getCgsArtifact(cgsGoal.id))?.extensionField, { retained: true });
 });
 
 test("restart restoration parses a persisted legacy run snapshot", async () => {

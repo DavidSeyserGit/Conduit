@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { ReviewResult } from "@conduit/cgs/legacy";
 import type { ModelProvider } from "@conduit/model-providers";
-import type { ModelRequest, ModelResponse, ReviewResult } from "@conduit/shared";
+import type { ModelRequest, ModelResponse } from "@conduit/shared";
 import {
   GeneralReviewer,
   ModelSpecialistReviewer,

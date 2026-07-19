@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://conduit.dev/cgs/0.1/report.schema.json", "title": "CGS 0.1 Goal Report", "type": "object",
+  "required": ["cgsVersion", "kind", "id", "createdAt", "runId", "goalId", "goalRevision", "decision", "summary", "goalSnapshot", "clarificationSummary", "implementationSummary", "validationSummary", "reviewerSummaries", "evidenceSummary", "knownRisks", "suggestedFollowUps", "generatedAt"],
+  "properties": { "cgsVersion": { "const": "0.1.0" }, "kind": { "const": "report" }, "id": { "type": "string", "minLength": 1 }, "createdAt": { "type": "string", "format": "date-time" }, "runId": { "type": "string", "minLength": 1 }, "goalId": { "type": "string", "minLength": 1 }, "goalRevision": { "type": "integer", "minimum": 1 }, "decision": { "enum": ["completed", "completed_with_warnings", "not_completed", "blocked"] }, "summary": { "type": "string", "minLength": 1 }, "goalSnapshot": { "$ref": "goal.schema.json" }, "generatedAt": { "type": "string", "format": "date-time" } },
+  "additionalProperties": true
+}

@@ -1,13 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
-import { reportToJSON, reportToMarkdown } from "@conduit/agent-runtime";
-import type { GoalReport } from "@conduit/shared";
+import { reportToJSON, reportToMarkdown } from "@conduit/runtime";
+import type { GoalReport } from "@conduit/cgs/legacy";
+import { renderReportJson, renderReportMarkdown, type GoalReport as CgsGoalReport } from "@conduit/cgs";
 
-export async function exportGoalReport(report: GoalReport, format: "markdown" | "json"): Promise<boolean> {
+export async function exportGoalReport(report: GoalReport | CgsGoalReport, format: "markdown" | "json"): Promise<boolean> {
   const maxReportBytes = 2 * 1024 * 1024;
   const extension = format === "markdown" ? "md" : "json";
-  const content = format === "markdown"
-    ? reportToMarkdown(report)
-    : `${JSON.stringify(reportToJSON(report, report.generatedAt), null, 2)}\n`;
+  const content = isCgsReport(report)
+    ? format === "markdown" ? renderReportMarkdown(report) : `${renderReportJson(report)}\n`
+    : format === "markdown" ? reportToMarkdown(report) : `${JSON.stringify(reportToJSON(report, report.generatedAt), null, 2)}\n`;
   if (new TextEncoder().encode(content).byteLength > maxReportBytes) {
     throw new Error("Report export exceeds the 2 MiB safety limit");
   }
@@ -29,4 +30,8 @@ export async function exportGoalReport(report: GoalReport, format: "markdown" | 
   anchor.remove();
   URL.revokeObjectURL(url);
   return true;
+}
+
+function isCgsReport(report: GoalReport | CgsGoalReport): report is CgsGoalReport {
+  return (report as { kind?: unknown }).kind === "report" && (report as { cgsVersion?: unknown }).cgsVersion === "0.1.0";
 }

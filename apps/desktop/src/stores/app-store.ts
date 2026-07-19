@@ -9,12 +9,12 @@ import type {
   ChatMode,
   GoalRunEvent,
   GoalRunState,
-  GoalDefinition,
   ModelDescriptor,
   SessionUsage,
   TokenUsage,
-  GoalReport,
 } from "@conduit/shared";
+import type { GoalDefinition, GoalReport } from "@conduit/cgs/legacy";
+import type { GoalReport as CgsGoalReport } from "@conduit/cgs";
 import {
   DefaultProviderRegistry,
   OpenRouterProvider,
@@ -25,7 +25,9 @@ import {
   HttpLocalHarnessTransport,
   type LocalHarnessTransport,
 } from "@conduit/model-providers";
-import { GoalLoopRunner, AskChatRunner } from "@conduit/agent-runtime";
+import { GoalLoopRunner, AskChatRunner, CONDUIT_RUNTIME_VERSION } from "@conduit/runtime";
+import { CGS_VERSION } from "@conduit/cgs";
+import { CONDUIT_DESKTOP_VERSION } from "../version.js";
 import { createTauriToolExecutor } from "../lib/tauri-tools.js";
 import { createChatWorktree, removeChatWorktree } from "../lib/git-workflow.js";
 import { catalogNeedsMigration, normalizePersistedModelId } from "../lib/model-catalog.js";
@@ -43,6 +45,7 @@ export interface RunHistoryEntry {
   run: GoalRunState;
   events: GoalRunEvent[];
   report?: GoalReport;
+  cgsReport?: CgsGoalReport;
   updatedAt: string;
 }
 
@@ -797,6 +800,9 @@ export const useAppStore = create<AppState>()(
           const result = await runner.run(
             {
               goal,
+              conduitDesktopVersion: CONDUIT_DESKTOP_VERSION,
+              conduitRuntimeVersion: CONDUIT_RUNTIME_VERSION,
+              cgsVersion: CGS_VERSION,
               runId: workflowRunId,
               structuredGoal,
               approvedGoalVersion: structuredGoal?.version,
@@ -830,7 +836,7 @@ export const useAppStore = create<AppState>()(
 
           set((s) => {
             const runHistory = [
-              { run: result.state, events: s.runEvents, report: result.report, updatedAt: new Date().toISOString() },
+              { run: result.state, events: s.runEvents, report: result.report, cgsReport: result.cgsReport, updatedAt: new Date().toISOString() },
               ...s.runHistory.filter((entry) => entry.run.id !== result.state.id),
             ].slice(0, 50);
             const codingUsage = subtractUsage(result.state.codingTokenUsage, resumeState?.codingTokenUsage);

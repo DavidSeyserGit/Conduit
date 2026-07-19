@@ -1,5 +1,14 @@
 import { z } from "zod";
-import { GoalRunStatusSchema } from "./schemas.js";
+
+const GoalRunStatusSchema = z.enum([
+  "idle",
+  "running",
+  "waiting_for_approval",
+  "completed",
+  "cancelled",
+  "failed",
+  "iteration_limit_reached",
+]);
 
 const IdSchema = z.string().min(1);
 const NonEmptyStringSchema = z.string().trim().min(1);
@@ -60,7 +69,7 @@ const GoalQuestionBaseShape = {
   sourceReason: NonEmptyStringSchema.optional(),
 };
 
-const GoalQuestionOptionsSchema = z.array(GoalQuestionOptionSchema).min(1).superRefine((options, ctx) => {
+const GoalQuestionOptionsSchema = z.array(GoalQuestionOptionSchema).min(2).superRefine((options, ctx) => {
   const ids = new Set<string>();
   for (const [index, option] of options.entries()) {
     if (ids.has(option.id)) {
@@ -467,6 +476,9 @@ export const ClarificationRecordSchema = z.object({
 
 export const ReportOverviewSchema = z.object({
   finalStatus: z.enum(["achieved", "not_achieved", "failed", "cancelled", "blocked"]),
+  conduitDesktopVersion: NonEmptyStringSchema.optional(),
+  conduitRuntimeVersion: NonEmptyStringSchema.optional(),
+  cgsVersion: NonEmptyStringSchema.optional(),
   startedAt: TimestampSchema,
   finishedAt: TimestampSchema,
   implementationModelId: IdSchema,
@@ -572,6 +584,9 @@ export const GoalWorkflowEventSchema = z.discriminatedUnion("type", [
 
 export const GoalDrivenRunRecordSchema = z.object({
   formatVersion: z.literal(1),
+  conduitDesktopVersion: NonEmptyStringSchema.optional(),
+  conduitRuntimeVersion: NonEmptyStringSchema.optional(),
+  cgsVersion: NonEmptyStringSchema.optional(),
   id: IdSchema,
   goalId: IdSchema,
   activeGoalVersion: z.number().int().positive(),

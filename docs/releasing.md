@@ -19,33 +19,40 @@ run; the release workflow calls the same CI workflow once.
 `.github/workflows/release.yml` runs when a semantic version tag is pushed. It:
 
 1. Reuses the complete CI verification job.
-2. Verifies that the tag matches all four application version sources.
+2. Verifies that the tag matches every Desktop and Runtime version source, and
+   that the independently versioned CGS sources agree.
 3. Builds Tauri installers for macOS Apple Silicon, macOS Intel, and Linux x64
    (Windows is currently not built — see Signing).
 4. Publishes the installers to a generated GitHub Release with release notes.
 
-The required version sources are:
+The required application and runtime version sources are:
 
 - `package.json`
 - `apps/desktop/package.json`
 - `apps/desktop/src-tauri/tauri.conf.json`
 - `apps/desktop/src-tauri/Cargo.toml`
+- `packages/agent-runtime/package.json`
+- `apps/desktop/src/version.ts`
+- `packages/agent-runtime/src/version.ts`
+
+`packages/cgs/package.json` and `packages/cgs/src/common.ts` are checked
+independently and remain `0.1.0` for this Conduit release.
 
 `apps/desktop/src-tauri/Cargo.lock` is committed and release builds pass
 `--locked`, so GitHub cannot silently resolve different Rust dependencies.
 
-To publish version `0.3.1`, update all four files in a normal pull request, let
+To publish version `0.4.0-rc.1`, update all Desktop and Runtime version sources in a normal pull request, let
 CI pass, verify the version locally, then tag the verified commit:
 
 ```bash
-pnpm release:check -- v0.3.1
+pnpm release:check -- v0.4.0-rc.1
 ```
 
 Publish only after that command succeeds:
 
 ```bash
-git tag v0.3.1
-git push origin v0.3.1
+git tag v0.4.0-rc.1
+git push origin v0.4.0-rc.1
 ```
 
 Prereleases use tags such as `v0.3.1-beta.1` and are marked as prereleases on

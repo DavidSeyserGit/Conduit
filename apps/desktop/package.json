@@ -1,10 +1,10 @@
 {
   "name": "@conduit/desktop",
-  "version": "0.3.2",
+  "version": "0.4.0-rc.1",
   "private": true,
   "type": "module",
   "scripts": {
-    "predev": "pnpm --dir ../.. --filter @conduit/shared build && pnpm --dir ../.. --filter @conduit/tools build && pnpm --dir ../.. --filter @conduit/model-providers build && pnpm --dir ../.. --filter @conduit/agent-runtime build",
+    "predev": "pnpm --dir ../.. --filter @conduit/cgs build && pnpm --dir ../.. --filter @conduit/shared build && pnpm --dir ../.. --filter @conduit/tools build && pnpm --dir ../.. --filter @conduit/model-providers build && pnpm --dir ../.. --filter @conduit/runtime build",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b --noEmit && tsc -p tsconfig.backend.json",
@@ -13,7 +13,8 @@
     "tauri:build": "tauri build"
   },
   "dependencies": {
-    "@conduit/agent-runtime": "workspace:*",
+    "@conduit/cgs": "workspace:*",
+    "@conduit/runtime": "workspace:*",
     "@conduit/model-providers": "workspace:*",
     "@conduit/shared": "workspace:*",
     "@conduit/tools": "workspace:*",

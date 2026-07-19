@@ -1,6 +1,6 @@
 {
-  "name": "@conduit/agent-runtime",
-  "version": "0.1.0",
+  "name": "@conduit/runtime",
+  "version": "0.4.0-rc.1",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -16,6 +16,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@conduit/cgs": "workspace:*",
     "@conduit/shared": "workspace:*",
     "@conduit/tools": "workspace:*",
     "@conduit/model-providers": "workspace:*"

@@ -1,13 +1,13 @@
 {
   "name": "conduit",
-  "version": "0.3.2",
+  "version": "0.4.0-rc.1",
   "private": true,
   "packageManager": "pnpm@11.0.9",
-  "description": "Minimal desktop coding chatbot with explicit agent loops",
+  "description": "Goal-driven software engineering system with a portable goal specification",
   "scripts": {
     "dev": "pnpm --filter @conduit/desktop dev",
     "build": "pnpm -r build",
-    "build:packages": "pnpm --filter @conduit/shared build && pnpm --filter @conduit/tools build && pnpm --filter @conduit/model-providers build && pnpm --filter @conduit/agent-runtime build",
+    "build:packages": "pnpm --filter @conduit/cgs build && pnpm --filter @conduit/shared build && pnpm --filter @conduit/tools build && pnpm --filter @conduit/model-providers build && pnpm --filter @conduit/runtime build",
     "pretypecheck": "pnpm build:packages",
     "typecheck": "pnpm -r typecheck && tsc -p tsconfig.tests.json",
     "pretest": "pnpm build:packages",

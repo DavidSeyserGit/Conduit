@@ -25,7 +25,10 @@ test("professional report UI has outcome-first views, grouped reviews, artifacts
   assert.match(viewer, /runExport\("markdown"\)/);
   assert.match(viewer, /runExport\("json"\)/);
   assert.match(viewer, /Could not export report:/);
+  assert.match(viewer, /CanonicalReportViewer/);
+  assert.match(viewer, /CGS \{report\.cgsVersion\} report/);
   assert.match(timeline, /runHistory\.find[\s\S]*\.report/);
+  assert.match(timeline, /\.cgsReport/);
   assert.match(timeline, /View report/);
   assert.match(exporter, /plugin-dialog/);
   assert.match(exporter, /report_export_write/);

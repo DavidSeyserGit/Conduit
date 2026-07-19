@@ -20,7 +20,7 @@ import {
   ReviewResultSchema,
   ReviewRoutingDecisionSchema,
   ReviewerDefinitionSchema,
-} from "./goal-contracts.js";
+} from "./legacy-contracts.js";
 
 const at = "2026-07-18T08:00:00.000Z";
 const later = "2026-07-18T08:01:00.000Z";
@@ -173,12 +173,13 @@ test("structured goals reject future versions, unknown fields, and invalid chron
 test("all native question variants parse through one strict question contract", () => {
   const base = { id: "question-1", title: "Choose", required: true, sourceReason: "Intent is ambiguous" };
   const option = { id: "choice-1", label: "Choice", recommended: true };
+  const secondOption = { id: "choice-2", label: "Alternative" };
   const questions = [
-    { ...base, type: "single_select", options: [option], defaultValue: option.id, allowCustomAnswer: true },
-    { ...base, id: "question-2", type: "multi_select", options: [option], defaultValue: [option.id] },
+    { ...base, type: "single_select", options: [option, secondOption], defaultValue: option.id, allowCustomAnswer: true },
+    { ...base, id: "question-2", type: "multi_select", options: [option, secondOption], defaultValue: [option.id] },
     { ...base, id: "question-3", type: "confirmation", defaultValue: true },
     { ...base, id: "question-4", type: "text", defaultValue: "Context" },
-    { ...base, id: "question-5", type: "repository_reference", options: [option], defaultValue: option.id },
+    { ...base, id: "question-5", type: "repository_reference", options: [option, secondOption], defaultValue: option.id },
     { ...base, id: "question-6", type: "constraint_editor", defaultValue: [constraint] },
     { ...base, id: "question-7", type: "success_criteria_editor", defaultValue: [criterion] },
   ];
