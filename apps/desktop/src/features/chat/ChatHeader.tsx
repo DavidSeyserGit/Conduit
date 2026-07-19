@@ -3,6 +3,7 @@ import type { ChatMode } from "@conduit/shared";
 import { useAppStore } from "@/stores/app-store";
 import { getModeColor } from "@/lib/mode-colors";
 import { PopoverScope, usePopover } from "@/lib/popover";
+import { AccountButton } from "@/features/account/AccountButton";
 
 export function ChatHeader() {
   const workspacePath = useAppStore((s) => s.workspacePath);
@@ -54,6 +55,7 @@ export function ChatHeader() {
       </div>
 
       <div className="flex items-center gap-2 shrink-0">
+        <AccountButton />
         {activeProjectPath && <button
           onClick={() => void openGitDiff()}
           className="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"

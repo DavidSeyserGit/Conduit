@@ -14,11 +14,12 @@
   },
   "dependencies": {
     "@conduit/cgs": "workspace:*",
-    "@conduit/runtime": "workspace:*",
     "@conduit/model-providers": "workspace:*",
+    "@conduit/runtime": "workspace:*",
     "@conduit/shared": "workspace:*",
     "@conduit/tools": "workspace:*",
     "@mariozechner/pi-coding-agent": "^0.73.1",
+    "@neondatabase/auth": "0.4.2-beta",
     "@tauri-apps/api": "^2.1.1",
     "@tauri-apps/plugin-dialog": "^2.2.0",
     "@tauri-apps/plugin-opener": "^2.5.4",

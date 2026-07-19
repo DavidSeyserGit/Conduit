@@ -26,7 +26,7 @@
     "security": {
       "csp": {
         "default-src": "'self' customprotocol: asset:",
-        "connect-src": "'self' ipc: http://ipc.localhost http://localhost:1420 ws://localhost:1420 https://openrouter.ai https://api.github.com https://github.com https://objects.githubusercontent.com https://release-assets.githubusercontent.com https://github.com https://api.github.com https://*.githubusercontent.com",
+        "connect-src": "'self' ipc: http://ipc.localhost http://localhost:1420 ws://localhost:1420 https://openrouter.ai https://api.github.com https://github.com https://objects.githubusercontent.com https://release-assets.githubusercontent.com https://github.com https://api.github.com https://*.githubusercontent.com https://*.neon.tech https://conduit.seyser.org",
         "font-src": "'self' data:",
         "img-src": "'self' asset: http://asset.localhost data: blob:",
         "style-src": "'self' 'unsafe-inline'",
