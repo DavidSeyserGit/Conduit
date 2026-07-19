@@ -1,0 +1,20 @@
+{
+  "cgsVersion": "0.1.0", "kind": "report", "id": "report_reset_1", "createdAt": "2026-07-18T13:05:00Z",
+  "runId": "run_reset_1", "goalId": "goal_password_reset", "goalRevision": 1, "decision": "completed", "summary": "Password reset is implemented and verified.",
+  "goalSnapshot": {
+    "cgsVersion": "0.1.0", "kind": "goal", "id": "goal_password_reset", "createdAt": "2026-07-18T12:00:00Z",
+    "title": "Add password reset flow", "description": "Allow users to request and complete a password reset.",
+    "successCriteria": [{ "id": "criterion_request", "description": "A user can request a reset email without account enumeration.", "priority": "required" }, { "id": "criterion_expiry", "description": "Reset tokens expire after the configured duration.", "priority": "required" }],
+    "constraints": [{ "id": "constraint_privacy", "description": "Do not reveal whether an email exists.", "category": "security", "required": true }],
+    "deliverables": [{ "id": "deliverable_code", "description": "Password reset implementation", "type": "code", "required": true }, { "id": "deliverable_tests", "description": "Automated password reset tests", "type": "test", "required": true }],
+    "assumptions": [], "permissions": { "allowFileReads": true, "allowFileWrites": true, "allowCommandExecution": true, "allowNetworkAccess": false, "allowDependencyChanges": false, "allowGitOperations": false },
+    "clarificationHistory": [], "reviewPipeline": { "generalReviewer": { "reviewerId": "conduit.general", "required": true }, "specialistReviewers": [{ "reviewerId": "conduit.testing", "required": true }, { "reviewerId": "conduit.security", "required": true }], "routingMode": "hybrid", "completionPolicy": "all_required_approve" },
+    "status": "completed", "revision": 1
+  },
+  "clarificationSummary": { "decisions": [], "questionBatchIds": [], "answerBatchIds": [] },
+  "implementationSummary": { "summary": "Added reset request, token validation, and tests.", "filesAdded": ["src/auth/reset.ts", "tests/auth/reset.test.ts"], "filesChanged": [], "filesDeleted": [], "attempts": 1 },
+  "validationSummary": { "passed": true, "summary": "All reset tests passed.", "evidenceArtifactIds": ["evidence_test_1"] },
+  "reviewerSummaries": [{ "reviewerId": "conduit.general", "status": "approved", "summary": "All criteria passed.", "reviewResultId": "review_general_1" }],
+  "evidenceSummary": { "summary": "Current test evidence supports completion.", "artifactIds": ["evidence_test_1"], "staleArtifactIds": [] },
+  "knownRisks": [], "suggestedFollowUps": [], "generatedAt": "2026-07-18T13:05:00Z"
+}

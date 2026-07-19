@@ -4,28 +4,33 @@ import type {
   GoalAnswerValue,
   GoalDefinition,
   GoalDrivenRunRecord,
-  GoalPersistenceRepository,
   GoalQuestion,
   GoalVersion,
   GoalWorkflowEvent,
   GoalWorkflowPhase,
   RepositoryContext,
-} from "@conduit/shared";
+} from "@conduit/cgs/legacy";
+import type { GoalPersistenceRepository } from "@conduit/shared";
 import {
   GoalAnswerSchema,
   ConstraintSchema,
   GoalDefinitionSchema,
   GoalQuestionSchema,
   SuccessCriterionSchema,
-} from "@conduit/shared";
+} from "@conduit/cgs/legacy";
 import type { ModelProvider } from "@conduit/model-providers";
 import type { ToolExecutor } from "@conduit/tools";
 import { GoalAnalyst } from "./goal-analyst.js";
-import { prepareRepositoryContext } from "./repository-context.js";
+import { prepareRepositoryContext, type PreparedRepositoryContext } from "./repository-context.js";
+import { CGS_VERSION, type AnswerBatch, type JsonValue } from "@conduit/cgs";
+import { CONDUIT_RUNTIME_VERSION } from "./version.js";
+import type { CgsArtifactRepository } from "./persistence.js";
+import { legacyGoalToCgs, legacyQuestionBatchesToCgs, legacyRunRecordToCgs } from "./legacy-cgs-migration.js";
 
 export interface StartGoalDefinitionRequest {
   initialRequest: string;
   workspacePath: string;
+  conduitDesktopVersion?: string;
   policies?: string[];
 }
 
@@ -50,6 +55,8 @@ export interface GoalDefinitionRuntimeOptions {
   reasoningEffort?: string;
   now?: () => Date;
   createId?: (prefix: string) => string;
+  onProgress?: (message: string) => void;
+  repositoryInspectionTimeoutMs?: number;
 }
 
 type StripEventEnvelope<T> = T extends unknown ? Omit<T, "id" | "runId" | "occurredAt"> : never;
@@ -65,7 +72,7 @@ export class GoalDefinitionRuntime {
     private provider: ModelProvider,
     private modelId: string,
     private tools: ToolExecutor,
-    private persistence: GoalPersistenceRepository,
+    private persistence: GoalPersistenceRepository & Partial<CgsArtifactRepository>,
     private options: GoalDefinitionRuntimeOptions = {},
   ) {
     this.now = options.now ?? (() => new Date());
@@ -98,6 +105,9 @@ export class GoalDefinitionRuntime {
     });
     let run: GoalDrivenRunRecord = {
       formatVersion: 1,
+      conduitDesktopVersion: request.conduitDesktopVersion,
+      conduitRuntimeVersion: CONDUIT_RUNTIME_VERSION,
+      cgsVersion: CGS_VERSION,
       id: runId,
       goalId,
       activeGoalVersion: 1,
@@ -109,10 +119,14 @@ export class GoalDefinitionRuntime {
     await this.persistence.saveGoal(provisional);
     await this.persistence.saveGoalVersion(this.versionRecord(provisional, "Initial request recorded", "runtime"));
     await this.persistence.saveRun(run);
+    if (this.persistence.saveCgsArtifact) {
+      await this.persistence.saveCgsArtifact(legacyGoalToCgs(provisional));
+      await this.persistence.saveCgsArtifact(legacyRunRecordToCgs(run));
+    }
     await this.transition(run, null, "analyzing_goal", "Inspecting the repository and analyzing the request");
 
     try {
-      const prepared = await prepareRepositoryContext(request.workspacePath, request.initialRequest, this.tools, this.now);
+      const prepared = await this.prepareRepository(request.workspacePath, request.initialRequest);
       await this.persistence.writeArtifact(runId, JSON.stringify(prepared, null, 2), "application/json");
       const result = await this.analyst().analyze({
         initialRequest: request.initialRequest,
@@ -157,8 +171,9 @@ export class GoalDefinitionRuntime {
       await this.persistence.saveAnswer(snapshot.goal.id, answer);
       await this.event(runId, { type: "answer_recorded", questionId: answer.questionId });
     }
+    await this.persistCgsAnswers(snapshot.goal, currentQuestions, answers);
     const allAnswers = [...snapshot.answers, ...answers];
-    const prepared = await prepareRepositoryContext(snapshot.run.workspacePath, snapshot.goal.originalRequest, this.tools, this.now);
+    const prepared = await this.prepareRepository(snapshot.run.workspacePath, snapshot.goal.originalRequest);
     const buildingRun = { ...snapshot.run, workflowPhase: "building_goal" as const, updatedAt: this.timestamp() };
     await this.persistence.saveRun(buildingRun);
     await this.transition(buildingRun, "awaiting_goal_answers", "building_goal", "Regenerating the goal from recorded answers");
@@ -224,9 +239,10 @@ export class GoalDefinitionRuntime {
     validateAnswerValue(question, value);
     const answer = GoalAnswerSchema.parse({ questionId, value, answeredBy: "user", answeredAt: this.timestamp() });
     await this.persistence.saveAnswer(snapshot.goal.id, answer);
+    await this.persistCgsAnswers(snapshot.goal, [question], [answer]);
     await this.event(runId, { type: "answer_recorded", questionId });
     const latestAnswers = [...snapshot.goal.answers.filter((candidate) => candidate.questionId !== questionId), answer];
-    const prepared = await prepareRepositoryContext(snapshot.run.workspacePath, snapshot.goal.originalRequest, this.tools, this.now);
+    const prepared = await this.prepareRepository(snapshot.run.workspacePath, snapshot.goal.originalRequest);
     const buildingRun = { ...snapshot.run, workflowPhase: "building_goal" as const, updatedAt: this.timestamp() };
     await this.persistence.saveRun(buildingRun);
     await this.transition(buildingRun, snapshot.run.workflowPhase, "building_goal", "Regenerating the goal after an answer revision");
@@ -262,7 +278,7 @@ export class GoalDefinitionRuntime {
     if (!snapshot.goal || !["awaiting_goal_answers", "awaiting_goal_approval"].includes(snapshot.run.workflowPhase)) {
       throw new Error("Only a draft goal can be regenerated");
     }
-    const prepared = await prepareRepositoryContext(snapshot.run.workspacePath, snapshot.goal.originalRequest, this.tools, this.now);
+    const prepared = await this.prepareRepository(snapshot.run.workspacePath, snapshot.goal.originalRequest);
     const buildingRun = { ...snapshot.run, workflowPhase: "building_goal" as const, updatedAt: this.timestamp() };
     await this.persistence.saveRun(buildingRun);
     await this.transition(buildingRun, snapshot.run.workflowPhase, "building_goal", "Regenerating the goal preview");
@@ -302,6 +318,10 @@ export class GoalDefinitionRuntime {
     const run = { ...snapshot.run, workflowPhase: "planning" as const, updatedAt: this.timestamp() };
     await this.persistence.saveGoal(approved);
     await this.persistence.saveRun(run);
+    if (this.persistence.saveCgsArtifact) {
+      await this.persistence.saveCgsArtifact(legacyGoalToCgs(approved));
+      await this.persistence.saveCgsArtifact(legacyRunRecordToCgs(run));
+    }
     await this.event(runId, { type: "goal_approved", goalId: approved.id, version });
     await this.transition(run, "awaiting_goal_approval", "planning", "Approved goal is ready for implementation planning");
     return approved;
@@ -345,6 +365,7 @@ export class GoalDefinitionRuntime {
     validateAnswerValue(question, value);
     const answer = GoalAnswerSchema.parse({ questionId, value, answeredBy: "user", answeredAt: this.timestamp() });
     await this.persistence.saveAnswer(snapshot.goal.id, answer);
+    await this.persistCgsAnswers(snapshot.goal, [question], [answer]);
     await this.event(runId, { type: "answer_recorded", questionId });
     const goal = GoalDefinitionSchema.parse({
       ...snapshot.goal,
@@ -416,11 +437,48 @@ export class GoalDefinitionRuntime {
     await this.persistence.saveGoalVersion(this.versionRecord(goal, summary, createdBy));
     await this.persistence.replaceQuestions(goal.id, goal.version, questions);
     await this.persistence.saveRun(run);
+    if (this.persistence.saveCgsArtifact) {
+      await this.persistence.saveCgsArtifact(legacyGoalToCgs(goal));
+      for (const batch of legacyQuestionBatchesToCgs(goal.id, legacyBatches(goal, questions), goal.updatedAt)) await this.persistence.saveCgsArtifact(batch);
+      await this.persistence.saveCgsArtifact(legacyRunRecordToCgs(run));
+    }
     await this.event(run.id, { type: "goal_version_created", goalId: goal.id, version: goal.version });
+  }
+
+  private async persistCgsAnswers(goal: GoalDefinition, questions: GoalQuestion[], answers: GoalAnswer[]): Promise<void> {
+    if (!this.persistence.saveCgsArtifact || answers.length === 0) return;
+    for (const answer of answers) {
+      const question = questions.find((candidate) => candidate.id === answer.questionId);
+      if (!question) continue;
+      const questionBatchId = `legacy-question-${answer.questionId}`;
+      const [questionBatch] = legacyQuestionBatchesToCgs(goal.id, [{ id: questionBatchId, title: "Recorded clarification", position: 0, questions: [question] }], answer.answeredAt);
+      if (questionBatch) await this.persistence.saveCgsArtifact(questionBatch);
+      const artifact: AnswerBatch = {
+        cgsVersion: CGS_VERSION,
+        kind: "answer-batch",
+        id: `legacy-answer-${answer.questionId}`,
+        createdAt: answer.answeredAt,
+        goalId: goal.id,
+        questionBatchId,
+        answers: [{ questionId: answer.questionId, value: answer.value as JsonValue, answeredAt: answer.answeredAt, answeredBy: "user" }],
+      };
+      await this.persistence.saveCgsArtifact(artifact);
+    }
   }
 
   private versionRecord(goal: GoalDefinition, changeSummary: string, createdBy: GoalVersion["createdBy"]): GoalVersion {
     return { goalId: goal.id, version: goal.version, definition: goal, changeSummary, createdAt: this.timestamp(), createdBy };
+  }
+
+  private async prepareRepository(workspacePath: string, initialRequest: string): Promise<PreparedRepositoryContext> {
+    if (!this.abortController) throw new Error("Goal analysis is not active");
+    const prepared = await prepareRepositoryContext(workspacePath, initialRequest, this.tools, this.now, {
+      signal: this.abortController.signal,
+      timeoutMs: this.options.repositoryInspectionTimeoutMs,
+      onProgress: this.options.onProgress,
+    });
+    this.options.onProgress?.(`Analyzing the request with ${this.provider.name}…`);
+    return prepared;
   }
 
   private async transition(run: GoalDrivenRunRecord, from: GoalWorkflowPhase | null, to: GoalWorkflowPhase, summary: string): Promise<void> {
@@ -435,6 +493,7 @@ export class GoalDefinitionRuntime {
     const finishedAt = this.timestamp();
     const updated = { ...run, workflowPhase: phase, updatedAt: finishedAt, finishedAt };
     await this.persistence.saveRun(updated);
+    if (this.persistence.saveCgsArtifact) await this.persistence.saveCgsArtifact(legacyRunRecordToCgs(updated));
     await this.transition(updated, run.workflowPhase, phase, summary);
   }
 
@@ -449,6 +508,15 @@ export class GoalDefinitionRuntime {
   private throwIfCancelled(): void {
     if (this.abortController?.signal.aborted) throw new Error("Goal analysis cancelled");
   }
+}
+
+function legacyBatches(goal: GoalDefinition, questions: GoalQuestion[]): import("@conduit/cgs/legacy").GoalQuestionBatch[] {
+  const batches: import("@conduit/cgs/legacy").GoalQuestionBatch[] = [];
+  for (let index = 0; index < questions.length; index += 5) {
+    const position = index / 5;
+    batches.push({ id: `question-batch-${goal.id}-${goal.version}-${position}`, title: "Clarification questions", position, questions: questions.slice(index, index + 5) });
+  }
+  return batches;
 }
 
 function preserveIds<T extends { id: string; description: string }>(previous: T[], next: T[]): T[] {

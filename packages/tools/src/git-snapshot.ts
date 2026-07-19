@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
-import type { RepositoryChange } from "@conduit/shared";
+import type { RepositoryChange } from "@conduit/cgs/legacy";
 import { ToolError } from "@conduit/shared";
 import { assertWorkspaceExists } from "./safety.js";
 

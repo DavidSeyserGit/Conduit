@@ -4,18 +4,20 @@ import type {
   GoalAnswer,
   GoalDefinition,
   GoalDrivenRunRecord,
-  GoalPersistenceRepository,
   GoalQuestion,
-  GoalRunState,
   GoalVersion,
   GoalWorkflowEvent,
+} from "@conduit/cgs/legacy";
+import type {
+  GoalPersistenceRepository,
+  GoalRunState,
   ModelRequest,
   ModelResponse,
 } from "@conduit/shared";
 import type { ModelProvider } from "@conduit/model-providers";
 import type { ToolExecutor } from "@conduit/tools";
 import { GOAL_ANALYST_OUTPUT_SCHEMA, GoalAnalyst } from "./goal-analyst.ts";
-import { GoalDefinitionRuntime } from "./goal-definition-runtime.ts";
+import { GoalDefinitionRuntime, type GoalDefinitionRuntimeOptions } from "./goal-definition-runtime.ts";
 import { prepareRepositoryContext } from "./repository-context.ts";
 
 const at = "2026-07-18T12:00:00.000Z";
@@ -117,11 +119,12 @@ class MemoryPersistence implements GoalPersistenceRepository {
   async cleanupArtifacts() { return 0; }
 }
 
-function runtime(model: ModelProvider, persistence: MemoryPersistence, tools = repositoryTools()) {
+function runtime(model: ModelProvider, persistence: MemoryPersistence, tools = repositoryTools(), options: GoalDefinitionRuntimeOptions = {}) {
   let id = 0;
   return new GoalDefinitionRuntime(model, "analyst/model", tools, persistence, {
     now: () => new Date(at),
     createId: (prefix) => `${prefix}-${++id}`,
+    ...options,
   });
 }
 
@@ -157,6 +160,57 @@ test("repository preparation inspects technical facts with read-only tools", asy
   assert.ok(prepared.context.instructions.some((file) => file.path === "AGENTS.md"));
   assert.ok(calls.every((call) => call.startsWith("ask:")));
   assert.ok(calls.includes("ask:search_files"));
+});
+
+test("repository preparation scans once, reads concurrently, and forwards bounded cancellation", async () => {
+  const calls: Array<{ name: string; args: Record<string, unknown>; timeoutMs?: number; hasSignal: boolean }> = [];
+  let activeReads = 0;
+  let maximumActiveReads = 0;
+  const tools: ToolExecutor = {
+    async execute(name, args, _mode, options) {
+      calls.push({ name, args, timeoutMs: options?.timeoutMs, hasSignal: Boolean(options?.signal) });
+      if (name === "list_files") return { success: true, result: { entries: [
+        { path: "package.json", type: "file" },
+        { path: "README.md", type: "file" },
+        { path: "src/farmibot.ts", type: "file" },
+      ] } };
+      if (name === "search_files") return { success: true, result: { matches: [{ path: "src/farmibot.ts" }] } };
+      if (name === "read_file") {
+        activeReads += 1;
+        maximumActiveReads = Math.max(maximumActiveReads, activeReads);
+        await Promise.resolve();
+        activeReads -= 1;
+        return { success: true, result: { content: "typescript react" } };
+      }
+      return { success: false, error: `Unexpected tool ${name}` };
+    },
+  };
+
+  await prepareRepositoryContext("/repo", "please rename to farmibot", tools, () => new Date(at));
+
+  assert.equal(calls.filter(({ name }) => name === "search_files").length, 1);
+  assert.equal(calls.find(({ name }) => name === "list_files")?.args.max_depth, 3);
+  assert.match(String(calls.find(({ name }) => name === "search_files")?.args.query), /rename.*farmibot/);
+  assert.ok(maximumActiveReads > 1);
+  assert.ok(calls.every(({ timeoutMs, hasSignal }) => timeoutMs === 10_000 && hasSignal));
+});
+
+test("repository preparation stops an unresponsive inspection at its overall deadline", async () => {
+  const hangingTools: ToolExecutor = { execute: async () => new Promise(() => undefined) };
+  await assert.rejects(
+    () => prepareRepositoryContext("/repo", "Add toggle", hangingTools, () => new Date(at), { timeoutMs: 5 }),
+    /Repository inspection took longer than 1 seconds and was stopped/,
+  );
+});
+
+test("Goal definition reports the inspection stages and the active analyst provider", async () => {
+  const messages: string[] = [];
+  await runtime(provider([analysis(false)]), new MemoryPersistence(), repositoryTools(), {
+    onProgress: (message) => messages.push(message),
+  }).start({ initialRequest: "Add toggle", workspacePath: "/repo" });
+
+  assert.deepEqual(messages.slice(0, 3), ["Listing repository files…", "Locating relevant code…", "Reading relevant project files…"]);
+  assert.equal(messages.at(-1), "Analyzing the request with Analyst…");
 });
 
 test("repository preparation accepts native entry_type listings and recognizes CMake tests", async () => {
@@ -281,7 +335,7 @@ test("execution questions persist across runtime restart and resume with a new a
   await first.approve(started.run.id, started.goal.version);
   await first.requestExecutionQuestion(started.run.id, {
     id: "account-linking", type: "single_select", title: "How should existing accounts be linked?", required: true,
-    options: [{ id: "confirm", label: "Require confirmation", recommended: true }], defaultValue: "confirm",
+    options: [{ id: "confirm", label: "Require confirmation", recommended: true }, { id: "automatic", label: "Link automatically" }], defaultValue: "confirm",
     sourceReason: "Account-linking behavior is a product decision that cannot be inferred safely",
   });
   assert.equal((await persistence.restoreRun(started.run.id))?.run.workflowPhase, "awaiting_user_input");

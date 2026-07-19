@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { ModelDescriptor, ModelReasoningLevel } from "@conduit/shared";
-import { isRecommendedJudgeModel } from "@conduit/agent-runtime";
+import { isRecommendedJudgeModel } from "@conduit/runtime";
 import { useAppStore } from "@/stores/app-store";
 import { PopoverScope, usePopover } from "@/lib/popover";
 

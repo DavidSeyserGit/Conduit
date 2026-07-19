@@ -1,5 +1,5 @@
-import type { GoalAnswerValue, GoalQuestion } from "@conduit/shared";
-import { ConstraintSchema, SuccessCriterionSchema } from "@conduit/shared";
+import type { GoalAnswerValue, GoalQuestion } from "@conduit/cgs/legacy";
+import { ConstraintSchema, SuccessCriterionSchema } from "@conduit/cgs/legacy";
 
 export function validateQuestionAnswer(question: GoalQuestion, value: GoalAnswerValue | undefined): string | null {
   if (value === undefined || value === null) return question.required ? "This question is required." : null;

@@ -1,9 +1,10 @@
 # Goal-run persistence
 
-Conduit 0.3 stores goal-driven workflow data in an application-owned SQLite
-database. The desktop UI and agent runtime use the typed
-`GoalPersistenceRepository` port from `@conduit/shared`; only the Tauri adapter
-can invoke the native repository commands. Raw SQL is not exposed to the webview.
+Conduit 0.4 stores validated CGS artifacts losslessly in an application-owned
+SQLite database through the `CgsArtifactRepository` runtime port. During the
+release-candidate migration, the desktop and runtime also maintain the typed
+0.3 `GoalPersistenceRepository` projection for feature parity. Only the Tauri
+adapter can invoke native repository commands; raw SQL is not exposed to the webview.
 
 ## Storage layout
 
@@ -22,7 +23,9 @@ returned through `goal_storage_status` and shown in the desktop application.
 
 ## Persisted records
 
-The first schema version contains `goals`, `goal_versions`, `goal_questions`,
+The current schema contains a generic `cgs_artifacts` table keyed by portable
+CGS ID, version, and kind. Its validated JSON retains unknown extension fields.
+The compatibility projection contains `goals`, `goal_versions`, `goal_questions`,
 `goal_answers`, `goal_runs`, `run_events`, `review_results`, `review_findings`,
 `evidence_requests`, `evidence_items`, `reports`, and `artifacts`.
 

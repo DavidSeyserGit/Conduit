@@ -20,6 +20,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@conduit/cgs": "workspace:*",
     "@conduit/shared": "workspace:*"
   },
   "devDependencies": {

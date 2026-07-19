@@ -1,21 +1,27 @@
 import * as React from "react";
-import type { GoalAnswerValue, GoalQuestion } from "@conduit/shared";
+import type { GoalAnswerValue, GoalQuestion } from "@conduit/cgs/legacy";
+import type { GoalQuestion as CgsGoalQuestion, JsonValue } from "@conduit/cgs";
 
-interface QuestionRendererProps {
-  question: GoalQuestion;
-  value: GoalAnswerValue | undefined;
+export interface QuestionRendererProps {
+  question: CgsGoalQuestion;
+  value: JsonValue | undefined;
   error?: string | null;
-  onChange: (value: GoalAnswerValue) => void;
+  onChange: (value: JsonValue) => void;
 }
 
 export function QuestionRenderer({ question, value, error, onChange }: QuestionRendererProps) {
+  const legacy = questionViewModel(question);
+  return <LegacyQuestionRenderer question={legacy} dataType={question.type} value={toLegacyAnswerValue(question, value)} error={error} onChange={(next) => onChange(fromLegacyAnswerValue(question, next))} />;
+}
+
+function LegacyQuestionRenderer({ question, dataType, value, error, onChange }: { question: GoalQuestion; dataType: string; value: GoalAnswerValue | undefined; error?: string | null; onChange: (value: GoalAnswerValue) => void }) {
   const id = React.useId();
   const descriptionId = `${id}-description`;
   const errorId = `${id}-error`;
   const describedBy = [question.description || question.sourceReason ? descriptionId : "", error ? errorId : ""].filter(Boolean).join(" ") || undefined;
 
   return (
-    <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm" data-question-type={question.type}>
+    <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm" data-question-type={dataType}>
       <div className="mb-4">
         <div className="flex items-start gap-2">
           <h3 className="flex-1 text-sm font-semibold leading-5 text-gray-900">{question.title}</h3>
@@ -53,6 +59,63 @@ export function QuestionRenderer({ question, value, error, onChange }: QuestionR
     </section>
   );
 }
+
+/** Desktop-only view adapter; the semantic source remains the CGS question. */
+function questionViewModel(question: CgsGoalQuestion): GoalQuestion {
+  const base = {
+    id: question.id,
+    title: question.prompt,
+    description: question.rationale,
+    required: question.required,
+    sourceReason: question.rationale,
+  };
+  const defaultValue = toLegacyAnswerValue(question, question.defaultValue);
+  if (question.type === "confirmation") return { ...base, type: "confirmation", ...(typeof defaultValue === "boolean" ? { defaultValue } : {}) };
+  if (question.type === "free_text") return { ...base, type: "text", ...(typeof defaultValue === "string" ? { defaultValue } : {}) };
+  if (question.type === "constraint_editor") return { ...base, type: "constraint_editor", ...(Array.isArray(defaultValue) ? { defaultValue: defaultValue as Extract<GoalQuestion, { type: "constraint_editor" }>["defaultValue"] } : {}) };
+  if (question.type === "success_criterion_editor") return { ...base, type: "success_criteria_editor", ...(Array.isArray(defaultValue) ? { defaultValue: defaultValue as Extract<GoalQuestion, { type: "success_criteria_editor" }>["defaultValue"] } : {}) };
+  const options = (question.options ?? []).map((option) => ({ id: option.id, label: option.label, description: option.description }));
+  if (question.type === "multi_select") return { ...base, type: "multi_select", options, ...(Array.isArray(defaultValue) ? { defaultValue: defaultValue.filter((item): item is string => typeof item === "string") } : {}) };
+  return { ...base, type: question.type, options, ...(typeof defaultValue === "string" ? { defaultValue } : {}) };
+}
+
+function toLegacyAnswerValue(question: CgsGoalQuestion, value: JsonValue | undefined): GoalAnswerValue | undefined {
+  if (value === undefined) return undefined;
+  if (question.type === "single_select" || question.type === "repository_reference") {
+    return question.options?.find((option) => sameJson(option.value, value))?.id ?? (typeof value === "string" ? value : undefined);
+  }
+  if (question.type === "multi_select") {
+    if (!Array.isArray(value)) return undefined;
+    return value.map((item) => question.options?.find((option) => sameJson(option.value, item))?.id).filter((item): item is string => Boolean(item));
+  }
+  if (question.type === "constraint_editor") {
+    if (!Array.isArray(value)) return undefined;
+    return value.map((item) => { const constraint = item as { id: string; description: string }; return { id: constraint.id, description: constraint.description, source: "user" as const }; });
+  }
+  if (question.type === "success_criterion_editor") {
+    if (!Array.isArray(value)) return undefined;
+    return value.map((item) => { const criterion = item as { id: string; description: string; priority?: string }; return { id: criterion.id, description: criterion.description, required: criterion.priority !== "preferred" }; });
+  }
+  return value as GoalAnswerValue;
+}
+
+function fromLegacyAnswerValue(question: CgsGoalQuestion, value: GoalAnswerValue): JsonValue {
+  if (question.type === "single_select" || question.type === "repository_reference") {
+    return typeof value === "string" ? question.options?.find((option) => option.id === value)?.value ?? value : null;
+  }
+  if (question.type === "multi_select") {
+    return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").map((id) => question.options?.find((option) => option.id === id)?.value ?? id) : [];
+  }
+  if (question.type === "constraint_editor") {
+    return Array.isArray(value) ? value.map((item) => { const constraint = item as { id: string; description: string }; return { id: constraint.id, description: constraint.description, category: "other", required: true }; }) : [];
+  }
+  if (question.type === "success_criterion_editor") {
+    return Array.isArray(value) ? value.map((item) => { const criterion = item as { id: string; description: string; required?: boolean }; return { id: criterion.id, description: criterion.description, priority: criterion.required === false ? "preferred" : "required" }; }) : [];
+  }
+  return value as JsonValue;
+}
+
+const sameJson = (left: JsonValue, right: JsonValue): boolean => JSON.stringify(left) === JSON.stringify(right);
 
 function SingleChoice({ question, value, onChange, describedBy }: {
   question: Extract<GoalQuestion, { type: "single_select" | "repository_reference" }>;

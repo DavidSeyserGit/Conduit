@@ -1,20 +1,19 @@
 import type {
   EvidenceRequest,
-  ModelMessage,
   ReviewFinding,
   ReviewInput,
   ReviewResult,
   ReviewRoutingDecision,
   ReviewStatus,
   ReviewerDefinition,
-  TokenUsage,
-} from "@conduit/shared";
+} from "@conduit/cgs/legacy";
+import type { ModelMessage, TokenUsage } from "@conduit/shared";
 import {
   ReviewInputSchema,
   ReviewResultSchema,
   ReviewRoutingDecisionSchema,
   ReviewStatusSchema,
-} from "@conduit/shared";
+} from "@conduit/cgs/legacy";
 import type { ModelProvider as Provider } from "@conduit/model-providers";
 
 export type ReviewerId =
@@ -41,7 +40,8 @@ export interface ReviewerExecution {
   tokenUsage?: TokenUsage;
 }
 
-export interface Reviewer {
+/** @deprecated 0.3 review execution shape; use the CGS Reviewer contract. */
+export interface LegacyReviewer {
   readonly definition: ReviewerDefinition;
   review(input: RoutedReviewInput, signal?: AbortSignal): Promise<ReviewerExecution>;
 }
@@ -92,9 +92,9 @@ export const REVIEWER_DEFINITIONS: Record<ReviewerId, ReviewerDefinition> = {
 };
 
 export class ReviewerRegistry {
-  private reviewers = new Map<string, Reviewer>();
+  private reviewers = new Map<string, LegacyReviewer>();
 
-  register(reviewer: Reviewer): this {
+  register(reviewer: LegacyReviewer): this {
     if (this.reviewers.has(reviewer.definition.id)) {
       throw new Error(`Reviewer already registered: ${reviewer.definition.id}`);
     }
@@ -102,7 +102,7 @@ export class ReviewerRegistry {
     return this;
   }
 
-  get(id: string): Reviewer | undefined {
+  get(id: string): LegacyReviewer | undefined {
     return this.reviewers.get(id);
   }
 
@@ -171,7 +171,7 @@ export class GeneralReviewer {
   }
 }
 
-export class ModelSpecialistReviewer implements Reviewer {
+export class ModelSpecialistReviewer implements LegacyReviewer {
   constructor(
     readonly definition: ReviewerDefinition,
     private provider: Provider,

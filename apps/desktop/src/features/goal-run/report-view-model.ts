@@ -1,4 +1,4 @@
-import type { ClarificationRecord, GoalReport, ReviewResult } from "@conduit/shared";
+import type { ClarificationRecord, GoalReport, ReviewResult } from "@conduit/cgs/legacy";
 
 export type ReportViewId = "summary" | "goal" | "changes" | "evidence" | "reviews";
 

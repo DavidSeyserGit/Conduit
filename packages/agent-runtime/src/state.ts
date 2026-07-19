@@ -11,6 +11,9 @@ import type {
 export function createInitialGoalState(config: GoalRunConfig): GoalRunState {
   return {
     id: config.runId ?? crypto.randomUUID(),
+    conduitDesktopVersion: config.conduitDesktopVersion,
+    conduitRuntimeVersion: config.conduitRuntimeVersion,
+    cgsVersion: config.cgsVersion,
     goal: config.goal,
     workspacePath: config.workspacePath,
     status: "idle",

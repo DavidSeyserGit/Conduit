@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { GoalReportExportSchema, GoalReportSchema, type EvidenceItem, type GoalDefinition, type GoalRunState, type ReviewResult } from "@conduit/shared";
+import {
+  GoalReportExportSchema,
+  GoalReportSchema,
+  type EvidenceItem,
+  type GoalDefinition,
+  type ReviewResult,
+} from "@conduit/cgs/legacy";
+import type { GoalRunState } from "@conduit/shared";
 import { createInitialGoalState, createIteration } from "./state.ts";
 import { ReportBuilder, reportToJSON, reportToMarkdown } from "./report-builder.ts";
 
@@ -78,7 +85,7 @@ test("ReportBuilder deterministically links persisted goal, changes, validation,
       type: "single_select",
       title: "How should linking work?",
       required: true,
-      options: [{ id: "confirm", label: "Require confirmation" }],
+      options: [{ id: "confirm", label: "Require confirmation" }, { id: "automatic", label: "Link automatically" }],
     }],
     versions: [{ goalId: goal.id, version: 2, definition: goal, changeSummary: "Answer recorded", createdAt: startedAt, createdBy: "user" }],
   });

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://conduit.dev/cgs/0.1/goal.schema.json",
+  "title": "CGS 0.1 Goal Specification",
+  "type": "object",
+  "required": ["cgsVersion", "kind", "id", "createdAt", "title", "description", "successCriteria", "constraints", "deliverables", "assumptions", "permissions", "clarificationHistory", "reviewPipeline", "status", "revision"],
+  "properties": {
+    "cgsVersion": { "const": "0.1.0" }, "kind": { "const": "goal" }, "id": { "type": "string", "minLength": 1 }, "createdAt": { "type": "string", "format": "date-time" }, "updatedAt": { "type": "string", "format": "date-time" },
+    "title": { "type": "string", "minLength": 1 }, "description": { "type": "string", "minLength": 1 }, "originalRequest": { "type": "string", "minLength": 1 },
+    "successCriteria": { "type": "array", "items": { "$ref": "#/$defs/successCriterion" } },
+    "constraints": { "type": "array", "items": { "$ref": "#/$defs/constraint" } },
+    "deliverables": { "type": "array", "items": { "$ref": "#/$defs/deliverable" } }, "assumptions": { "type": "array", "items": { "$ref": "#/$defs/assumption" } },
+    "permissions": { "$ref": "#/$defs/permissions" }, "clarificationHistory": { "type": "array", "items": { "type": "object", "required": ["questionBatchId", "required"], "properties": { "questionBatchId": { "type": "string", "minLength": 1 }, "answerBatchId": { "type": "string", "minLength": 1 }, "required": { "type": "boolean" } }, "additionalProperties": true } },
+    "reviewPipeline": { "type": "object", "required": ["generalReviewer", "specialistReviewers", "routingMode", "completionPolicy"], "properties": { "generalReviewer": { "$ref": "#/$defs/reviewer" }, "specialistReviewers": { "type": "array", "items": { "$ref": "#/$defs/reviewer" } }, "routingMode": { "enum": ["automatic", "explicit", "hybrid"] }, "completionPolicy": { "const": "all_required_approve" } }, "additionalProperties": true },
+    "status": { "enum": ["draft", "awaiting_clarification", "awaiting_approval", "approved", "in_progress", "completed", "failed", "cancelled"] }, "revision": { "type": "integer", "minimum": 1 }, "metadata": { "type": "object" }
+  },
+  "$defs": {
+    "successCriterion": { "type": "object", "required": ["id", "description", "priority"], "properties": { "id": { "type": "string", "minLength": 1 }, "description": { "type": "string", "minLength": 1 }, "priority": { "enum": ["required", "preferred"] }, "status": { "enum": ["unverified", "passed", "failed", "blocked"] } }, "additionalProperties": true },
+    "constraint": { "type": "object", "required": ["id", "description", "required"], "properties": { "id": { "type": "string", "minLength": 1 }, "description": { "type": "string", "minLength": 1 }, "required": { "type": "boolean" } }, "additionalProperties": true },
+    "deliverable": { "type": "object", "required": ["id", "description", "required"], "properties": { "id": { "type": "string", "minLength": 1 }, "description": { "type": "string", "minLength": 1 }, "required": { "type": "boolean" }, "repositoryPath": { "type": "string", "minLength": 1 } }, "additionalProperties": true },
+    "assumption": { "type": "object", "required": ["id", "description"], "properties": { "id": { "type": "string", "minLength": 1 }, "description": { "type": "string", "minLength": 1 }, "confirmed": { "type": "boolean" } }, "additionalProperties": true },
+    "permissions": { "type": "object", "required": ["allowFileReads", "allowFileWrites", "allowCommandExecution", "allowNetworkAccess", "allowDependencyChanges", "allowGitOperations"], "properties": { "allowFileReads": { "type": "boolean" }, "allowFileWrites": { "type": "boolean" }, "allowCommandExecution": { "type": "boolean" }, "allowNetworkAccess": { "type": "boolean" }, "allowDependencyChanges": { "type": "boolean" }, "allowGitOperations": { "type": "boolean" } }, "additionalProperties": true },
+    "reviewer": { "type": "object", "required": ["reviewerId", "required"], "properties": { "reviewerId": { "type": "string", "minLength": 1 }, "required": { "type": "boolean" }, "configuration": { "type": "object" } }, "additionalProperties": true }
+  },
+  "additionalProperties": true
+}

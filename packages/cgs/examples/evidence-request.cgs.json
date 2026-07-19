@@ -1,0 +1,6 @@
+{
+  "cgsVersion": "0.1.0", "kind": "evidence-request", "id": "evidence_request_test_1", "createdAt": "2026-07-18T12:45:00Z",
+  "runId": "run_reset_1", "goalId": "goal_password_reset", "requestedByReviewerId": "conduit.testing", "type": "test",
+  "description": "Run the password reset regression suite.", "required": true,
+  "command": { "command": "pnpm test -- reset", "timeoutMs": 120000 }, "status": "awaiting_permission"
+}

@@ -1,0 +1,21 @@
+{
+  "cgsVersion": "0.1.0",
+  "kind": "question-batch",
+  "id": "questions_reset_1",
+  "createdAt": "2026-07-18T12:01:00Z",
+  "goalId": "goal_password_reset",
+  "sequence": 1,
+  "reason": "goal_clarification",
+  "questions": [{
+    "id": "question_delivery",
+    "goalId": "goal_password_reset",
+    "prompt": "Which delivery channel should be implemented?",
+    "rationale": "The request does not identify a reset-token delivery mechanism.",
+    "required": true,
+    "type": "single_select",
+    "options": [
+      { "id": "email", "label": "Email", "value": "email" },
+      { "id": "sms", "label": "SMS", "value": "sms" }
+    ]
+  }]
+}

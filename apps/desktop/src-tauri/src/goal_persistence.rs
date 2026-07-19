@@ -9,7 +9,7 @@ use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 use tauri::State;
 
-const DATABASE_VERSION: i64 = 2;
+const DATABASE_VERSION: i64 = 3;
 const ORPHAN_GRACE_PERIOD: Duration = Duration::from_secs(24 * 60 * 60);
 
 const MIGRATION_1: &str = r#"
@@ -166,7 +166,19 @@ ALTER TABLE review_findings_v2 RENAME TO review_findings;
 CREATE INDEX review_findings_run_idx ON review_findings(run_id, review_id);
 "#;
 
-const MIGRATIONS: &[(i64, &str)] = &[(1, MIGRATION_1), (2, MIGRATION_2)];
+const MIGRATION_3: &str = r#"
+CREATE TABLE cgs_artifacts (
+  id TEXT PRIMARY KEY,
+  cgs_version TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT,
+  data_json TEXT NOT NULL
+);
+CREATE INDEX cgs_artifacts_kind_idx ON cgs_artifacts(kind, created_at DESC);
+"#;
+
+const MIGRATIONS: &[(i64, &str)] = &[(1, MIGRATION_1), (2, MIGRATION_2), (3, MIGRATION_3)];
 
 #[derive(Default)]
 pub struct GoalPersistenceState {
@@ -260,6 +272,9 @@ pub struct StorageStatus {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
 pub enum StorageWrite {
+    UpsertCgsArtifact {
+        artifact: Value,
+    },
     UpsertGoal {
         goal: Value,
     },
@@ -311,6 +326,7 @@ pub enum StorageWrite {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "query", rename_all = "snake_case")]
 pub enum StorageRead {
+    CgsArtifact { id: String },
     Goal { id: String },
     RunSnapshot { run_id: String },
     Runs { phases: Option<Vec<String>> },
@@ -396,6 +412,7 @@ impl GoalRepository {
 
     fn write(&self, operation: StorageWrite) -> Result<Value, String> {
         match operation {
+            StorageWrite::UpsertCgsArtifact { artifact } => self.upsert_cgs_artifact(&artifact),
             StorageWrite::UpsertGoal { goal } => self.upsert_goal(&goal),
             StorageWrite::InsertGoalVersion { version } => self.insert_goal_version(&version),
             StorageWrite::ReplaceQuestions {
@@ -422,6 +439,9 @@ impl GoalRepository {
 
     fn read(&self, query: StorageRead) -> Result<Value, String> {
         match query {
+            StorageRead::CgsArtifact { id } => Ok(self
+                .read_json_optional("SELECT data_json FROM cgs_artifacts WHERE id = ?1", &id)?
+                .unwrap_or(Value::Null)),
             StorageRead::Goal { id } => Ok(self
                 .read_json_optional("SELECT data_json FROM goals WHERE id = ?1", &id)?
                 .unwrap_or(Value::Null)),
@@ -447,6 +467,21 @@ impl GoalRepository {
             params![id, version, status, created_at, updated_at, data],
         ).map_err(storage_error)?;
         Ok(json!({ "id": id }))
+    }
+
+    fn upsert_cgs_artifact(&self, artifact: &Value) -> Result<Value, String> {
+        let id = required_string(artifact, "id")?;
+        let cgs_version = required_string(artifact, "cgsVersion")?;
+        let kind = required_string(artifact, "kind")?;
+        let created_at = required_string(artifact, "createdAt")?;
+        let updated_at = optional_string(artifact, "updatedAt");
+        let data = serde_json::to_string(artifact).map_err(json_error)?;
+        self.connection()?.execute(
+            "INSERT INTO cgs_artifacts(id, cgs_version, kind, created_at, updated_at, data_json) VALUES(?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(id) DO UPDATE SET cgs_version=excluded.cgs_version, kind=excluded.kind, updated_at=excluded.updated_at, data_json=excluded.data_json",
+            params![id, cgs_version, kind, created_at, updated_at, data],
+        ).map_err(storage_error)?;
+        Ok(json!({ "id": id, "kind": kind, "cgsVersion": cgs_version }))
     }
 
     fn insert_goal_version(&self, version: &Value) -> Result<Value, String> {
@@ -1194,6 +1229,30 @@ mod tests {
         assert_eq!(version, DATABASE_VERSION);
         drop(connection);
         GoalRepository::open(directory.path()).unwrap();
+    }
+
+    #[test]
+    fn stores_cgs_artifacts_losslessly_by_portable_id() {
+        let (_directory, repository) = repository();
+        let artifact = json!({
+            "cgsVersion": "0.1.0",
+            "kind": "goal",
+            "id": "goal-cgs-1",
+            "createdAt": "2026-07-19T10:00:00Z",
+            "title": "Portable goal",
+            "extensionField": { "retained": true }
+        });
+        repository
+            .write(StorageWrite::UpsertCgsArtifact {
+                artifact: artifact.clone(),
+            })
+            .unwrap();
+        let stored = repository
+            .read(StorageRead::CgsArtifact {
+                id: "goal-cgs-1".into(),
+            })
+            .unwrap();
+        assert_eq!(stored, artifact);
     }
 
     #[test]

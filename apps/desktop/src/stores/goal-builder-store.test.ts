@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { GoalQuestionBatch } from "@conduit/shared";
+import type { GoalQuestionBatch } from "@conduit/cgs/legacy";
 
 test("batch navigation retains answers and applies recommended defaults", async () => {
   const values = new Map<string, string>();
@@ -48,4 +48,12 @@ test("deterministic Goal Builder flow covers questions, preview, and execution-t
   seedGoalBuilderDemo("execution");
   assert.equal(useGoalBuilderStore.getState().phase, "execution_question");
   assert.equal(useGoalBuilderStore.getState().batches[0]?.questions[0]?.id, "account-linking");
+});
+
+test("Goal Analyst model selection prefers its dedicated setting and falls back to the judge", async () => {
+  const { goalAnalystModelCandidates } = await import("./goal-builder-store.ts");
+  assert.deepEqual(goalAnalystModelCandidates("codex/gpt-5-fast", "kimi/kimi-code/k3"), ["codex/gpt-5-fast", "kimi/kimi-code/k3"]);
+  assert.deepEqual(goalAnalystModelCandidates(undefined, "kimi/kimi-code/k3"), ["kimi/kimi-code/k3"]);
+  assert.deepEqual(goalAnalystModelCandidates("same/model", "same/model"), ["same/model"]);
+  assert.deepEqual(goalAnalystModelCandidates("removed/model", "codex/available", new Set(["codex/available"])), ["codex/available"]);
 });

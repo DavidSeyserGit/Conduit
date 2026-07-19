@@ -6,12 +6,12 @@ import type {
   GoalQuestion,
   GoalReport,
   GoalReportExport,
-  GoalRunState,
   GoalVersion,
   NormalizedValidationResult,
   ReviewResult,
-} from "@conduit/shared";
-import { GoalReportExportSchema, GoalReportSchema } from "@conduit/shared";
+} from "@conduit/cgs/legacy";
+import { GoalReportExportSchema, GoalReportSchema } from "@conduit/cgs/legacy";
+import type { GoalRunState } from "@conduit/shared";
 
 const MAX_TEXT = 8_000;
 const MAX_ITEMS = 500;
@@ -78,6 +78,9 @@ export class ReportBuilder {
       goal,
       overview: {
         finalStatus: terminal,
+        conduitDesktopVersion: input.run.conduitDesktopVersion,
+        conduitRuntimeVersion: input.run.conduitRuntimeVersion,
+        cgsVersion: input.run.cgsVersion,
         startedAt: input.run.startedAt,
         finishedAt: input.run.finishedAt ?? generatedAt,
         implementationModelId: input.run.codingModelId,

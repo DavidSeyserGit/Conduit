@@ -1,12 +1,10 @@
 import type {
-  GoalAnalystOutput,
-  GoalAnswer,
   ModelMessage,
   ModelResponse,
-  RepositoryContext,
   TokenUsage,
 } from "@conduit/shared";
-import { GoalAnalystOutputSchema } from "@conduit/shared";
+import type { GoalAnalystOutput, GoalAnswer, RepositoryContext } from "@conduit/cgs/legacy";
+import { GoalAnalystOutputSchema } from "@conduit/cgs/legacy";
 import type { ModelProvider } from "@conduit/model-providers";
 import type { RepositoryExcerpt } from "./repository-context.js";
 
@@ -19,7 +17,8 @@ export interface GoalAnalysisRequest {
   signal?: AbortSignal;
 }
 
-export interface GoalAnalysisResult {
+/** @deprecated Provider response used by the 0.3 compatibility path. */
+export interface LegacyGoalAnalysisResult {
   analysis: GoalAnalystOutput;
   tokenUsage?: TokenUsage;
   repaired: boolean;
@@ -53,7 +52,7 @@ export class GoalAnalyst {
     private timeoutMs = 3 * 60 * 1_000,
   ) {}
 
-  async analyze(request: GoalAnalysisRequest): Promise<GoalAnalysisResult> {
+  async analyze(request: GoalAnalysisRequest): Promise<LegacyGoalAnalysisResult> {
     const messages = this.messages(request);
     const timeoutSignal = AbortSignal.timeout(this.timeoutMs);
     const signal = request.signal ? AbortSignal.any([request.signal, timeoutSignal]) : timeoutSignal;
@@ -73,7 +72,7 @@ export class GoalAnalyst {
           workspacePath: request.repositoryContext.workspacePath,
           reasoningEffort: this.reasoningEffort,
           temperature: 0.1,
-          maxTokens: 6144,
+          maxTokens: 4096,
           signal,
         });
       } catch (error) {

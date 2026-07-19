@@ -6,8 +6,8 @@ import type {
   GoalQuestion,
   GoalQuestionBatch,
   GoalWorkflowPhase,
-} from "@conduit/shared";
-import { GoalDefinitionRuntime, type GoalDefinitionPatch } from "@conduit/agent-runtime";
+} from "@conduit/cgs/legacy";
+import { GoalDefinitionRuntime, type GoalDefinitionPatch } from "@conduit/runtime";
 import { findProviderForModel } from "@conduit/model-providers";
 import type { GoalPersistenceRepository } from "@conduit/shared";
 import { createTauriToolExecutor } from "../lib/tauri-tools.js";
@@ -15,6 +15,7 @@ import { TauriGoalPersistenceRepository } from "../lib/goal-persistence.js";
 import { BrowserGoalPersistenceRepository } from "../lib/browser-goal-persistence.js";
 import { getProviderRegistry, useAppStore } from "./app-store.js";
 import { GoalBuilderOperationCoordinator, handoffImplementation } from "./goal-builder-operations.js";
+import { CONDUIT_DESKTOP_VERSION } from "../version.js";
 
 export type GoalBuilderPhase = "idle" | "analyzing" | "questions" | "preview" | "approving" | "execution_question" | "error";
 
@@ -62,14 +63,28 @@ function repository(): GoalPersistenceRepository {
 function runtime(): GoalDefinitionRuntime {
   const app = useAppStore.getState();
   app.initProviders();
-  const found = findProviderForModel(getProviderRegistry(), app.judgeModelId);
+  const availableModelIds = app.models.length > 0 ? new Set(app.models.map((model) => model.id)) : undefined;
+  const found = goalAnalystModelCandidates(app.settings.goalAnalystModelId, app.judgeModelId, availableModelIds)
+    .map((modelId) => findProviderForModel(getProviderRegistry(), modelId))
+    .find((candidate) => candidate !== undefined);
   if (!found) throw new Error("Choose an available reviewer model before defining a goal");
   const tools = createTauriToolExecutor(
     () => useAppStore.getState().workspacePath,
     {},
     () => useAppStore.getState().settings.commandPermissionMode,
   );
-  return new GoalDefinitionRuntime(found.provider, app.judgeModelId, tools, repository());
+  return new GoalDefinitionRuntime(found.provider, found.modelId, tools, repository(), {
+    reasoningEffort: app.codexReasoningEfforts[found.modelId],
+    onProgress: (statusMessage) => useGoalBuilderStore.setState((state) =>
+      state.phase === "analyzing" ? { statusMessage } : {}),
+  });
+}
+
+export function goalAnalystModelCandidates(configuredModelId: string | undefined, judgeModelId: string, availableModelIds?: ReadonlySet<string>): string[] {
+  const configured = configuredModelId && (!availableModelIds || availableModelIds.has(configuredModelId))
+    ? configuredModelId
+    : undefined;
+  return [...new Set([configured, judgeModelId].filter((modelId): modelId is string => Boolean(modelId)))];
 }
 
 function valuesFromGoal(goal: GoalDefinition | null, batches: GoalQuestionBatch[]): Record<string, GoalAnswerValue | undefined> {
@@ -140,7 +155,7 @@ export const useGoalBuilderStore = create<GoalBuilderState>()(persist((set, get)
       operation = operations.begin(runtime);
       if (!operation) return;
       set({ ...initialState, phase: "analyzing", initialRequest: request, workspacePath: app.workspacePath, statusMessage: "Inspecting the repository…" });
-      const result = await operation.runtime.start({ initialRequest: request, workspacePath: app.workspacePath });
+      const result = await operation.runtime.start({ initialRequest: request, workspacePath: app.workspacePath, conduitDesktopVersion: CONDUIT_DESKTOP_VERSION });
       if (!operations.isCurrent(operation)) return;
       const batches = result.analysis.questionBatches;
       set({
@@ -166,7 +181,7 @@ export const useGoalBuilderStore = create<GoalBuilderState>()(persist((set, get)
     if (get().phase !== "idle" || operations.busy) return;
     try {
       const runs = (await repository().listRuns(["analyzing_goal", "awaiting_goal_answers", "building_goal", "awaiting_goal_approval", "awaiting_user_input"]))
-        .filter((run): run is import("@conduit/shared").GoalDrivenRunRecord => "workflowPhase" in run)
+        .filter((run): run is import("@conduit/cgs/legacy").GoalDrivenRunRecord => "workflowPhase" in run)
         .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
       const run = runs[0];
       if (!run) return;

@@ -16,6 +16,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@conduit/cgs": "workspace:*",
     "zod": "^3.24.1"
   },
   "devDependencies": {

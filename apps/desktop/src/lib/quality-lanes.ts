@@ -1,5 +1,5 @@
 import type { ModelDescriptor, QualityLaneDefault, QualityLaneId } from "@conduit/shared";
-import { isRecommendedJudgeModel } from "@conduit/agent-runtime";
+import { isRecommendedJudgeModel } from "@conduit/runtime";
 
 export interface ResolvedQualityLane {
   id: QualityLaneId;

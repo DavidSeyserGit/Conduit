@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import type { GoalDefinition } from "@conduit/shared";
+import type { GoalSpecification } from "@conduit/cgs";
 
 interface GoalPreviewProps {
-  goal: GoalDefinition;
+  goal: GoalSpecification;
   busy: boolean;
   canReviseAnswers: boolean;
-  onSave: (patch: Partial<Pick<GoalDefinition, "title" | "description" | "successCriteria" | "constraints" | "deliverables" | "assumptions">>) => Promise<void>;
+  onSave: (patch: Partial<Pick<GoalSpecification, "title" | "description" | "successCriteria" | "constraints" | "deliverables" | "assumptions">>) => Promise<void>;
   onReviseAnswers: () => void;
   onRegenerate: () => Promise<void>;
   onApprove: () => Promise<void>;
@@ -18,7 +18,7 @@ export function GoalPreview({ goal, busy, canReviseAnswers, onSave, onReviseAnsw
   useEffect(() => {
     setDraft(goal);
     setEditing(false);
-  }, [goal.version]);
+  }, [goal.revision]);
 
   const save = async () => {
     await onSave({
@@ -38,7 +38,7 @@ export function GoalPreview({ goal, busy, canReviseAnswers, onSave, onReviseAnsw
         <div>
           <div className="flex items-center gap-2">
             <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">Ready for review</span>
-            <span className="text-xs font-medium text-gray-400">Goal version {goal.version}</span>
+            <span className="text-xs font-medium text-gray-400">Goal revision {goal.revision} · CGS {goal.cgsVersion}</span>
           </div>
           <p className="mt-2 text-sm text-gray-500">This is the execution contract. Implementation cannot begin until you approve this exact version.</p>
         </div>
@@ -63,8 +63,8 @@ export function GoalPreview({ goal, busy, canReviseAnswers, onSave, onReviseAnsw
               editing={editing}
               items={draft.successCriteria}
               empty="No success criteria"
-              onChange={(items) => setDraft({ ...draft, successCriteria: items.map((item) => ({ ...item, required: true })) })}
-              create={() => ({ id: `criterion-${crypto.randomUUID()}`, description: "", required: true })}
+              onChange={(items) => setDraft({ ...draft, successCriteria: items.map((item) => ({ ...item, priority: "required" })) })}
+              create={() => ({ id: `criterion-${crypto.randomUUID()}`, description: "", priority: "required" as const })}
             />
           </PreviewSection>
           <PreviewSection title="Deliverables" hint="What the agent is expected to produce" border>
@@ -72,8 +72,8 @@ export function GoalPreview({ goal, busy, canReviseAnswers, onSave, onReviseAnsw
               editing={editing}
               items={draft.deliverables}
               empty="No deliverables"
-              onChange={(items) => setDraft({ ...draft, deliverables: items.map((item) => ({ ...item, type: item.type ?? "implementation", required: true })) })}
-              create={() => ({ id: `deliverable-${crypto.randomUUID()}`, description: "", type: "implementation" as const, required: true })}
+              onChange={(items) => setDraft({ ...draft, deliverables: items.map((item) => ({ ...item, type: item.type ?? "code", required: true })) })}
+              create={() => ({ id: `deliverable-${crypto.randomUUID()}`, description: "", type: "code" as const, required: true })}
             />
           </PreviewSection>
           <PreviewSection title="Constraints" hint="Boundaries the implementation must respect" top>
@@ -81,8 +81,8 @@ export function GoalPreview({ goal, busy, canReviseAnswers, onSave, onReviseAnsw
               editing={editing}
               items={draft.constraints}
               empty="No additional constraints"
-              onChange={(items) => setDraft({ ...draft, constraints: items.map((item) => ({ ...item, source: item.source ?? "user" })) })}
-              create={() => ({ id: `constraint-${crypto.randomUUID()}`, description: "", source: "user" as const })}
+              onChange={(items) => setDraft({ ...draft, constraints: items.map((item) => ({ ...item, required: true })) })}
+              create={() => ({ id: `constraint-${crypto.randomUUID()}`, description: "", category: "other" as const, required: true })}
             />
           </PreviewSection>
           <PreviewSection title="Assumptions" hint="Things Conduit inferred and will carry forward" border top>

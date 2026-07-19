@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { EvidenceItem, EvidenceRequest, GoalReport, RepositoryChange, ReviewResult, ReviewRoutingDecision } from "./goal-contracts.js";
+import type { EvidenceItem, EvidenceRequest, GoalReport, RepositoryChange, ReviewResult, ReviewRoutingDecision } from "@conduit/cgs/legacy";
 
 // ─── Model Provider ───────────────────────────────────────────────────────────
 
@@ -234,6 +234,9 @@ export interface LoopMetrics {
 
 export interface GoalRunState {
   id: string;
+  conduitDesktopVersion?: string;
+  conduitRuntimeVersion?: string;
+  cgsVersion?: string;
   goal: string;
   workspacePath: string;
   status: GoalRunStatus;
@@ -283,10 +286,13 @@ export interface ExportedRun {
 
 export interface GoalRunConfig {
   goal: string;
+  conduitDesktopVersion?: string;
+  conduitRuntimeVersion?: string;
+  cgsVersion?: string;
   /** Stable persisted workflow-run ID when the Goal Builder created this run. */
   runId?: string;
   /** When present, implementation is gated on approval of this exact structured goal version. */
-  structuredGoal?: import("./goal-contracts.js").GoalDefinition;
+  structuredGoal?: import("@conduit/cgs/legacy").GoalDefinition;
   approvedGoalVersion?: number;
   workspacePath: string;
   codingModelId: string;
@@ -310,6 +316,7 @@ export interface GoalRunResult {
   state: GoalRunState;
   error?: string;
   report?: GoalReport;
+  cgsReport?: import("@conduit/cgs").GoalReport;
 }
 
 // ─── Events ───────────────────────────────────────────────────────────────────
@@ -402,6 +409,8 @@ export interface AppSettings {
   commandPermissionMode: CommandPermissionMode;
   defaultCodingModelId?: string;
   defaultJudgeModelId?: string;
+  /** Fast structured-output model used only to create goals and clarification questions. */
+  goalAnalystModelId?: string;
   defaultMaxIterations: number;
   qualityLaneDefaults?: Partial<Record<QualityLaneId, QualityLaneDefault>>;
   acpAgents?: AcpAgentConfig[];

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ClarificationRecord, GoalReport, ReviewResult } from "@conduit/shared";
+import type { ClarificationRecord, GoalReport, ReviewResult } from "@conduit/cgs/legacy";
 import { formatClarificationAnswer, formatDuration, groupReportReviews, implementationPreview, reportStats } from "./report-view-model.ts";
 
 const at = "2026-07-19T08:00:00.000Z";

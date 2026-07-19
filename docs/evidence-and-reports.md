@@ -8,7 +8,8 @@ reviewer for every change is intentionally avoided.
 ## Evidence lifecycle
 
 Reviewers may propose typed evidence requests but cannot execute commands.
-`EvidenceCoordinator` validates workspace and permission policy, reuses suitable
+The CGS `EvidenceCoordinator` validates goal permissions and delegates only to
+the runtime tool adapter. The compatibility coordinator validates workspace and permission policy, reuses suitable
 fresh evidence, invokes approved tools, stores bounded summaries and artifact
 references, then sends the result back to affected reviewers.
 
@@ -35,7 +36,7 @@ are never silently converted to success; they remain visible in the report.
 
 ## Report contract
 
-Every completed or stopped run records its goal, original request, criteria,
+Every completed or stopped run produces a canonical CGS `GoalReport` recording its goal, original request, criteria,
 constraints, deliverables, assumptions, clarification history, implementation
 summary, changed files, commands, validation, evidence, reviews, findings,
 decision, runtime, and iterations. Markdown and JSON exports are derived from
@@ -50,7 +51,7 @@ user asks to inspect it.
 
 - Goal runs and artifacts are local to one desktop installation; there is no
   cloud sync or team dashboard.
-- Screenshot/UI artifact collection is not part of the automated 0.3.1 gate.
+- Screenshot/UI artifact collection is not part of the automated 0.4 release-candidate gate.
 - GitHub PR comments, HTML, and PDF report export are future integrations.
 - Authenticated Codex and Kilo smoke tests require locally installed, logged-in
   CLIs and therefore remain an opt-in local release check.
