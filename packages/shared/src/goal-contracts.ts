@@ -421,7 +421,15 @@ export const ReviewResultSchema = z.object({
   evidenceRequests: z.array(EvidenceRequestSchema),
   reviewedAt: TimestampSchema,
   supersedesReviewId: IdSchema.optional(),
-}).strict();
+}).strict().superRefine((review, ctx) => {
+  const findingIds = new Set<string>();
+  for (const [index, finding] of review.findings.entries()) {
+    if (findingIds.has(finding.id)) {
+      ctx.addIssue({ code: "custom", message: "Finding IDs must be unique within a review", path: ["findings", index, "id"] });
+    }
+    findingIds.add(finding.id);
+  }
+});
 
 export const ReviewInputSchema = z.object({
   goal: GoalDefinitionSchema,

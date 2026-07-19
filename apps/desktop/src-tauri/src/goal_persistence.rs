@@ -9,7 +9,7 @@ use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 use tauri::State;
 
-const DATABASE_VERSION: i64 = 1;
+const DATABASE_VERSION: i64 = 2;
 const ORPHAN_GRACE_PERIOD: Duration = Duration::from_secs(24 * 60 * 60);
 
 const MIGRATION_1: &str = r#"
@@ -145,7 +145,28 @@ CREATE INDEX review_results_run_idx ON review_results(run_id, reviewed_at);
 CREATE INDEX evidence_items_run_idx ON evidence_items(run_id, collected_at);
 "#;
 
-const MIGRATIONS: &[(i64, &str)] = &[(1, MIGRATION_1)];
+const MIGRATION_2: &str = r#"
+CREATE TABLE review_findings_v2 (
+  id TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  review_id TEXT NOT NULL,
+  severity TEXT NOT NULL,
+  file_path TEXT,
+  data_json TEXT NOT NULL,
+  PRIMARY KEY (review_id, id),
+  FOREIGN KEY (run_id) REFERENCES goal_runs(id) ON DELETE CASCADE,
+  FOREIGN KEY (review_id) REFERENCES review_results(id) ON DELETE CASCADE
+);
+
+INSERT INTO review_findings_v2(id, run_id, review_id, severity, file_path, data_json)
+SELECT id, run_id, review_id, severity, file_path, data_json FROM review_findings;
+
+DROP TABLE review_findings;
+ALTER TABLE review_findings_v2 RENAME TO review_findings;
+CREATE INDEX review_findings_run_idx ON review_findings(run_id, review_id);
+"#;
+
+const MIGRATIONS: &[(i64, &str)] = &[(1, MIGRATION_1), (2, MIGRATION_2)];
 
 #[derive(Default)]
 pub struct GoalPersistenceState {
@@ -1176,6 +1197,70 @@ mod tests {
     }
 
     #[test]
+    fn migrates_v1_findings_to_review_scoped_identity_without_data_loss() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("goals.sqlite3");
+        let connection = Connection::open(&database).unwrap();
+        connection.execute_batch(MIGRATION_1).unwrap();
+        connection.pragma_update(None, "user_version", 1).unwrap();
+        connection.execute(
+            "INSERT INTO goal_runs(id, workflow_phase, workspace_path, started_at, updated_at, legacy, data_json)
+             VALUES('run-1', 'specialist_review', '/tmp/repository', '2026-07-18T08:00:00Z', '2026-07-18T08:01:00Z', 0, '{}')",
+            [],
+        ).unwrap();
+        connection.execute(
+            "INSERT INTO review_results(id, run_id, reviewer_id, status, reviewed_at, data_json)
+             VALUES('review-1', 'run-1', 'security', 'changes_requested', '2026-07-18T08:01:00Z', '{}')",
+            [],
+        ).unwrap();
+        connection.execute(
+            "INSERT INTO review_findings(id, run_id, review_id, severity, data_json)
+             VALUES('stable-finding', 'run-1', 'review-1', 'high', '{\"id\":\"stable-finding\",\"severity\":\"high\"}')",
+            [],
+        ).unwrap();
+        drop(connection);
+
+        let repository = GoalRepository::open(directory.path()).unwrap();
+        let connection = repository.connection().unwrap();
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        let retained: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM review_findings WHERE review_id = 'review-1' AND id = 'stable-finding'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(version, DATABASE_VERSION);
+        assert_eq!(retained, 1);
+        drop(connection);
+
+        let repeated_review = json!({
+            "id": "review-2", "reviewerId": "security", "status": "changes_requested", "reviewedAt": "2026-07-18T08:02:00Z",
+            "findings": [{ "id": "stable-finding", "severity": "high", "description": "The finding remains open" }]
+        });
+        for _ in 0..2 {
+            repository
+                .write(StorageWrite::UpsertReview {
+                    run_id: "run-1".into(),
+                    review: repeated_review.clone(),
+                })
+                .unwrap();
+        }
+        let repeated_count: i64 = repository
+            .connection()
+            .unwrap()
+            .query_row(
+                "SELECT COUNT(*) FROM review_findings WHERE id = 'stable-finding'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(repeated_count, 2);
+    }
+
+    #[test]
     fn rejects_database_versions_from_the_future() {
         let directory = tempfile::tempdir().unwrap();
         let database = directory.path().join("goals.sqlite3");
@@ -1257,6 +1342,20 @@ mod tests {
                 "findings": [{ "id": "finding-1", "severity": "medium", "description": "Need a regression test" }]
             }),
         }).unwrap();
+        repository.write(StorageWrite::UpsertReview {
+            run_id: "run-1".into(),
+            review: json!({
+                "id": "review-2", "reviewerId": "testing", "status": "changes_requested", "reviewedAt": "2026-07-18T08:02:00Z",
+                "findings": [{ "id": "finding-1", "severity": "medium", "description": "The same regression gap remains" }]
+            }),
+        }).unwrap();
+        repository.write(StorageWrite::UpsertReview {
+            run_id: "run-1".into(),
+            review: json!({
+                "id": "review-2", "reviewerId": "testing", "status": "changes_requested", "reviewedAt": "2026-07-18T08:02:00Z",
+                "findings": [{ "id": "finding-1", "severity": "medium", "description": "The same regression gap remains" }]
+            }),
+        }).unwrap();
         repository.write(StorageWrite::UpsertEvidenceRequest {
             run_id: "run-1".into(),
             request: json!({ "id": "request-1", "reviewerId": "testing", "status": "pending", "required": true, "requestedAt": "2026-07-18T08:01:00Z" }),
@@ -1280,8 +1379,8 @@ mod tests {
         assert_eq!(snapshot["questions"].as_array().unwrap().len(), 1);
         assert_eq!(snapshot["answers"].as_array().unwrap().len(), 1);
         assert_eq!(snapshot["events"].as_array().unwrap().len(), 2);
-        assert_eq!(snapshot["reviews"].as_array().unwrap().len(), 1);
-        assert_eq!(snapshot["findings"].as_array().unwrap().len(), 1);
+        assert_eq!(snapshot["reviews"].as_array().unwrap().len(), 2);
+        assert_eq!(snapshot["findings"].as_array().unwrap().len(), 2);
         assert_eq!(snapshot["evidenceRequests"].as_array().unwrap().len(), 1);
         assert_eq!(snapshot["evidence"].as_array().unwrap().len(), 1);
         assert_eq!(

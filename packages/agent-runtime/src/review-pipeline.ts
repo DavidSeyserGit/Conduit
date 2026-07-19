@@ -13,6 +13,7 @@ import {
   ReviewInputSchema,
   ReviewResultSchema,
   ReviewRoutingDecisionSchema,
+  ReviewStatusSchema,
 } from "@conduit/shared";
 import type { ModelProvider as Provider } from "@conduit/model-providers";
 
@@ -602,7 +603,7 @@ interface GeneralOutput extends ReviewDetails {
 function parseSpecialistOutput(raw: unknown): SpecialistOutput {
   const value = parseStructured(raw) as SpecialistOutput;
   parseReviewDetails(value);
-  if (!ReviewResultSchema.shape.status.safeParse(value.status).success) throw new Error("Invalid specialist review status");
+  if (!ReviewStatusSchema.safeParse(value.status).success) throw new Error("Invalid specialist review status");
   return value;
 }
 
