@@ -73,9 +73,7 @@ export function LeftSidebar() {
   return (
     <aside className={`h-full flex flex-col bg-white border-r border-gray-100 shrink-0 transition-[width] duration-300 ease-out overflow-hidden ${collapsed ? "w-[64px]" : "w-[200px]"}`}>
       <div className={`relative flex items-center h-[52px] shrink-0 ${collapsed ? "px-2.5" : "px-4"}`}>
-        <div className="w-7 h-7 bg-gray-950 rounded-full flex items-center justify-center text-white font-semibold text-sm shrink-0">
-          L
-        </div>
+        <img src="/conduit-mark.png" alt="" aria-hidden="true" className="w-7 h-7 rounded-lg object-cover shrink-0" />
         <span className={`ml-2 font-semibold text-gray-900 whitespace-nowrap transition-[opacity,transform] duration-200 ${collapsed ? "opacity-0 -translate-x-2 pointer-events-none" : "opacity-100 translate-x-0"}`}>Conduit</span>
         <button
           onClick={() => setCollapsed((value) => !value)}
