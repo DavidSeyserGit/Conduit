@@ -225,6 +225,74 @@ html.dark {
     ) border-box;
 }
 
+.pro-avatar {
+  --pro-angle: 25deg;
+  border: 1.5px solid transparent;
+  background:
+    linear-gradient(#f3f4f6, #f3f4f6) padding-box,
+    conic-gradient(
+      from var(--pro-angle),
+      #67c7d4,
+      #8787d8,
+      #bd86c6,
+      #d29a78,
+      #83b98d,
+      #67c7d4
+    ) border-box;
+  box-shadow:
+    0 0 0 2px rgb(124 109 207 / 0.08),
+    0 0 10px rgb(111 99 190 / 0.24);
+  animation: pro-glow-rotate 12s linear infinite;
+}
+
+.pro-avatar:hover {
+  box-shadow:
+    0 0 0 2px rgb(124 109 207 / 0.12),
+    0 0 13px rgb(111 99 190 / 0.3);
+}
+
+.dark .pro-avatar {
+  background:
+    linear-gradient(#24272e, #24272e) padding-box,
+    conic-gradient(
+      from var(--pro-angle),
+      #579ca8,
+      #7173bd,
+      #9c70a8,
+      #ad8065,
+      #6f9c78,
+      #579ca8
+    ) border-box;
+  box-shadow:
+    0 0 0 2px rgb(132 116 213 / 0.08),
+    0 0 11px rgb(118 103 202 / 0.28);
+}
+
+.pro-badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgb(126 117 190 / 0.28);
+  border-radius: 999px;
+  background: linear-gradient(110deg, rgb(103 199 212 / 0.2), rgb(135 135 216 / 0.2), rgb(131 185 141 / 0.2));
+  box-shadow: 0 0 8px rgb(111 99 190 / 0.12);
+  color: #514b86;
+  padding: 0.125rem 0.4rem;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.dark .pro-badge {
+  border-color: rgb(164 154 224 / 0.3);
+  color: #c7c1f0;
+}
+
+@keyframes pro-glow-rotate {
+  to { --pro-angle: 385deg; }
+}
+
 .agent-status {
   background: linear-gradient(90deg, color-mix(in srgb, var(--status-color) 35%, white), var(--status-color), color-mix(in srgb, var(--status-color) 35%, white));
   background-size: 240% 100%;
@@ -241,13 +309,20 @@ html.dark {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .agent-status { animation: none; }
+  .agent-status,
+  .pro-avatar { animation: none; }
 }
 
 @property --glow-angle {
   syntax: "<angle>";
   inherits: false;
   initial-value: 0deg;
+}
+
+@property --pro-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 25deg;
 }
 
 @keyframes input-glow-rotate {

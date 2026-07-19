@@ -7,6 +7,7 @@ type AccountIdentity = { name?: string | null; email: string };
 export function AccountButton() {
   const [open, setOpen] = useState(false);
   const [identity, setIdentity] = useState<AccountIdentity | null>(null);
+  const [isPro, setIsPro] = useState(false);
   const initials = identity?.name?.trim()
     ? identity.name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("")
     : identity?.email[0]?.toUpperCase();
@@ -16,15 +17,15 @@ export function AccountButton() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className={`flex h-8 w-8 items-center justify-center rounded-full border text-xs font-semibold transition-colors ${identity ? "border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100" : "border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100 hover:text-gray-900"}`}
-        title={identity?.email ?? "Account"}
-        aria-label={identity ? `Open account for ${identity.email}` : "Open account"}
+        className={`flex h-8 w-8 items-center justify-center rounded-full border text-xs font-semibold transition-all ${isPro ? "pro-avatar text-indigo-700" : identity ? "border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100" : "border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100 hover:text-gray-900"}`}
+        title={identity ? `${identity.email}${isPro ? " · Pro" : ""}` : "Account"}
+        aria-label={identity ? `Open ${isPro ? "Pro " : ""}account for ${identity.email}` : "Open account"}
       >
         {initials || <UserIcon />}
       </button>
       {open && (
         <Suspense fallback={<AccountLoadingDialog onClose={() => setOpen(false)} />}>
-          <AccountDialog onClose={() => setOpen(false)} onIdentityChange={setIdentity} />
+          <AccountDialog onClose={() => setOpen(false)} onIdentityChange={setIdentity} onEntitlementChange={setIsPro} />
         </Suspense>
       )}
     </>

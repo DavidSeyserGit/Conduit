@@ -8,6 +8,8 @@ test("account control stays lightweight until the user opens it", () => {
   assert.match(source, /lazy\(\(\) => import\("@\/features\/account\/AccountDialog"\)\)/);
   assert.match(source, /aria-label=.*Open account/);
   assert.match(source, /<UserIcon \/>/);
+  assert.match(source, /pro-avatar/);
+  assert.match(source, /onEntitlementChange=\{setIsPro\}/);
 });
 
 test("account dialog exposes Neon sign-in and account creation", () => {
@@ -18,4 +20,6 @@ test("account dialog exposes Neon sign-in and account creation", () => {
   assert.match(source, /client\.signIn\.email/);
   assert.match(source, /client\.signUp\.email/);
   assert.match(source, /client\.signOut/);
+  assert.match(source, /className="pro-badge/);
+  assert.match(source, /onEntitlementChange\(result\.entitled\)/);
 });

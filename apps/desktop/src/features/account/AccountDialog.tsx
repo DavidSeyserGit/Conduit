@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { neonAuthClient } from "@/lib/neon-auth";
 import {
   createBillingPortal,
@@ -12,7 +12,7 @@ type AuthClient = NonNullable<typeof neonAuthClient>;
 type AuthViewName = "SIGN_IN" | "SIGN_UP";
 type AccountIdentity = { name?: string | null; email: string };
 
-export default function AccountDialog({ onClose, onIdentityChange }: { onClose: () => void; onIdentityChange: (identity: AccountIdentity | null) => void }) {
+export default function AccountDialog({ onClose, onIdentityChange, onEntitlementChange }: { onClose: () => void; onIdentityChange: (identity: AccountIdentity | null) => void; onEntitlementChange: (entitled: boolean) => void }) {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
@@ -38,7 +38,7 @@ export default function AccountDialog({ onClose, onIdentityChange }: { onClose: 
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
           {neonAuthClient
-            ? <ConnectedAccountDialog client={neonAuthClient} onIdentityChange={onIdentityChange} />
+            ? <ConnectedAccountDialog client={neonAuthClient} onIdentityChange={onIdentityChange} onEntitlementChange={onEntitlementChange} />
             : <AuthUnavailable />}
         </div>
       </div>
@@ -46,15 +46,22 @@ export default function AccountDialog({ onClose, onIdentityChange }: { onClose: 
   );
 }
 
-function ConnectedAccountDialog({ client, onIdentityChange }: { client: AuthClient; onIdentityChange: (identity: AccountIdentity | null) => void }) {
+function ConnectedAccountDialog({ client, onIdentityChange, onEntitlementChange }: { client: AuthClient; onIdentityChange: (identity: AccountIdentity | null) => void; onEntitlementChange: (entitled: boolean) => void }) {
   const session = client.useSession();
   const [view, setView] = useState<AuthViewName>("SIGN_IN");
   const [signingOut, setSigningOut] = useState(false);
+  const [entitled, setEntitled] = useState(false);
   const user = session.data?.user;
 
   useEffect(() => {
     onIdentityChange(user ? { name: user.name, email: user.email } : null);
-  }, [onIdentityChange, user]);
+    if (!user) onEntitlementChange(false);
+  }, [onEntitlementChange, onIdentityChange, user]);
+
+  const handleEntitlementChange = useCallback((nextEntitled: boolean) => {
+    setEntitled(nextEntitled);
+    onEntitlementChange(nextEntitled);
+  }, [onEntitlementChange]);
 
   if (session.isPending) {
     return <div role="status" className="py-12 text-center text-sm text-gray-500">Loading account…</div>;
@@ -68,11 +75,14 @@ function ConnectedAccountDialog({ client, onIdentityChange }: { client: AuthClie
             {(user.name?.trim()?.[0] || user.email?.[0] || "U").toUpperCase()}
           </div>
           <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-gray-900">{user.name || "Conduit user"}</div>
+            <div className="flex items-center gap-2">
+              <div className="truncate text-sm font-semibold text-gray-900">{user.name || "Conduit user"}</div>
+              {entitled && <span className="pro-badge shrink-0" aria-label="Conduit Pro subscription">Pro</span>}
+            </div>
             <div className="truncate text-xs text-gray-500">{user.email}</div>
           </div>
         </div>
-        <SubscriptionPanel />
+        <SubscriptionPanel onEntitlementChange={handleEntitlementChange} />
         <button
           type="button"
           disabled={signingOut}
@@ -99,7 +109,7 @@ function ConnectedAccountDialog({ client, onIdentityChange }: { client: AuthClie
   );
 }
 
-function SubscriptionPanel() {
+function SubscriptionPanel({ onEntitlementChange }: { onEntitlementChange: (entitled: boolean) => void }) {
   const [subscription, setSubscription] = useState<SubscriptionState | null>(null);
   const [loading, setLoading] = useState(Boolean(accountGatewayUrl));
   const [action, setAction] = useState<"checkout" | "portal" | null>(null);
@@ -109,11 +119,16 @@ function SubscriptionPanel() {
     if (!accountGatewayUrl) return;
     let active = true;
     void getSubscription()
-      .then((result) => { if (active) setSubscription(result); })
+      .then((result) => {
+        if (active) {
+          setSubscription(result);
+          onEntitlementChange(result.entitled);
+        }
+      })
       .catch((caught) => { if (active) setError(errorMessage(caught)); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, []);
+  }, [onEntitlementChange]);
 
   const openBilling = async (kind: "checkout" | "portal") => {
     setError(null);
