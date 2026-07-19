@@ -47,8 +47,11 @@ html.dark {
 .dark .bg-indigo-50\/60 { background-color: rgb(41 43 64 / 0.78); }
 .dark .bg-fuchsia-50 { background-color: #302b3b; }
 .dark .bg-emerald-50 { background-color: #163b31; }
+.dark .bg-emerald-100 { background-color: #1f4d40; }
 .dark .bg-amber-50 { background-color: #443518; }
+.dark .bg-amber-100 { background-color: #56431f; }
 .dark .bg-red-50 { background-color: #3d2227; }
+.dark .bg-red-100 { background-color: #512a31; }
 
 .dark .from-white { --tw-gradient-from: #1d2026; }
 .dark .from-gray-50 { --tw-gradient-from: #24272e; }
@@ -62,6 +65,7 @@ html.dark {
 .dark .border-indigo-100, .dark .border-indigo-200 { border-color: #5868a6; }
 .dark .border-emerald-100, .dark .border-emerald-200 { border-color: #28735a; }
 .dark .border-amber-200 { border-color: #80652c; }
+.dark .border-red-200 { border-color: #7f3d48; }
 
 .dark .ring-gray-900 { --tw-ring-color: #e2e8f0; }
 
@@ -75,6 +79,7 @@ html.dark {
 .dark .text-emerald-700 { color: #6ee7b7; }
 .dark .text-amber-800 { color: #fde68a; }
 .dark .text-amber-700 { color: #fcd34d; }
+.dark .text-red-700 { color: #fca5a5; }
 .dark .text-indigo-950, .dark .text-indigo-900, .dark .text-indigo-800,
 .dark .text-indigo-700, .dark .text-indigo-600, .dark .text-indigo-500,
 .dark .text-indigo-400 { color: #a5b4fc; }
@@ -86,6 +91,7 @@ html.dark {
 .dark .hover\:bg-gray-100:hover { background-color: #353a44; }
 .dark .hover\:bg-gray-200:hover { background-color: #494f5a; }
 .dark .hover\:bg-red-50:hover { background-color: #4a282e; }
+.dark .hover\:bg-amber-100:hover { background-color: #665026; }
 .dark .hover\:bg-white\/80:hover { background-color: rgb(29 32 38 / 0.8); }
 .dark .focus\:bg-white:focus { background-color: #1d2026; }
 .dark .hover\:text-gray-900:hover, .dark .hover\:text-gray-800:hover, .dark .hover\:text-gray-700:hover { color: #f8fafc; }
