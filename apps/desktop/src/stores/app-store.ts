@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { upsertProjectByPath } from "../lib/local-project.js";
 import { invoke } from "@tauri-apps/api/core";
 import { fetchHarnessHealth, type HarnessHealthMap } from "../lib/harness-health";
 import type {
@@ -348,7 +349,7 @@ export const useAppStore = create<AppState>()(
         const nextSession = projectSessions[0];
         const currentSession = state.workspacePath ? snapshotSession(state) : null;
         set({
-          projects: [...state.projects.filter((p) => p.path !== project.path), project],
+          projects: upsertProjectByPath(state.projects, project),
           workspacePath: sessionWorkspace(project.path, nextSession),
           activeProjectPath: project.path,
           activeSessionId: nextSession.id,

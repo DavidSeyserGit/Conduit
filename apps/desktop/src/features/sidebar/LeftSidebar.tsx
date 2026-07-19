@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppStore, type Project } from "@/stores/app-store";
 import { GitHubIssues, type GitHubIssue } from "@/features/github/GitHubIssues";
+import { pickLocalProject } from "@/lib/local-project";
 import { PopoverScope, usePopover } from "@/lib/popover";
 
 type GitHubRepo = { full_name: string; clone_url: string; description?: string; private: boolean };
@@ -51,7 +52,7 @@ export function LeftSidebar() {
   const runHistory = useAppStore((s) => s.runHistory);
   const openRun = useAppStore((s) => s.openRun);
   const resumeRun = useAppStore((s) => s.resumeRun);
-  const [showAdd, setShowAdd] = useState(false);
+  const [showAddProject, setShowAddProject] = useState(false);
   const [issuesProject, setIssuesProject] = useState<Project | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [sessionQuery, setSessionQuery] = useState("");
@@ -95,7 +96,7 @@ export function LeftSidebar() {
         </div>}
         <div className={`flex items-center justify-between px-3 pt-5 pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400 ${collapsed ? "hidden" : ""}`}>
           <span>Projects</span>
-          <button onClick={() => setShowAdd(true)} className="p-1 rounded hover:bg-gray-100 text-gray-500" title="Add GitHub repository" aria-label="Add GitHub repository">+</button>
+          <button onClick={() => setShowAddProject(true)} className="p-1 rounded hover:bg-gray-100 text-gray-500" title="Add project" aria-label="Add project">+</button>
         </div>
         {filteredProjects.map((project) => {
           const projectSessions = [...(sessions[project.path] || [])]
@@ -165,13 +166,66 @@ export function LeftSidebar() {
           {!collapsed && <span>Settings</span>}
         </button>
       </div>
-      {showAdd && <AddProject onClose={() => setShowAdd(false)} onAdded={addProject} />}
+      {showAddProject && <AddProjectChooser onClose={() => setShowAddProject(false)} onAdded={addProject} />}
       {issuesProject && <GitHubIssues project={issuesProject} onClose={() => setIssuesProject(null)} onUseAsGoal={useIssueAsGoal} />}
     </aside>
   );
 }
 
-function AddProject({ onClose, onAdded }: { onClose: () => void; onAdded: (project: Project) => void }) {
+function AddProjectChooser({ onClose, onAdded }: { onClose: () => void; onAdded: (project: Project) => void }) {
+  const [source, setSource] = useState<"github" | null>(null);
+  const [openingFolder, setOpeningFolder] = useState(false);
+  const [error, setError] = useState("");
+  const popover = usePopover({ open: true, onClose });
+
+  if (source === "github") return <AddGitHubProject onClose={onClose} onAdded={onAdded} />;
+
+  const openLocalFolder = async () => {
+    setOpeningFolder(true);
+    setError("");
+    try {
+      if (!inTauri()) throw new Error("Opening local folders is available in the Conduit desktop app.");
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const project = await pickLocalProject(open);
+      if (!project) return;
+      onAdded(project);
+      onClose();
+    } catch (cause) {
+      setError(`Could not open the local folder: ${cause instanceof Error ? cause.message : String(cause)}`);
+    } finally {
+      setOpeningFolder(false);
+    }
+  };
+
+  return <PopoverScope popover={popover}><div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 p-4">
+    <div ref={popover.setBoundary} className="w-full max-w-[440px] rounded-2xl border border-gray-200 bg-white p-5 shadow-xl">
+      <div className="flex items-start justify-between gap-4">
+        <div><h2 className="text-base font-semibold text-gray-900">Add a project</h2><p className="mt-1 text-xs leading-5 text-gray-500">Work with a folder already on this computer or clone a repository from GitHub.</p></div>
+        <button type="button" onClick={onClose} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-xl text-gray-400 hover:bg-gray-100 hover:text-gray-700" aria-label="Close add project">×</button>
+      </div>
+      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+        <button type="button" onClick={() => void openLocalFolder()} disabled={openingFolder} className="group rounded-xl border border-gray-200 bg-gray-50 p-4 text-left transition-colors hover:border-indigo-300 hover:bg-indigo-50 disabled:cursor-wait disabled:opacity-60">
+          <span className="grid h-10 w-10 place-items-center rounded-xl bg-white text-indigo-600 shadow-sm">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6Z" /><path d="M12 10v6m-3-3h6" /></svg>
+          </span>
+          <span className="mt-3 block text-sm font-semibold text-gray-900">Open local folder</span>
+          <span className="mt-1 block text-xs leading-5 text-gray-500">Use an existing project from this computer.</span>
+          {openingFolder && <span className="mt-2 block text-[11px] font-medium text-indigo-600">Waiting for folder selection…</span>}
+        </button>
+        <button type="button" onClick={() => setSource("github")} className="group rounded-xl border border-gray-200 bg-gray-50 p-4 text-left transition-colors hover:border-indigo-300 hover:bg-indigo-50">
+          <span className="grid h-10 w-10 place-items-center rounded-xl bg-white text-gray-700 shadow-sm">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3.3-.4 6.8-1.6 6.8-7A5.4 5.4 0 0 0 19.4 4 5 5 0 0 0 19.3.5S18.2.1 15 1.8a13.4 13.4 0 0 0-7 0C4.8.1 3.7.5 3.7.5A5 5 0 0 0 3.6 4a5.4 5.4 0 0 0-1.4 3.7c0 5.4 3.5 6.6 6.8 7A4.8 4.8 0 0 0 8 18v4" /><path d="M8 19c-3 .9-3-1.5-4-2" /></svg>
+          </span>
+          <span className="mt-3 block text-sm font-semibold text-gray-900">Clone from GitHub</span>
+          <span className="mt-1 block text-xs leading-5 text-gray-500">Choose a repository from your GitHub account.</span>
+        </button>
+      </div>
+      {error && <p role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs leading-5 text-red-700">{error}</p>}
+    </div>
+  </div></PopoverScope>;
+}
+
+function AddGitHubProject({ onClose, onAdded }: { onClose: () => void; onAdded: (project: Project) => void }) {
   const [repos, setRepos] = useState<GitHubRepo[]>([]);
   const [selected, setSelected] = useState<GitHubRepo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -293,7 +347,7 @@ function AddProject({ onClose, onAdded }: { onClose: () => void; onAdded: (proje
 
   return <PopoverScope popover={popover}><div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20">
     <div ref={popover.setBoundary} className="w-[420px] max-h-[80vh] bg-white rounded-xl shadow-xl border border-gray-200 p-4 flex flex-col">
-      <div className="flex items-center justify-between mb-3"><h2 className="font-semibold">Add GitHub repository</h2><button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-xl">×</button></div>
+      <div className="flex items-center justify-between mb-3"><h2 className="font-semibold">Clone from GitHub</h2><button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-xl">×</button></div>
       <p className="text-xs text-gray-500 mb-3">Authorize GitHub to access repositories you own or collaborate on.</p>
       {!token && !loading && <button onClick={authorize} disabled={authorizing} className="w-full mb-3 px-3 py-2 text-sm bg-gray-900 text-white rounded-lg disabled:bg-gray-300">{authorizing ? "Waiting for GitHub…" : "Connect GitHub"}</button>}
       {verification && <div className="mb-3 rounded-lg bg-indigo-50 p-3 text-sm text-indigo-900">
