@@ -128,7 +128,7 @@ export function legacyRunRecordToCgs(run: GoalDrivenRunRecord): ConduitRun {
     goalId: run.goalId,
     goalRevision: run.activeGoalVersion,
     conduitDesktopVersion: run.conduitDesktopVersion,
-    conduitRuntimeVersion: run.conduitRuntimeVersion ?? "0.4.0-rc.1",
+    conduitRuntimeVersion: run.conduitRuntimeVersion ?? "0.4.0",
     status: canonicalRunStatus(run.workflowPhase),
     activeStage: terminal ? undefined : run.workflowPhase,
     implementationAttempts: [],

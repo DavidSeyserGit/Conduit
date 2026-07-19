@@ -41,18 +41,18 @@ independently and remain `0.1.0` for this Conduit release.
 `apps/desktop/src-tauri/Cargo.lock` is committed and release builds pass
 `--locked`, so GitHub cannot silently resolve different Rust dependencies.
 
-To publish version `0.4.0-rc.1`, update all Desktop and Runtime version sources in a normal pull request, let
+To publish version `0.4.0`, update all Desktop and Runtime version sources in a normal pull request, let
 CI pass, verify the version locally, then tag the verified commit:
 
 ```bash
-pnpm release:check -- v0.4.0-rc.1
+pnpm release:check -- v0.4.0
 ```
 
 Publish only after that command succeeds:
 
 ```bash
-git tag v0.4.0-rc.1
-git push origin v0.4.0-rc.1
+git tag v0.4.0
+git push origin v0.4.0
 ```
 
 Prereleases use tags such as `v0.3.1-beta.1` and are marked as prereleases on
