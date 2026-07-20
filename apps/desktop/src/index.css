@@ -289,6 +289,17 @@ html.dark {
   color: #c7c1f0;
 }
 
+.subscription-plan-featured {
+  background: linear-gradient(180deg, #eef2ff 0%, #ffffff 100%);
+  box-shadow: 0 16px 45px -24px rgb(99 102 241 / 0.7);
+}
+
+.dark .subscription-plan-featured {
+  background: linear-gradient(180deg, #292b40 0%, #22252c 100%);
+  border-color: #6877bb;
+  box-shadow: 0 16px 48px -24px rgb(129 140 248 / 0.55);
+}
+
 @keyframes pro-glow-rotate {
   to { --pro-angle: 385deg; }
 }

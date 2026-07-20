@@ -6,15 +6,33 @@ export const accountGatewayUrl = normalizeAccountGatewayUrl(import.meta.env.VITE
 export interface SubscriptionState {
   entitled: boolean;
   status: string;
+  planId?: SubscriptionPlanId;
   currentPeriodEnd?: string;
+}
+
+export type SubscriptionPlanId = "yearly" | "three_month" | "team";
+
+export interface SubscriptionPlan {
+  id: SubscriptionPlanId;
+  name: string;
+  audience: string;
+  currency: string;
+  unitAmount: number | null;
+  interval: string;
+  intervalCount: number;
 }
 
 export async function getSubscription(): Promise<SubscriptionState> {
   return gatewayRequest<SubscriptionState>("/v1/subscription", "GET");
 }
 
-export async function createCheckout(): Promise<string> {
-  const result = await gatewayRequest<{ url: string }>("/v1/checkout", "POST");
+export async function getSubscriptionPlans(): Promise<SubscriptionPlan[]> {
+  const result = await gatewayRequest<{ plans: SubscriptionPlan[] }>("/v1/plans", "GET");
+  return result.plans;
+}
+
+export async function createCheckout(planId: SubscriptionPlanId): Promise<string> {
+  const result = await gatewayRequest<{ url: string }>("/v1/checkout", "POST", { planId });
   return requireHostedUrl(result.url);
 }
 
@@ -23,13 +41,21 @@ export async function createBillingPortal(): Promise<string> {
   return requireHostedUrl(result.url);
 }
 
-async function gatewayRequest<T>(path: string, method: "GET" | "POST"): Promise<T> {
+export async function deleteBillingAccount(): Promise<void> {
+  await gatewayRequest<{ deleted: true }>("/v1/account", "DELETE");
+}
+
+async function gatewayRequest<T>(path: string, method: "GET" | "POST" | "DELETE", body?: unknown): Promise<T> {
   if (!accountGatewayUrl) throw new Error("Account billing is not configured in this build.");
   const token = await getNeonAccessToken();
   if (!token) throw new Error("Please sign in before managing a subscription.");
   const response = await fetch(`${accountGatewayUrl}${path}`, {
     method,
-    headers: { Authorization: `Bearer ${token}` },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
   const payload = await response.json() as T & { error?: string };
   if (!response.ok) throw new Error(payload.error || "The account service could not complete the request.");

@@ -1,4 +1,5 @@
 import { lazy, Suspense, useState } from "react";
+import { recordAnonymousEvent } from "@/lib/anonymous-analytics";
 
 const AccountDialog = lazy(() => import("@/features/account/AccountDialog"));
 
@@ -16,7 +17,7 @@ export function AccountButton() {
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => { recordAnonymousEvent("profile_opened"); setOpen(true); }}
         className={`flex h-8 w-8 items-center justify-center rounded-full border text-xs font-semibold transition-all ${isPro ? "pro-avatar text-indigo-700" : identity ? "border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100" : "border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100 hover:text-gray-900"}`}
         title={identity ? `${identity.email}${isPro ? " · Pro" : ""}` : "Account"}
         aria-label={identity ? `Open ${isPro ? "Pro " : ""}account for ${identity.email}` : "Open account"}

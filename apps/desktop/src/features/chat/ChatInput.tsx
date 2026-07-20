@@ -5,6 +5,7 @@ import { ModelSelectors } from "@/features/model-picker/ModelPicker";
 import { getModeColor } from "@/lib/mode-colors";
 import { GoalModelSetup } from "@/features/goal-run/QualityLanes";
 import { useGoalBuilderStore } from "@/stores/goal-builder-store";
+import { recordAnonymousEvent } from "@/lib/anonymous-analytics";
 
 export function ChatInput() {
   const [input, setInput] = useState("");
@@ -46,6 +47,7 @@ export function ChatInput() {
     if (mode === "ask") {
       sendMessage(content);
     } else {
+      recordAnonymousEvent("goal_started");
       void startGoalDefinition(content);
     }
   };
@@ -104,7 +106,7 @@ export function ChatInput() {
           />
           {isRunning ? (
             <button
-              onClick={cancelRun}
+              onClick={() => { if (mode === "goal") recordAnonymousEvent("goal_cancelled"); cancelRun(); }}
               className="px-3 py-1.5 text-xs bg-red-600 hover:bg-red-500 text-white rounded-full transition-colors font-medium shrink-0"
             >
               Stop

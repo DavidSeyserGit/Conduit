@@ -809,6 +809,10 @@ fn openrouter_entry() -> Result<keyring::Entry, String> {
     keyring::Entry::new("conduit", "openrouter-api-key").map_err(|e| e.to_string())
 }
 
+fn neon_auth_session_entry() -> Result<keyring::Entry, String> {
+    keyring::Entry::new("conduit", "neon-auth-session").map_err(|e| e.to_string())
+}
+
 fn read_fallback_token(name: &str) -> Option<String> {
     std::fs::read_to_string(keychain_fallback_path(name))
         .ok()
@@ -923,6 +927,62 @@ pub fn openrouter_store_key(key: String) -> ToolResult {
 #[tauri::command]
 pub fn github_client_id() -> String {
     std::env::var("GITHUB_CLIENT_ID").unwrap_or_else(|_| "Ov23liMo1oJoAzSI7573".to_string())
+}
+
+#[tauri::command]
+pub fn neon_auth_session_get() -> ToolResult {
+    match neon_auth_session_entry() {
+        Ok(entry) => match entry.get_password() {
+            Ok(token) => ToolResult {
+                success: true,
+                result: Some(serde_json::json!({ "token": token })),
+                error: None,
+            },
+            Err(keyring::Error::NoEntry) => ToolResult {
+                success: true,
+                result: Some(serde_json::json!({ "token": null })),
+                error: None,
+            },
+            Err(error) => ToolResult {
+                success: false,
+                result: None,
+                error: Some(error.to_string()),
+            },
+        },
+        Err(error) => ToolResult {
+            success: false,
+            result: None,
+            error: Some(error),
+        },
+    }
+}
+
+#[tauri::command]
+pub fn neon_auth_session_store(token: String) -> ToolResult {
+    let result = neon_auth_session_entry().and_then(|entry| {
+        if token.trim().is_empty() {
+            match entry.delete_credential() {
+                Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+                Err(error) => Err(error.to_string()),
+            }
+        } else {
+            entry
+                .set_password(token.trim())
+                .map_err(|error| error.to_string())
+        }
+    });
+    match result {
+        Ok(()) => ToolResult {
+            success: true,
+            result: None,
+            error: None,
+        },
+        Err(error) => ToolResult {
+            success: false,
+            result: None,
+            error: Some(error),
+        },
+    }
 }
 
 #[tauri::command]

@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { useAppStore } from "@/stores/app-store";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { useAppStore, type SettingsTab } from "@/stores/app-store";
 import { HARNESS_DEFINITIONS } from "@conduit/model-providers";
 import { harnessStatusView, type HarnessHealthMap } from "@/lib/harness-health";
 import type { CommandPermissionMode } from "@conduit/shared";
@@ -18,11 +18,14 @@ const COLORS = [
   { name: "Cyan", value: "#06b6d4" },
 ];
 
-type SettingsTab = "model" | "color" | "permission" | "defaults" | "updates";
+const UserSettings = lazy(() => import("@/features/settings/UserSettings"));
+const PrivacySettings = lazy(() => import("@/features/settings/PrivacySettings"));
 
 export function SettingsPanel() {
   const showSettings = useAppStore((s) => s.showSettings);
   const setShowSettings = useAppStore((s) => s.setShowSettings);
+  const tab = useAppStore((s) => s.settingsTab);
+  const setTab = useAppStore((s) => s.setSettingsTab);
   const settings = useAppStore((s) => s.settings);
   const updateSettings = useAppStore((s) => s.updateSettings);
   const refreshModels = useAppStore((s) => s.refreshModels);
@@ -35,7 +38,6 @@ export function SettingsPanel() {
   const setCodingModelId = useAppStore((s) => s.setCodingModelId);
   const setJudgeModelId = useAppStore((s) => s.setJudgeModelId);
   const setMaxIterations = useAppStore((s) => s.setMaxIterations);
-  const [tab, setTab] = useState<SettingsTab>("model");
   const [keyError, setKeyError] = useState<string | null>(null);
   const harnessHealth = useAppStore((s) => s.harnessHealth);
   const refreshHarnessHealth = useAppStore((s) => s.refreshHarnessHealth);
@@ -77,8 +79,8 @@ export function SettingsPanel() {
         </div>
 
         <div className="px-3 pt-3 border-b border-gray-100 shrink-0">
-          <div className="grid grid-cols-5 gap-1 bg-gray-50 rounded-xl p-1">
-            {(["model", "color", "permission", "defaults", "updates"] as SettingsTab[]).map((item) => (
+          <div className="grid grid-cols-7 gap-1 bg-gray-50 rounded-xl p-1">
+            {(["model", "color", "permission", "defaults", "updates", "privacy", "user"] as SettingsTab[]).map((item) => (
               <button key={item} onClick={() => setTab(item)} className={`px-1.5 py-2 text-[11px] rounded-lg transition-colors ${tab === item ? "bg-white text-gray-900 shadow-sm font-medium" : "text-gray-500 hover:text-gray-800"}`}>
                 {item[0].toUpperCase() + item.slice(1)}
               </button>
@@ -92,10 +94,12 @@ export function SettingsPanel() {
           {tab === "permission" && <PermissionSettings value={settings.commandPermissionMode} onChange={(value) => updateSettings({ commandPermissionMode: value })} />}
           {tab === "defaults" && <DefaultsSettings settings={settings} models={models} currentCodingModelId={codingModelId} currentJudgeModelId={judgeModelId} updateSettings={updateSettings} onApply={() => { if (settings.defaultCodingModelId) setCodingModelId(settings.defaultCodingModelId); if (settings.defaultJudgeModelId) setJudgeModelId(settings.defaultJudgeModelId); setMaxIterations(settings.defaultMaxIterations); }} />}
           {tab === "updates" && <UpdatesSettings />}
+          {tab === "privacy" && <Suspense fallback={<div className="py-12 text-center text-sm text-gray-500">Loading privacy settings…</div>}><PrivacySettings /></Suspense>}
+          {tab === "user" && <Suspense fallback={<div className="py-12 text-center text-sm text-gray-500">Loading account…</div>}><UserSettings /></Suspense>}
         </div>
 
         <div className="px-5 py-3 border-t border-gray-100 bg-gray-50 text-xs text-gray-500 shrink-0">
-          OpenRouter keys are stored in the system keychain in the desktop app and browser storage in preview mode.
+          {tab === "user" ? "Accounts are optional. Your repositories, goals, runs, and reports remain local." : tab === "privacy" ? "Anonymous analytics are opt-in and contain fixed counters only." : "OpenRouter keys are stored in the system keychain in the desktop app and browser storage in preview mode."}
         </div>
       </div>
     </div>

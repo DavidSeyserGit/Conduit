@@ -19,6 +19,10 @@ test("account dialog exposes Neon sign-in and account creation", () => {
   assert.match(source, />Create account</);
   assert.match(source, /client\.signIn\.email/);
   assert.match(source, /client\.signUp\.email/);
+  assert.match(source, /Continue with Google/);
+  assert.match(source, /beginGoogleOAuth\(client\)/);
+  assert.match(source, /refreshSession=\{session\.refetch\}/);
+  assert.match(source, /void refreshSession\(\)/);
   assert.match(source, /client\.signOut/);
   assert.match(source, /className="pro-badge/);
   assert.match(source, /onEntitlementChange\(result\.entitled\)/);

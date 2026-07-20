@@ -6,6 +6,7 @@
   "permissions": [
     "dialog:allow-open",
     "dialog:allow-save",
+    "deep-link:default",
     "opener:allow-open-url",
     "opener:allow-default-urls",
     "updater:default",
@@ -15,6 +16,8 @@
     "allow-tool-execute",
     "allow-report-export-write",
     "allow-github-client-id",
+    "allow-neon-auth-session-get",
+    "allow-neon-auth-session-store",
     "allow-github-get-token",
     "allow-github-store-token",
     "allow-github-device-start",

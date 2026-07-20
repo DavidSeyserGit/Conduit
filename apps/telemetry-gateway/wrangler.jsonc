@@ -1,0 +1,24 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "conduit-telemetry-gateway",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-20",
+  "workers_dev": true,
+  "routes": [
+    {
+      "pattern": "telemetry.conduit.seyser.org",
+      "custom_domain": true
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "conduit-anonymous-analytics",
+      "database_id": "8c76b72d-9bf2-45d4-8710-59cd2a62b1b6",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "observability": {
+    "enabled": false
+  }
+}
