@@ -230,7 +230,7 @@ test("registry rejects duplicate reviewer identities", () => {
   assert.throws(() => registry.register(reviewer), /already registered/);
 });
 
-test("review cancellation and timeout fail closed", async () => {
+test("review cancellation stops immediately while exhausted timeouts report retries", async () => {
   let started!: () => void;
   const requestStarted = new Promise<void>((resolve) => { started = resolve; });
   const hanging = providerWithAbort(started);
@@ -241,11 +241,74 @@ test("review cancellation and timeout fail closed", async () => {
   controller.abort();
   await assert.rejects(cancellation, /cancelled/);
 
-  const timedOut = new GeneralReviewer(providerWithAbort(() => {}), "review/model", "/repo", undefined, 5);
+  let attempts = 0;
+  const timedOut = new GeneralReviewer(providerWithAbort(() => { attempts += 1; }), "review/model", "/repo", undefined, 5);
   await assert.rejects(
     timedOut.review(input("Update docs", ["README.md"]), ["documentation"]),
-    /timed out/,
+    /did not complete after 2 attempts: attempt timed out/,
   );
+  assert.equal(attempts, 2);
+});
+
+test("general reviewer retries a timed-out request and accepts the fresh response", async () => {
+  let attempts = 0;
+  const retries: number[] = [];
+  const provider: ModelProvider = {
+    ...fakeProvider([]),
+    createResponse: async (request) => {
+      attempts += 1;
+      if (attempts === 1) {
+        return await new Promise<ModelResponse>((_resolve, reject) => {
+          request.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+        });
+      }
+      return { content: "", structuredOutput: generalOutput([]) };
+    },
+  };
+  const reviewer = new GeneralReviewer(
+    provider,
+    "review/model",
+    "/repo",
+    undefined,
+    5,
+    undefined,
+    (attempt) => retries.push(attempt),
+  );
+
+  const result = await reviewer.review(input("Update docs", ["README.md"]), []);
+
+  assert.equal(result.result.status, "approved");
+  assert.equal(attempts, 2);
+  assert.deepEqual(retries, [2]);
+});
+
+test("specialist reviewer uses the same timeout retry contract", async () => {
+  let attempts = 0;
+  const provider: ModelProvider = {
+    ...fakeProvider([]),
+    createResponse: async (request) => {
+      attempts += 1;
+      if (attempts === 1) {
+        return await new Promise<ModelResponse>((_resolve, reject) => {
+          request.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+        });
+      }
+      return { content: "", structuredOutput: specialistOutput() };
+    },
+  };
+  const reviewer = new ModelSpecialistReviewer(
+    REVIEWER_DEFINITIONS.testing,
+    provider,
+    "review/model",
+    "/repo",
+    undefined,
+    5,
+  );
+
+  const result = await reviewer.review(input("Add tests", ["src/test.ts"]));
+
+  assert.equal(result.result.status, "approved");
+  assert.equal(attempts, 2);
 });
 
 test("required reviewer disagreement blocks completion", () => {

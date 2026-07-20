@@ -144,6 +144,38 @@ test("Goal loop executes its planned validation contract before judging", async 
   assert.deepEqual((await persistence.restoreRun(result.state.id))?.report, result.report);
 });
 
+test("Goal loop recovers when the general reviewer times out once", async () => {
+  const registry = new DefaultProviderRegistry();
+  const events: GoalRunEvent[] = [];
+  let generalAttempts = 0;
+  registry.register(provider("coding", async () => ({ content: "Implemented the title change" })));
+  registry.register(provider("judge", async (request) => {
+    if (request.structuredOutput?.name === "implementation_plan") {
+      return {
+        content: "",
+        structuredOutput: {
+          summary: "Rename and validate",
+          tasks: [{ id: "1", description: "Rename the title", status: "pending" }],
+          validation: { strategy: "not_applicable", rationale: "Review the isolated text change.", commands: [] },
+        },
+      };
+    }
+    if (request.structuredOutput?.name === "general_review") {
+      generalAttempts += 1;
+      if (generalAttempts === 1) throw new Error("reviewer network timeout");
+      return { content: "", structuredOutput: generalReview() };
+    }
+    return { content: "", structuredOutput: specialistReview() };
+  }));
+
+  const result = await new GoalLoopRunner(registry).run(config(), toolExecutor, {}, (event) => events.push(event));
+
+  assert.equal(result.status, "completed");
+  assert.equal(generalAttempts, 2);
+  assert.equal(events.some((event) => event.type === "agent_status" && /General reviewer.*retrying attempt 2\/2/.test(event.message)), true);
+  assert.equal(events.some((event) => event.type === "run_failed"), false);
+});
+
 test("Goal loop collects requested evidence and reruns the requesting reviewer", async () => {
   const registry = new DefaultProviderRegistry();
   const events: GoalRunEvent[] = [];

@@ -266,16 +266,19 @@ test("Goal Analyst does not retry provider failures and reports their concise AP
   assert.equal(requests.length, 1);
 });
 
-test("Goal Analyst bounds an unresponsive provider request", async () => {
+test("Goal Analyst retries unresponsive provider requests before reporting exhaustion", async () => {
   const context = (await prepareRepositoryContext("/repo", "Add toggle", repositoryTools(), () => new Date(at))).context;
-  const hangingProvider = provider([async (request: ModelRequest) => new Promise<ModelResponse>((_resolve, reject) => {
+  const requests: ModelRequest[] = [];
+  const hang = async (request: ModelRequest) => new Promise<ModelResponse>((_resolve, reject) => {
     request.signal?.addEventListener("abort", () => reject(new DOMException("Timed out", "AbortError")), { once: true });
-  })]);
+  });
+  const hangingProvider = provider([hang, hang], requests);
 
   await assert.rejects(
     () => new GoalAnalyst(hangingProvider, "analyst/model", undefined, 5).analyze({ initialRequest: "Add toggle", repositoryContext: context, excerpts: [] }),
-    /took longer than 1 seconds and was stopped/,
+    /Goal Analyst did not complete after 2 attempts: attempt timed out/,
   );
+  assert.equal(requests.length, 2);
 });
 
 test("Goal Analyst schema satisfies Codex strict objects and normalizes nullable optional fields", async () => {

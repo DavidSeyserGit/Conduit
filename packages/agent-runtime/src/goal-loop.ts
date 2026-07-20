@@ -311,6 +311,10 @@ export class GoalLoopRunner {
           source: "network",
           detail: "General reviewer request remains open",
         }),
+        (attempt, maxAttempts, reason) => emit({
+          type: "agent_status",
+          message: `General reviewer request did not finish (${reason}); retrying attempt ${attempt}/${maxAttempts}…`,
+        }),
       ),
       createDefaultReviewerRegistry(
         judgeProviderInfo.provider,
@@ -325,6 +329,10 @@ export class GoalLoopRunner {
           phase: "judging",
           source: "network",
           detail: `${reviewerId} reviewer request remains open`,
+        }),
+        (reviewerId, attempt, maxAttempts, reason) => emit({
+          type: "agent_status",
+          message: `${reviewerId} reviewer request did not finish (${reason}); retrying attempt ${attempt}/${maxAttempts}…`,
         }),
       ),
     );

@@ -395,7 +395,13 @@ export class GoalDefinitionRuntime {
   }
 
   private analyst(): GoalAnalyst {
-    return new GoalAnalyst(this.provider, this.modelId, this.options.reasoningEffort);
+    return new GoalAnalyst(
+      this.provider,
+      this.modelId,
+      this.options.reasoningEffort,
+      undefined,
+      (attempt, maxAttempts, reason) => this.options.onProgress?.(`Goal Analyst request did not finish (${reason}); retrying attempt ${attempt}/${maxAttempts}…`),
+    );
   }
 
   private buildGoal(previous: GoalDefinition, analysis: GoalAnalystOutput, answers: GoalAnswer[], status: GoalDefinition["status"]): GoalDefinition {
