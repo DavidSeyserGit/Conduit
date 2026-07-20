@@ -15,6 +15,7 @@ import {
   ReviewStatusSchema,
 } from "@conduit/cgs/legacy";
 import type { ModelProvider as Provider } from "@conduit/model-providers";
+import { DEFAULT_MODEL_ATTEMPT_TIMEOUT_MS, retryModelOperation } from "./model-operation.js";
 
 export type ReviewerId =
   | "security"
@@ -117,8 +118,9 @@ export class GeneralReviewer {
     private modelId: string,
     private workspacePath: string,
     private reasoningEffort?: string,
-    private timeoutMs = 3 * 60 * 1_000,
+    private timeoutMs = DEFAULT_MODEL_ATTEMPT_TIMEOUT_MS,
     private heartbeat?: (startedAt: string) => void,
+    private retry?: (attempt: number, maxAttempts: number, reason: string) => void,
   ) {}
 
   async review(input: RoutedReviewInput, availableReviewerIds: string[], signal?: AbortSignal): Promise<GeneralReviewExecution> {
@@ -144,6 +146,7 @@ export class GeneralReviewer {
       signal,
       this.timeoutMs,
       this.heartbeat,
+      this.retry,
     );
     const raw = parseGeneralOutput(execution.output);
     const deterministic = routeReviewers(input);
@@ -178,8 +181,9 @@ export class ModelSpecialistReviewer implements LegacyReviewer {
     private modelId: string,
     private workspacePath: string,
     private reasoningEffort?: string,
-    private timeoutMs = 3 * 60 * 1_000,
+    private timeoutMs = DEFAULT_MODEL_ATTEMPT_TIMEOUT_MS,
     private heartbeat?: (startedAt: string) => void,
+    private retry?: (attempt: number, maxAttempts: number, reason: string) => void,
   ) {}
 
   async review(input: RoutedReviewInput, signal?: AbortSignal): Promise<ReviewerExecution> {
@@ -202,6 +206,7 @@ export class ModelSpecialistReviewer implements LegacyReviewer {
       signal,
       this.timeoutMs,
       this.heartbeat,
+      this.retry,
     );
     const raw = parseSpecialistOutput(execution.output);
     return {
@@ -295,6 +300,7 @@ export function createDefaultReviewerRegistry(
   workspacePath: string,
   reasoningEffort?: string,
   heartbeat?: (reviewerId: string, startedAt: string) => void,
+  retry?: (reviewerId: string, attempt: number, maxAttempts: number, reason: string) => void,
 ): ReviewerRegistry {
   const registry = new ReviewerRegistry();
   for (const definition of Object.values(REVIEWER_DEFINITIONS)) {
@@ -306,6 +312,7 @@ export function createDefaultReviewerRegistry(
       reasoningEffort,
       undefined,
       (startedAt) => heartbeat?.(definition.id, startedAt),
+      (attempt, maxAttempts, reason) => retry?.(definition.id, attempt, maxAttempts, reason),
     ));
   }
   return registry;
@@ -632,43 +639,49 @@ async function requestStructured(
   signal: AbortSignal | undefined,
   timeoutMs: number,
   heartbeat?: (startedAt: string) => void,
+  onRetry?: (attempt: number, maxAttempts: number, reason: string) => void,
 ): Promise<{ output: unknown; tokenUsage?: TokenUsage }> {
-  const timeout = AbortSignal.timeout(timeoutMs);
-  const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
   let usage: TokenUsage | undefined;
   let firstError: unknown;
   const startedAt = new Date().toISOString();
   heartbeat?.(startedAt);
   const heartbeatTimer = heartbeat ? setInterval(() => heartbeat(startedAt), 10_000) : undefined;
   try {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      const response = await provider.createResponse({
-        modelId,
-        workspacePath,
-        reasoningEffort,
-        messages: attempt === 0 ? messages : [
-          ...messages,
-          { role: "assistant", content: firstError instanceof Error ? firstError.message : String(firstError) },
-          { role: "user", content: "Return corrected JSON only. It must exactly match the supplied schema." },
-        ],
-        structuredOutput: { name, schema },
-        temperature: 0.1,
-        maxTokens: 6144,
-        signal: combined,
-      });
+    for (let repairAttempt = 0; repairAttempt < 2; repairAttempt += 1) {
+      const response = await retryModelOperation(
+        (attemptSignal) => provider.createResponse({
+          modelId,
+          workspacePath,
+          reasoningEffort,
+          messages: repairAttempt === 0 ? messages : [
+            ...messages,
+            { role: "assistant", content: firstError instanceof Error ? firstError.message : String(firstError) },
+            { role: "user", content: "Return corrected JSON only. It must exactly match the supplied schema." },
+          ],
+          structuredOutput: { name, schema },
+          temperature: 0.1,
+          maxTokens: 6144,
+          signal: attemptSignal,
+        }),
+        {
+          label: name === "general_review" ? "General reviewer" : "Specialist reviewer",
+          signal,
+          timeoutMs,
+          onRetry: ({ attempt, maxAttempts, reason }) => onRetry?.(attempt, maxAttempts, reason),
+        },
+      );
       usage = addUsage(usage, response.usage);
       const output = response.structuredOutput ?? response.content;
-      if (name === "general_review") parseGeneralOutput(output);
-      else parseSpecialistOutput(output);
-      return { output, tokenUsage: usage };
-    } catch (error) {
-      if (signal?.aborted) throw new Error("Review pipeline cancelled");
-      if (timeout.aborted) throw new Error("Reviewer timed out");
-      firstError = error;
+      try {
+        if (name === "general_review") parseGeneralOutput(output);
+        else parseSpecialistOutput(output);
+        return { output, tokenUsage: usage };
+      } catch (error) {
+        if (signal?.aborted) throw new Error("Review pipeline cancelled");
+        firstError = error;
+      }
     }
-  }
-  throw new Error(`Reviewer returned malformed structured output after one repair: ${firstError instanceof Error ? firstError.message : String(firstError)}`);
+    throw new Error(`Reviewer returned malformed structured output after one repair: ${firstError instanceof Error ? firstError.message : String(firstError)}`);
   } finally {
     if (heartbeatTimer) clearInterval(heartbeatTimer);
   }

@@ -50,6 +50,34 @@ test("coding agent preserves autonomous provider errors", async () => {
   );
 });
 
+test("coding agent retries a transient autonomous provider timeout against the current workspace", async () => {
+  let attempts = 0;
+  const statuses: string[] = [];
+  const provider: ModelProvider = {
+    ...baseProvider,
+    runCodingIteration: async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("local coding request timed out");
+      return {
+        changedFiles: ["src/title.ts"],
+        validationResults: [],
+        agentSummary: "Continued from the existing workspace",
+        toolCalls: [],
+        messages: [],
+      };
+    },
+  };
+
+  const result = await new CodingAgent().run(makeConfig({
+    provider,
+    emit: (event) => { if (event.type === "agent_status") statuses.push(event.message); },
+  }));
+
+  assert.equal(attempts, 2);
+  assert.deepEqual(result.changedFiles, ["src/title.ts"]);
+  assert.match(statuses[0] ?? "", /retrying attempt 2\/2.*current workspace/i);
+});
+
 test("coding agent forwards Goal cancellation to an autonomous provider", async () => {
   const provider: ModelProvider = {
     ...baseProvider,
@@ -64,7 +92,7 @@ test("coding agent forwards Goal cancellation to an autonomous provider", async 
   const run = new CodingAgent().run(makeConfig({ provider, signal: controller.signal }));
   controller.abort();
 
-  await assert.rejects(run, /aborted/i);
+  await assert.rejects(run, /aborted|cancelled/i);
 });
 
 test("non-autonomous providers use the provider-neutral tool loop", async () => {
@@ -84,6 +112,23 @@ test("non-autonomous providers use the provider-neutral tool loop", async () => 
   assert.equal(requests, 1);
   assert.equal(result.agentSummary, "Completed safely");
   assert.deepEqual(result.changedFiles, []);
+});
+
+test("provider-neutral coding retries a transient response timeout", async () => {
+  let attempts = 0;
+  const provider: ModelProvider = {
+    ...baseProvider,
+    createResponse: async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("network timeout");
+      return { content: "Completed after retry", finishReason: "stop" };
+    },
+  };
+
+  const result = await new CodingAgent().run(makeConfig({ provider }));
+
+  assert.equal(attempts, 2);
+  assert.equal(result.agentSummary, "Completed after retry");
 });
 
 function makeConfig(overrides: Partial<CodingAgentConfig> = {}): CodingAgentConfig {

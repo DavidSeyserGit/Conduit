@@ -15,6 +15,7 @@ import {
   JUDGE_OUTPUT_SCHEMA,
   JUDGE_PLAN_OUTPUT_SCHEMA,
 } from "./prompts.js";
+import { retryModelOperation } from "./model-operation.js";
 
 export interface JudgeContext {
   goal: string;
@@ -65,13 +66,38 @@ export class Judge {
       { role: "user", content: prompt },
     ];
 
+    const response = await this.createResponseWithLiveness({
+      modelId: this.modelId,
+      messages,
+      structuredOutput: {
+        name: "judge_evaluation",
+        schema: JUDGE_OUTPUT_SCHEMA,
+      },
+      workspacePath: this.workspacePath,
+      reasoningEffort: this.reasoningEffort,
+      temperature: 0.1,
+      maxTokens: 4096,
+    }, "judging");
+    let tokenUsage = response.usage;
     let result: JudgeResult;
-    let tokenUsage: TokenUsage | undefined;
-
     try {
-      const response = await this.createResponseWithLiveness({
+      result = this.parseJudgeResponse(response.structuredOutput ?? response.content);
+      result = this.normalizeEvidenceOnlyRejection(result, ctx.validationResults);
+    } catch (firstError) {
+      const repairMessages: ModelMessage[] = [
+        ...messages,
+        {
+          role: "assistant",
+          content: firstError instanceof Error ? firstError.message : String(firstError),
+        },
+        {
+          role: "user",
+          content: "Your previous response could not be parsed. Please return ONLY valid JSON matching the required schema.",
+        },
+      ];
+      const retryResponse = await this.createResponseWithLiveness({
         modelId: this.modelId,
-        messages,
+        messages: repairMessages,
         structuredOutput: {
           name: "judge_evaluation",
           schema: JUDGE_OUTPUT_SCHEMA,
@@ -81,42 +107,8 @@ export class Judge {
         temperature: 0.1,
         maxTokens: 4096,
       }, "judging");
-
-      tokenUsage = response.usage;
-
-      result = this.parseJudgeResponse(response.structuredOutput ?? response.content);
-      result = this.normalizeEvidenceOnlyRejection(result, ctx.validationResults);
-    } catch (firstError) {
-      // Retry once with repair prompt
+      tokenUsage = addUsage(tokenUsage, retryResponse.usage);
       try {
-        const repairMessages: ModelMessage[] = [
-          ...messages,
-          {
-            role: "assistant",
-            content: firstError instanceof Error ? firstError.message : String(firstError),
-          },
-          {
-            role: "user",
-            content:
-              "Your previous response could not be parsed. Please return ONLY valid JSON matching the required schema.",
-          },
-        ];
-
-        const retryResponse = await this.createResponseWithLiveness({
-          modelId: this.modelId,
-          messages: repairMessages,
-          structuredOutput: {
-            name: "judge_evaluation",
-            schema: JUDGE_OUTPUT_SCHEMA,
-          },
-          workspacePath: this.workspacePath,
-          reasoningEffort: this.reasoningEffort,
-          temperature: 0.1,
-          maxTokens: 4096,
-        }, "judging");
-
-        tokenUsage = addUsage(tokenUsage, retryResponse.usage);
-
         result = this.normalizeEvidenceOnlyRejection(this.parseJudgeResponse(
           retryResponse.structuredOutput ?? retryResponse.content
         ), ctx.validationResults);
@@ -175,7 +167,17 @@ export class Judge {
     emitHeartbeat();
     const timer = setInterval(emitHeartbeat, 10_000);
     try {
-      return await this.provider.createResponse({ ...request, signal: this.signal });
+      return await retryModelOperation(
+        (signal) => this.provider.createResponse({ ...request, signal }),
+        {
+          label: phase === "planning" ? "Planning reviewer" : "Judge reviewer",
+          signal: this.signal,
+          onRetry: ({ attempt, maxAttempts, reason }) => this.emit({
+            type: "agent_status",
+            message: `${phase === "planning" ? "Planning reviewer" : "Judge reviewer"} request did not finish (${reason}); retrying attempt ${attempt}/${maxAttempts}…`,
+          }),
+        },
+      );
     } finally {
       clearInterval(timer);
     }

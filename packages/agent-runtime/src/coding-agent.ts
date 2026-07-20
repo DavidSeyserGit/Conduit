@@ -19,6 +19,7 @@ import {
   completeToolCall,
   parsePlanFromContent,
 } from "./state.js";
+import { retryModelOperation } from "./model-operation.js";
 
 const MAX_TOOL_ROUNDS = 30;
 
@@ -57,18 +58,28 @@ export interface CodingAgentResult {
 export class CodingAgent {
   async run(config: CodingAgentConfig): Promise<CodingAgentResult> {
     if (config.provider.runCodingIteration) {
-      return config.provider.runCodingIteration({
-        goal: config.goal,
-        workspacePath: config.workspacePath,
-        modelId: config.modelId,
-        previousPlan: config.previousPlan,
-        judgeFeedback: config.judgeFeedback,
-        iteration: config.iteration,
-        maxIterations: config.maxIterations,
-        reasoningEffort: config.codingReasoningEffort,
-        permissionMode: config.permissionMode,
-        signal: config.signal,
-      }, config.emit);
+      return retryModelOperation(
+        (signal) => config.provider.runCodingIteration!({
+          goal: config.goal,
+          workspacePath: config.workspacePath,
+          modelId: config.modelId,
+          previousPlan: config.previousPlan,
+          judgeFeedback: config.judgeFeedback,
+          iteration: config.iteration,
+          maxIterations: config.maxIterations,
+          reasoningEffort: config.codingReasoningEffort,
+          permissionMode: config.permissionMode,
+          signal,
+        }, config.emit),
+        {
+          label: "Coding agent",
+          signal: config.signal,
+          onRetry: ({ attempt, maxAttempts, reason }) => config.emit({
+            type: "agent_status",
+            message: `Coding agent request did not finish (${reason}); retrying attempt ${attempt}/${maxAttempts} against the current workspace…`,
+          }),
+        },
+      );
     }
 
     const toolCalls: StoredToolCall[] = [];
@@ -101,15 +112,25 @@ export class CodingAgent {
       if (config.signal?.aborted) break;
       toolRounds++;
 
-      const response = await config.provider.createResponse({
-        modelId: config.modelId,
-        workspacePath: config.workspacePath,
-        signal: config.signal,
-        messages,
-        tools,
-        temperature: 0.2,
-        maxTokens: 16384,
-      });
+      const response = await retryModelOperation(
+        (signal) => config.provider.createResponse({
+          modelId: config.modelId,
+          workspacePath: config.workspacePath,
+          signal,
+          messages,
+          tools,
+          temperature: 0.2,
+          maxTokens: 16384,
+        }),
+        {
+          label: "Coding agent",
+          signal: config.signal,
+          onRetry: ({ attempt, maxAttempts, reason }) => config.emit({
+            type: "agent_status",
+            message: `Coding model request did not finish (${reason}); retrying attempt ${attempt}/${maxAttempts}…`,
+          }),
+        },
+      );
 
       totalUsage = accumulateUsage(totalUsage, response.usage);
 

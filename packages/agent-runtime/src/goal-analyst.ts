@@ -7,6 +7,7 @@ import type { GoalAnalystOutput, GoalAnswer, RepositoryContext } from "@conduit/
 import { GoalAnalystOutputSchema } from "@conduit/cgs/legacy";
 import type { ModelProvider } from "@conduit/model-providers";
 import type { RepositoryExcerpt } from "./repository-context.js";
+import { DEFAULT_MODEL_ATTEMPT_TIMEOUT_MS, retryModelOperation } from "./model-operation.js";
 
 export interface GoalAnalysisRequest {
   initialRequest: string;
@@ -49,24 +50,21 @@ export class GoalAnalyst {
     private provider: ModelProvider,
     private modelId: string,
     private reasoningEffort?: string,
-    private timeoutMs = 3 * 60 * 1_000,
+    private timeoutMs = DEFAULT_MODEL_ATTEMPT_TIMEOUT_MS,
+    private onRetry?: (attempt: number, maxAttempts: number, reason: string) => void,
   ) {}
 
   async analyze(request: GoalAnalysisRequest): Promise<LegacyGoalAnalysisResult> {
     const messages = this.messages(request);
-    const timeoutController = new AbortController();
-    const timeoutId = setTimeout(() => timeoutController.abort(), this.timeoutMs);
-    const timeoutSignal = timeoutController.signal;
-    const signal = request.signal ? AbortSignal.any([request.signal, timeoutSignal]) : timeoutSignal;
     let usage: TokenUsage | undefined;
     let firstError: unknown;
-    try {
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        let response: ModelResponse;
-        try {
-          response = await this.provider.createResponse({
+    for (let repairAttempt = 0; repairAttempt < 2; repairAttempt += 1) {
+      let response: ModelResponse;
+      try {
+        response = await retryModelOperation(
+          (signal) => this.provider.createResponse({
             modelId: this.modelId,
-            messages: attempt === 0 ? messages : [
+            messages: repairAttempt === 0 ? messages : [
               ...messages,
               { role: "assistant", content: firstError instanceof Error ? firstError.message : String(firstError) },
               { role: "user", content: "Return corrected JSON only. It must exactly match the supplied schema; do not add fields." },
@@ -77,29 +75,31 @@ export class GoalAnalyst {
             temperature: 0.1,
             maxTokens: 4096,
             signal,
-          });
-        } catch (error) {
-          if (request.signal?.aborted) throw new Error("Goal analysis cancelled");
-          if (timeoutSignal.aborted) throw new Error(`Goal analysis took longer than ${formatTimeout(this.timeoutMs)} and was stopped. Try again or choose a faster reviewer model.`);
-          throw new Error(`Goal Analyst request failed: ${conciseProviderError(error)}`);
-        }
-        try {
-          usage = addUsage(usage, response.usage);
-          const parsed = GoalAnalystOutputSchema.parse(removeNullObjectProperties(
-            parseStructured(response.structuredOutput ?? response.content),
-          ));
-          this.rejectInspectableQuestions(parsed, request.repositoryContext);
-          return { analysis: parsed, tokenUsage: usage, repaired: attempt === 1 };
-        } catch (error) {
-          if (request.signal?.aborted) throw new Error("Goal analysis cancelled");
-          if (timeoutSignal.aborted) throw new Error(`Goal analysis took longer than ${formatTimeout(this.timeoutMs)} and was stopped. Try again or choose a faster reviewer model.`);
-          firstError = error;
-        }
+          }),
+          {
+            label: "Goal Analyst",
+            signal: request.signal,
+            timeoutMs: this.timeoutMs,
+            onRetry: ({ attempt, maxAttempts, reason }) => this.onRetry?.(attempt, maxAttempts, reason),
+          },
+        );
+      } catch (error) {
+        if (request.signal?.aborted) throw new Error("Goal analysis cancelled");
+        throw new Error(`Goal Analyst request failed: ${conciseProviderError(error)}`);
       }
-      throw new Error(`Goal Analyst returned malformed structured output after one repair: ${firstError instanceof Error ? firstError.message : String(firstError)}`);
-    } finally {
-      clearTimeout(timeoutId);
+      try {
+        usage = addUsage(usage, response.usage);
+        const parsed = GoalAnalystOutputSchema.parse(removeNullObjectProperties(
+          parseStructured(response.structuredOutput ?? response.content),
+        ));
+        this.rejectInspectableQuestions(parsed, request.repositoryContext);
+        return { analysis: parsed, tokenUsage: usage, repaired: repairAttempt === 1 };
+      } catch (error) {
+        if (request.signal?.aborted) throw new Error("Goal analysis cancelled");
+        firstError = error;
+      }
     }
+    throw new Error(`Goal Analyst returned malformed structured output after one repair: ${firstError instanceof Error ? firstError.message : String(firstError)}`);
   }
 
   private messages(request: GoalAnalysisRequest): ModelMessage[] {
@@ -132,12 +132,6 @@ Repository facts have already been inspected. Never ask the user for a language,
       throw new Error("The analyst may not delegate missing repository inspection to the user");
     }
   }
-}
-
-function formatTimeout(timeoutMs: number): string {
-  if (timeoutMs < 60_000) return `${Math.max(1, Math.round(timeoutMs / 1_000))} seconds`;
-  const minutes = Math.round(timeoutMs / 60_000);
-  return `${minutes} minute${minutes === 1 ? "" : "s"}`;
 }
 
 function parseStructured(raw: unknown): unknown {

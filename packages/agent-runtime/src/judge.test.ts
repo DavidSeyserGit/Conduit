@@ -56,10 +56,38 @@ test("planning judge sends a schema-bound, workspace-aware request", async () =>
   assert.equal(requests[0]?.modelId, "fake/model");
   assert.equal(requests[0]?.workspacePath, "/repo");
   assert.equal(requests[0]?.reasoningEffort, "low");
-  assert.equal(requests[0]?.signal, controller.signal);
+  assert.ok(requests[0]?.signal);
+  assert.notEqual(requests[0]?.signal, controller.signal);
   assert.equal(requests[0]?.structuredOutput?.name, "implementation_plan");
   assert.equal(requests[0]?.tools, undefined);
   assert.equal(events.some((event) => event.type === "agent_heartbeat"), true);
+});
+
+test("planning judge retries a transient model timeout", async () => {
+  let attempts = 0;
+  const events: GoalRunEvent[] = [];
+  const provider: ModelProvider = {
+    ...fakeProvider([], []),
+    createResponse: async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("provider request timed out");
+      return {
+        content: "",
+        structuredOutput: {
+          summary: "Recovered plan",
+          tasks: [{ id: "1", description: "Implement", status: "pending" }],
+          validation: { strategy: "not_applicable", rationale: "No automated validation applies.", commands: [] },
+        },
+      };
+    },
+  };
+  const judge = new Judge(provider, "fake/model", "/repo", undefined, (event) => events.push(event));
+
+  const result = await judge.createImplementationPlan("Rename the title");
+
+  assert.equal(result.plan.summary, "Recovered plan");
+  assert.equal(attempts, 2);
+  assert.equal(events.some((event) => event.type === "agent_status" && /retrying attempt 2\/2/.test(event.message)), true);
 });
 
 test("judge approves an evidence-only objection rather than creating a coding repair loop", async () => {
