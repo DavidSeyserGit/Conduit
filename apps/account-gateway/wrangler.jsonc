@@ -1,0 +1,18 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "conduit-account-gateway",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-19",
+  "workers_dev": true,
+  "routes": [
+    {
+      "pattern": "conduit.seyser.org",
+      "custom_domain": true
+    }
+  ],
+  "vars": {
+    "ACCOUNT_ORIGIN": "https://conduit.seyser.org",
+    "NEON_AUTH_URL": "https://ep-calm-silence-awsnelwq.neonauth.c-12.us-east-1.aws.neon.tech/neondb/auth",
+    "NEON_AUTH_JWKS_URL": "https://ep-calm-silence-awsnelwq.neonauth.c-12.us-east-1.aws.neon.tech/neondb/auth/.well-known/jwks.json"
+  }
+}

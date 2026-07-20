@@ -13,6 +13,7 @@ import { shouldShowChangelog, shouldShowUpdatePopup, type ReleaseChangelog } fro
 import { shouldShowSupportPrompt, summarizeSupportUsage } from "@/lib/support-prompt";
 import { seedGoalBuilderDemo, useGoalBuilderStore } from "@/stores/goal-builder-store";
 import { GoalBuilderErrorBoundary } from "@/features/goal-builder/GoalBuilderErrorBoundary";
+import { configureAnonymousAnalytics, recordAnonymousEvent } from "@/lib/anonymous-analytics";
 
 export default function App() {
   const forceSupportBubble = import.meta.env.DEV && import.meta.env.VITE_SHOW_SUPPORT_BUBBLE === "true";
@@ -29,6 +30,7 @@ export default function App() {
   const showSettings = useAppStore((s) => s.showSettings);
   const previousRunning = useRef(false);
   const previousApprovalId = useRef<string | null>(null);
+  const analyticsStarted = useRef(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [updateNotice, setUpdateNotice] = useState<{ version: string; body?: string } | null>(null);
   const [updateInstalling, setUpdateInstalling] = useState(false);
@@ -43,6 +45,20 @@ export default function App() {
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
   }, [theme]);
+
+  useEffect(() => {
+    const enabled = settings.anonymousAnalyticsEnabled === true;
+    configureAnonymousAnalytics(enabled);
+    if (enabled && !analyticsStarted.current) {
+      analyticsStarted.current = true;
+      recordAnonymousEvent("app_opened");
+    }
+    if (!enabled) analyticsStarted.current = false;
+  }, [settings.anonymousAnalyticsEnabled]);
+
+  useEffect(() => {
+    void import("@/lib/oauth").then(({ initializeOAuthDeepLinks }) => initializeOAuthDeepLinks()).catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     if (!import.meta.env.DEV) return;
@@ -145,6 +161,7 @@ export default function App() {
     }
     if (previousRunning.current && !isRunning && currentRun) {
       showNotice(currentRun.status === "completed" ? "Run complete." : "Run stopped. Review the result when ready.");
+      if (currentRun.status === "completed") recordAnonymousEvent("goal_completed");
     }
     previousRunning.current = isRunning;
     previousApprovalId.current = pendingApproval?.requestId ?? null;

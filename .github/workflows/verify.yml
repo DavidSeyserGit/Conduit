@@ -40,6 +40,10 @@ jobs:
 
       - name: Type-check, test, and build
         run: pnpm verify
+        env:
+          VITE_NEON_AUTH_URL: ${{ vars.VITE_NEON_AUTH_URL }}
+          VITE_CONDUIT_ACCOUNT_URL: ${{ vars.VITE_CONDUIT_ACCOUNT_URL }}
+          VITE_CONDUIT_TELEMETRY_URL: ${{ vars.VITE_CONDUIT_TELEMETRY_URL }}
 
   rust:
     name: Rust lint and tests
@@ -176,6 +180,9 @@ jobs:
         if: steps.scope.outputs.run == 'true'
         run: pnpm --dir apps/desktop tauri build --ci --bundles deb -- --locked
         env:
+          VITE_NEON_AUTH_URL: ${{ vars.VITE_NEON_AUTH_URL }}
+          VITE_CONDUIT_ACCOUNT_URL: ${{ vars.VITE_CONDUIT_ACCOUNT_URL }}
+          VITE_CONDUIT_TELEMETRY_URL: ${{ vars.VITE_CONDUIT_TELEMETRY_URL }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 

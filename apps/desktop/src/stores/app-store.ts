@@ -13,6 +13,7 @@ import type {
   SessionUsage,
   TokenUsage,
 } from "@conduit/shared";
+import { recordAnonymousEvent } from "../lib/anonymous-analytics.js";
 import type { GoalDefinition, GoalReport } from "@conduit/cgs/legacy";
 import type { GoalReport as CgsGoalReport } from "@conduit/cgs";
 import {
@@ -63,6 +64,8 @@ export interface ChatSession {
   runHistory: RunHistoryEntry[];
   updatedAt: string;
 }
+
+export type SettingsTab = "model" | "color" | "permission" | "defaults" | "updates" | "privacy" | "user";
 
 interface AppState {
   // Project
@@ -132,6 +135,8 @@ interface AppState {
   // UI
   showSettings: boolean;
   setShowSettings: (show: boolean) => void;
+  settingsTab: SettingsTab;
+  setSettingsTab: (tab: SettingsTab) => void;
   gitDiff: string;
   gitDiffLoading: boolean;
   showGitDiff: boolean;
@@ -156,6 +161,7 @@ const defaultSettings: AppSettings = {
   commandPermissionMode: "auto_approve_safe",
   defaultMaxIterations: 3,
   autoCheckUpdates: true,
+  anonymousAnalyticsEnabled: false,
 };
 
 const MODEL_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -639,6 +645,8 @@ export const useAppStore = create<AppState>()(
 
       showSettings: false,
       setShowSettings: (show) => set({ showSettings: show }),
+      settingsTab: "model",
+      setSettingsTab: (settingsTab) => set({ settingsTab }),
       gitDiff: "",
       gitDiffLoading: false,
       showGitDiff: false,
@@ -856,6 +864,7 @@ export const useAppStore = create<AppState>()(
             };
           });
         } catch (err) {
+          recordAnonymousEvent("goal_failed");
           state.addMessage({
             id: crypto.randomUUID(),
             role: "assistant",

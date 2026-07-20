@@ -17,6 +17,8 @@ fn main() {
         "tool_execute",
         "report_export_write",
         "github_client_id",
+        "neon_auth_session_get",
+        "neon_auth_session_store",
         "github_get_token",
         "github_store_token",
         "github_device_start",

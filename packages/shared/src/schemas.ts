@@ -420,6 +420,8 @@ export interface AppSettings {
   lastSeenChangelogVersion?: string;
   supportPromptLastShownAt?: string;
   supportPromptDismissedAt?: string;
+  /** Explicit opt-in. Anonymous usage counters are never collected unless true. */
+  anonymousAnalyticsEnabled?: boolean;
 }
 
 export interface AcpAgentConfig {
