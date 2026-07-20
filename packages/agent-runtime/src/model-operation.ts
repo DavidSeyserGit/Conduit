@@ -1,4 +1,7 @@
-export const DEFAULT_MODEL_ATTEMPT_TIMEOUT_MS = 10 * 60 * 1_000;
+// Model calls should feel interactive. If a provider has produced no result
+// within a minute, treat the attempt as stale and retry it with a fresh signal.
+// Command and evidence execution use their own, task-appropriate timeouts.
+export const DEFAULT_MODEL_ATTEMPT_TIMEOUT_MS = 60_000;
 export const DEFAULT_MODEL_MAX_ATTEMPTS = 2;
 
 export interface ModelOperationOptions {

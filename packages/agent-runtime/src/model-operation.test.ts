@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { retryModelOperation } from "./model-operation.ts";
+import { DEFAULT_MODEL_ATTEMPT_TIMEOUT_MS, retryModelOperation } from "./model-operation.ts";
+
+test("the default stale model window stays interactive", () => {
+  assert.equal(DEFAULT_MODEL_ATTEMPT_TIMEOUT_MS, 60_000);
+});
 
 test("a timed-out model attempt is aborted and retried with a fresh signal", async () => {
   const signals: AbortSignal[] = [];
