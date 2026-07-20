@@ -30,6 +30,7 @@ import {
 import { computeLoopMetrics } from "./metrics.js";
 import { estimateCost } from "./state.js";
 import { LegacyEvidenceCoordinator, invalidateEvidence } from "./evidence-coordinator.js";
+import { executeValidationCommand } from "./validation-execution.js";
 import { ReportBuilder } from "./report-builder.js";
 import { legacyEvidenceRequestToCgs, legacyEvidenceToCgs, legacyReportToCgs, legacyReviewToCgs, legacyRunRecordToCgs } from "./legacy-cgs-migration.js";
 import type { CgsArtifactRepository } from "./persistence.js";
@@ -626,14 +627,29 @@ export class GoalLoopRunner {
             message: `Judge rejected iteration ${state.iteration}; sending ${state.lastJudgeFeedback.length} required fix${state.lastJudgeFeedback.length === 1 ? "" : "es"} to the coding agent…`,
           });
         } else {
-          const error = pipelineResult.unresolvedEvidenceRequests.length > 0
-            ? `Review pipeline requires ${pipelineResult.unresolvedEvidenceRequests.length} unresolved evidence item${pipelineResult.unresolvedEvidenceRequests.length === 1 ? "" : "s"}.`
-            : "Review pipeline is blocked without a repairable coding finding.";
-          state.status = "failed";
+          const environmentBlocked = pipelineResult.unresolvedEvidenceRequests.some((request) => request.status === "blocked_environment")
+            || availableEvidence.some((item) => item.executionOutcome === "blocked_environment");
+          const error = environmentBlocked
+            ? "Implementation finished, but required validation is unavailable in this execution environment."
+            : pipelineResult.unresolvedEvidenceRequests.length > 0
+              ? `Review pipeline requires ${pipelineResult.unresolvedEvidenceRequests.length} unresolved evidence item${pipelineResult.unresolvedEvidenceRequests.length === 1 ? "" : "s"}.`
+              : "Review pipeline is blocked without a repairable coding finding.";
+          state.status = environmentBlocked ? "blocked" : "failed";
           state.finishedAt = new Date().toISOString();
           const finalState = finalizeState(state);
+          const terminalResult: GoalRunResult = {
+            status: environmentBlocked ? "blocked" : "failed",
+            state: finalState,
+            error,
+          };
+          if (environmentBlocked) {
+            emit({ type: "agent_status", message: error });
+            const completed = await complete(terminalResult, error);
+            emit({ type: "run_completed", result: completed });
+            return completed;
+          }
           emit({ type: "run_failed", error });
-          return complete({ status: "failed", state: finalState, error }, error);
+          return complete(terminalResult, error);
         }
       } catch (err) {
         if (this.cancelled || this.abortController?.signal.aborted) {
@@ -821,20 +837,11 @@ async function runValidationContract(
   emit({ type: "agent_status", message: `Running ${plan.validation.commands.length} planned validation command${plan.validation.commands.length === 1 ? "" : "s"}…` });
   const results: ValidationResult[] = [];
   for (const command of plan.validation.commands) {
-    const toolResult = await toolExecutor.execute("run_command", { command }, "goal");
-    const commandResult = toolResult.result as Partial<{
-      command: string;
-      exitCode: number;
-      stdout: string;
-      stderr: string;
-    }> | undefined;
-    const validation: ValidationResult = {
-      command: commandResult?.command || command,
-      exitCode: commandResult?.exitCode ?? 1,
-      stdout: commandResult?.stdout || "",
-      stderr: commandResult?.stderr || toolResult.error || "Validation command could not be executed",
-      passed: toolResult.success && commandResult?.exitCode === 0,
-    };
+    const execution = await executeValidationCommand(
+      command,
+      (candidate) => toolExecutor.execute("run_command", { command: candidate }, "goal"),
+    );
+    const validation = execution.result;
     results.push(validation);
     emit({ type: "validation_completed", result: validation });
   }

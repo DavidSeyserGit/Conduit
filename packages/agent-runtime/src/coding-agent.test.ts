@@ -50,6 +50,30 @@ test("coding agent preserves autonomous provider errors", async () => {
   );
 });
 
+test("coding agent classifies structured autonomous validation environment limits", async () => {
+  const provider: ModelProvider = {
+    ...baseProvider,
+    runCodingIteration: async () => ({
+      changedFiles: ["src/planner.py"],
+      validationResults: [{
+        command: "python3 -m pytest -q",
+        exitCode: 1,
+        stdout: "",
+        stderr: "ModuleNotFoundError: No module named 'ompl'",
+        passed: false,
+      }],
+      agentSummary: "Implemented the planner",
+      toolCalls: [],
+      messages: [],
+    }),
+  };
+
+  const result = await new CodingAgent().run(makeConfig({ provider }));
+
+  assert.equal(result.validationResults[0]?.outcome, "blocked_environment");
+  assert.match(result.validationResults[0]?.limitation ?? "", /ROS runtime module|test/);
+});
+
 test("coding agent forwards Goal cancellation to an autonomous provider", async () => {
   const provider: ModelProvider = {
     ...baseProvider,

@@ -434,9 +434,10 @@ fn run_coding_iteration(
             "messageId": unique_id("message"),
         }));
     }
+    let validation_results = validation_results_from_tool_calls(&tool_calls);
     Ok(CodingIterationResult {
         changed_files,
-        validation_results: Vec::new(),
+        validation_results,
         agent_summary: summary,
         tool_calls,
         messages: Vec::new(),
@@ -1523,6 +1524,101 @@ fn record_at(value: &Value, keys: &[&str]) -> Option<Value> {
         .find_map(|key| value.get(*key).filter(|item| item.is_object()).cloned())
 }
 
+/// Convert only structured, completed command tool results into validation
+/// evidence. Natural-language agent summaries and command output without an
+/// explicit exit status are deliberately ignored because they are not a
+/// trustworthy success signal.
+fn validation_results_from_tool_calls(tool_calls: &[Value]) -> Vec<Value> {
+    tool_calls
+        .iter()
+        .filter_map(validation_result_from_tool_call)
+        .collect()
+}
+
+fn validation_result_from_tool_call(tool: &Value) -> Option<Value> {
+    if tool.get("status").and_then(Value::as_str) != Some("completed") {
+        return None;
+    }
+    let name = tool
+        .get("name")
+        .and_then(Value::as_str)?
+        .to_ascii_lowercase();
+    if !matches!(
+        name.as_str(),
+        "bash" | "shell" | "run_command" | "execute_command" | "command"
+    ) {
+        return None;
+    }
+    let arguments = tool.get("arguments")?.as_object()?;
+    let command = string_in(arguments, &["command", "cmd"])?;
+    if !is_validation_command(&command) {
+        return None;
+    }
+    let result = tool.get("result")?;
+    let result_record = result.as_object()?;
+    let exit_code = result_record
+        .get("exitCode")
+        .or_else(|| result_record.get("exit_code"))
+        .and_then(Value::as_i64)
+        .or_else(|| {
+            result_record
+                .get("metadata")
+                .and_then(Value::as_object)
+                .and_then(|metadata| {
+                    metadata
+                        .get("exitCode")
+                        .or_else(|| metadata.get("exit_code"))
+                        .and_then(Value::as_i64)
+                })
+        })?;
+    let stdout = result_record
+        .get("stdout")
+        .or_else(|| result_record.get("output"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let stderr = result_record
+        .get("stderr")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    Some(json!({
+        "command": command,
+        "exitCode": exit_code,
+        "stdout": stdout,
+        "stderr": stderr,
+        "passed": exit_code == 0,
+        "outcome": if exit_code == 0 { "passed" } else { "failed" },
+    }))
+}
+
+fn is_validation_command(command: &str) -> bool {
+    let normalized = command.trim().to_ascii_lowercase();
+    [
+        "pytest",
+        "python -m pytest",
+        "python3 -m pytest",
+        "cargo test",
+        "cargo nextest",
+        "pnpm test",
+        "pnpm run test",
+        "npm test",
+        "npm run test",
+        "yarn test",
+        "bun test",
+        "vitest",
+        "jest",
+        "ctest",
+        "colcon test",
+        "go test",
+        "dotnet test",
+        "mvn test",
+        "mvn verify",
+        "gradle test",
+        "./gradlew test",
+    ]
+    .iter()
+    .any(|prefix| normalized == *prefix || normalized.starts_with(&format!("{prefix} ")))
+}
+
 fn title_case(value: &str) -> String {
     value
         .split_whitespace()
@@ -1723,5 +1819,46 @@ mod tests {
         assert!(valid_request_id("550e8400-e29b-41d4-a716-446655440000"));
         assert!(!valid_request_id("../cancel-all"));
         assert!(!valid_request_id("request id"));
+    }
+
+    #[test]
+    fn completed_command_tool_results_become_validation_evidence() {
+        let calls = vec![json!({
+            "name": "bash",
+            "arguments": { "command": "python3 -m pytest -q" },
+            "status": "completed",
+            "result": {
+                "exitCode": 0,
+                "stdout": "3 passed, 3 skipped",
+                "stderr": ""
+            }
+        })];
+        let results = validation_results_from_tool_calls(&calls);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["command"], "python3 -m pytest -q");
+        assert_eq!(results[0]["passed"], true);
+        assert_eq!(results[0]["outcome"], "passed");
+    }
+
+    #[test]
+    fn unstructured_command_output_is_not_claimed_as_validation() {
+        let calls = vec![json!({
+            "name": "shell",
+            "arguments": { "command": "colcon test" },
+            "status": "completed",
+            "result": "All tests passed"
+        })];
+        assert!(validation_results_from_tool_calls(&calls).is_empty());
+    }
+
+    #[test]
+    fn ordinary_shell_commands_are_not_claimed_as_validation() {
+        let calls = vec![json!({
+            "name": "bash",
+            "arguments": { "command": "git status --short" },
+            "status": "completed",
+            "result": { "exitCode": 0, "stdout": "", "stderr": "" }
+        })];
+        assert!(validation_results_from_tool_calls(&calls).is_empty());
     }
 }

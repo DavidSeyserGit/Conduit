@@ -134,6 +134,7 @@ test("ReportBuilder preserves review rounds, warnings, stale evidence, and block
 test("ReportBuilder creates schema-valid partial reports for every terminal status", () => {
   const cases: Array<[GoalRunState["status"], string]> = [
     ["completed", "achieved"],
+    ["blocked", "blocked"],
     ["failed", "failed"],
     ["cancelled", "cancelled"],
     ["iteration_limit_reached", "blocked"],
@@ -148,6 +149,31 @@ test("ReportBuilder creates schema-valid partial reports for every terminal stat
     assert.equal(report.overview.finalStatus, expected);
     GoalReportSchema.parse(report);
   }
+});
+
+test("ReportBuilder explains environment-blocked validation without calling the implementation failed", () => {
+  const state = run("blocked");
+  state.iterations[0]!.validationResults = [{
+    command: "python3 -m pytest -q test",
+    exitCode: 1,
+    stdout: "",
+    stderr: "ModuleNotFoundError: No module named 'ompl'",
+    passed: false,
+    outcome: "blocked_environment",
+    limitation: "A required ROS runtime module is unavailable in this execution environment.",
+  }];
+  const report = new ReportBuilder().build({
+    run: state,
+    goal,
+    error: "Implementation finished, but required validation is unavailable in this execution environment.",
+  });
+  const markdown = reportToMarkdown(report);
+
+  assert.equal(report.overview.finalStatus, "blocked");
+  assert.match(report.finalDecision.summary, /implementation finished.*verification is blocked/i);
+  assert.doesNotMatch(report.finalDecision.summary, /goal was not achieved/i);
+  assert.match(markdown, /⊘.*ROS runtime module/);
+  GoalReportSchema.parse(report);
 });
 
 test("Markdown and JSON exports are bounded, redacted, versioned, and valid", () => {

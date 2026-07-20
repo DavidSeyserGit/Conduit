@@ -80,6 +80,59 @@ test("command evidence is normalized from exit status and large output is stored
   assert.equal(persistence.evidence.length, 1);
 });
 
+test("pytest evidence uses a Python module fallback when the global launcher is missing", async () => {
+  const calls: string[] = [];
+  const tools = toolExecutor(async (_name, args) => {
+    const command = String(args.command);
+    calls.push(command);
+    return command.startsWith("python3")
+      ? { success: true, result: { command, exitCode: 0, stdout: "3 passed, 3 skipped", stderr: "" } }
+      : { success: true, result: { command, exitCode: 127, stdout: "", stderr: "/bin/sh: pytest: command not found" } };
+  });
+
+  const result = await new LegacyEvidenceCoordinator(tools).collect(
+    [request("test", "pytest -q test")],
+    options(),
+  );
+
+  assert.deepEqual(calls, ["pytest -q test", "python3 -m pytest -q test"]);
+  assert.equal(result.requests[0]?.status, "collected");
+  assert.equal(result.evidence[0]?.command, "python3 -m pytest -q test");
+  assert.equal(result.evidence[0]?.executionOutcome, "passed");
+});
+
+test("missing ROS dependencies are preserved as environment-blocked evidence without rerunning", async () => {
+  let executions = 0;
+  const tools = toolExecutor(async (_name, args) => {
+    executions += 1;
+    return {
+      success: true,
+      result: {
+        command: args.command,
+        exitCode: 1,
+        stdout: "",
+        stderr: "ModuleNotFoundError: No module named 'ompl'",
+      },
+    };
+  });
+  const coordinator = new LegacyEvidenceCoordinator(tools);
+  const first = await coordinator.collect(
+    [request("test", "python3 -m pytest -q test")],
+    options({ permissionMode: "auto_approve_all" }),
+  );
+  const second = await coordinator.collect(
+    [request("test", "python3 -m pytest -q test", { id: "regenerated-request" })],
+    options({ existingEvidence: first.evidence, permissionMode: "auto_approve_all" }),
+  );
+
+  assert.equal(executions, 1);
+  assert.equal(first.requests[0]?.status, "blocked_environment");
+  assert.equal(first.evidence[0]?.executionOutcome, "blocked_environment");
+  assert.match(first.evidence[0]?.limitation ?? "", /ROS runtime module|test/);
+  assert.equal(second.requests[0]?.status, "blocked_environment");
+  assert.equal(second.reused.length, 0);
+});
+
 test("fresh evidence is reused across reviewers and after coordinator restart", async () => {
   let executions = 0;
   const tools = toolExecutor(async () => {
