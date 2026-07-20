@@ -54,11 +54,15 @@ const toolExecutor: ToolExecutor = {
   },
 };
 
-function generalReview(goalStatus: "incomplete" | "implemented" = "implemented", findings: unknown[] = [], evidenceRequests: unknown[] = []) {
+function generalReview(goalStatus: "incomplete" | "implemented" | "blocked" | "needs_evidence" = "implemented", findings: unknown[] = [], evidenceRequests: unknown[] = []) {
   return {
     goalStatus,
     confidence: goalStatus === "implemented" ? 0.95 : 0.65,
-    summary: goalStatus === "implemented" ? "The requested behavior is implemented." : "A goal requirement remains incomplete.",
+    summary: goalStatus === "implemented"
+      ? "The requested behavior is implemented."
+      : goalStatus === "blocked"
+        ? "The implementation is ready, but verification requires another environment."
+        : "A goal requirement remains incomplete.",
     findings,
     evidenceRequests,
     requiredReviewers: [],
@@ -202,6 +206,75 @@ test("Goal loop collects requested evidence and reruns the requesting reviewer",
   assert.equal(events.some((event) => event.type === "evidence_collection_started"), true);
   assert.equal(events.some((event) => event.type === "evidence_collected"), true);
   assert.equal(events.some((event) => event.type === "evidence_collection_completed"), true);
+});
+
+test("Goal loop reports an environment-blocked run instead of failing a completed implementation", async () => {
+  const registry = new DefaultProviderRegistry();
+  const events: GoalRunEvent[] = [];
+  let reviewCalls = 0;
+  let evidenceCalls = 0;
+  const evidenceRequest = {
+    id: "ros-tests",
+    type: "test",
+    description: "Run the ROS motion planning tests.",
+    required: true,
+    suggestedCommand: "python3 -m pytest -q test/test_coverage_planner.py",
+    expectedOutcome: "The tests pass in a ROS/OMPL environment.",
+  };
+
+  registry.register(provider("coding", async () => ({ content: "Implemented the ROS planner and its tests." })));
+  registry.register(provider("judge", async (request) => {
+    if (request.structuredOutput?.name === "implementation_plan") {
+      return {
+        content: "",
+        structuredOutput: {
+          summary: "Implement the ROS planner",
+          tasks: [{ id: "1", description: "Implement and validate the planner", status: "pending" }],
+          validation: { strategy: "not_applicable", rationale: "The reviewer will request the ROS-specific validation.", commands: [] },
+        },
+      };
+    }
+    if (request.structuredOutput?.name === "general_review") {
+      reviewCalls += 1;
+      return {
+        content: "",
+        structuredOutput: generalReview(reviewCalls === 1 ? "needs_evidence" : "blocked", [], [evidenceRequest]),
+      };
+    }
+    return { content: "", structuredOutput: specialistReview() };
+  }));
+
+  const rosTools: ToolExecutor = {
+    async execute(name, args) {
+      if (name === "capture_git_snapshot") return { success: true, result: { tree: "a".repeat(40) } };
+      if (name === "get_git_diff") return { success: true, result: { diff: "+planner", changedFiles: ["src/planner.py"] } };
+      if (name === "run_command") {
+        evidenceCalls += 1;
+        return {
+          success: true,
+          result: { command: args.command, exitCode: 1, stdout: "", stderr: "ModuleNotFoundError: No module named 'ompl'" },
+        };
+      }
+      return { success: false, error: `Unexpected tool: ${name}` };
+    },
+  };
+
+  const result = await new GoalLoopRunner(registry).run(
+    config({ commandPermissionMode: "auto_approve_all" }),
+    rosTools,
+    {},
+    (event) => events.push(event),
+  );
+
+  assert.equal(result.status, "blocked");
+  assert.equal(result.state.status, "blocked");
+  assert.equal(result.report?.overview.finalStatus, "blocked");
+  assert.match(result.report?.finalDecision.summary ?? "", /verification is blocked/i);
+  assert.equal(reviewCalls, 2);
+  assert.equal(evidenceCalls, 1);
+  assert.equal(result.state.iterations[0]?.evidence?.[0]?.executionOutcome, "blocked_environment");
+  assert.equal(events.some((event) => event.type === "run_failed"), false);
+  assert.equal(events.some((event) => event.type === "run_completed"), true);
 });
 
 test("structured Goal implementation is blocked before providers and tools until the exact version is approved", async () => {

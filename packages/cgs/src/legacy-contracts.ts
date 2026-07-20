@@ -5,6 +5,7 @@ const GoalRunStatusSchema = z.enum([
   "running",
   "waiting_for_approval",
   "completed",
+  "blocked",
   "cancelled",
   "failed",
   "iteration_limit_reached",
@@ -306,6 +307,8 @@ export const EvidenceItemSchema = z.object({
   collectedBy: IdSchema,
   collectedAt: TimestampSchema,
   trusted: z.boolean(),
+  executionOutcome: z.enum(["passed", "failed", "blocked_environment", "skipped"]).optional(),
+  limitation: NonEmptyStringSchema.optional(),
   freshness: EvidenceFreshnessSchema,
 }).strict();
 
@@ -313,6 +316,7 @@ export const EvidenceRequestStatusSchema = z.enum([
   "pending",
   "approved",
   "collected",
+  "blocked_environment",
   "failed",
   "rejected",
   "stale",
@@ -340,6 +344,8 @@ export const NormalizedValidationResultSchema = z.object({
   type: z.enum(["test", "build", "lint", "typecheck", "benchmark", "coverage", "static_analysis", "command"]),
   command: NonEmptyStringSchema,
   passed: z.boolean(),
+  outcome: z.enum(["passed", "failed", "blocked_environment", "skipped"]).optional(),
+  limitation: NonEmptyStringSchema.optional(),
   exitCode: z.number().int(),
   durationMs: z.number().nonnegative(),
   summary: NonEmptyStringSchema,

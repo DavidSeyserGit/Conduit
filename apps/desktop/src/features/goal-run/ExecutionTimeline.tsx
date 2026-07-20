@@ -285,6 +285,7 @@ function RunSummary({
     completed: "Goal completed",
     cancelled: "Goal cancelled",
     iteration_limit_reached: "Iteration limit reached",
+    blocked: "Validation environment unavailable",
     failed: "Goal failed",
   };
 
@@ -383,11 +384,18 @@ function ProofOfWorkCard({
   const changedFiles = new Set(run.iterations.flatMap((iteration) => iteration.changedFiles));
   const validationResults = run.iterations.flatMap((iteration) => iteration.validationResults);
   const passedValidations = validationResults.filter((result) => result.passed).length;
+  const blockedValidations = validationResults.filter((result) => result.outcome === "blocked_environment").length;
   const totalTools = run.iterations.reduce((total, iteration) => total + iteration.toolCalls.length, 0);
   const approved = run.status === "completed" && latestJudge?.approved;
   const worker = modelName(run.codingModelId, models);
   const judge = modelName(run.judgeModelId, models);
-  const verdict = approved ? "Ready to review" : run.status === "failed" ? "Run needs attention" : "Not yet approved";
+  const verdict = approved
+    ? "Ready to review"
+    : run.status === "blocked"
+      ? "Implementation ready; validation environment unavailable"
+      : run.status === "failed"
+        ? "Run needs attention"
+        : "Not yet approved";
 
   const receipt = [
     "Conduit proof of work",
@@ -396,7 +404,7 @@ function ProofOfWorkCard({
     `Worker: ${worker}`,
     `Judge: ${judge}`,
     `Versions: Desktop ${run.conduitDesktopVersion ?? "legacy"} · Runtime ${run.conduitRuntimeVersion ?? "legacy"} · CGS ${run.cgsVersion ?? "legacy"}`,
-    `Evidence: ${changedFiles.size} files changed · ${passedValidations}/${validationResults.length} validations passed · ${totalTools} tool calls · ${formatElapsed(elapsed)}`,
+    `Evidence: ${changedFiles.size} files changed · ${passedValidations}/${validationResults.length} validations passed${blockedValidations ? ` · ${blockedValidations} environment-blocked` : ""} · ${totalTools} tool calls · ${formatElapsed(elapsed)}`,
     latestJudge?.summary ? `Judge: ${latestJudge.summary}` : "",
   ].filter(Boolean).join("\n");
 

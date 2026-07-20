@@ -5,6 +5,7 @@ import type {
 import type { EvidenceItem, EvidenceRequest, GoalDefinition } from "@conduit/cgs/legacy";
 import { EvidenceItemSchema, EvidenceRequestSchema, GoalDefinitionSchema } from "@conduit/cgs/legacy";
 import type { ToolExecutor, ToolCallResult } from "@conduit/tools";
+import { executeValidationCommand } from "./validation-execution.js";
 
 const COMMAND_EVIDENCE = new Set<EvidenceRequest["type"]>([
   "command", "test", "build", "lint", "typecheck", "benchmark", "coverage", "static_analysis",
@@ -69,7 +70,7 @@ export class LegacyEvidenceCoordinator {
         permissionDecision: rawRequest.permissionDecision ?? "pending",
         attempts: rawRequest.attempts ?? 0,
       });
-      if (request.status === "rejected" || (request.status === "failed" && (request.attempts ?? 0) > 0)) {
+      if (request.status === "rejected" || request.status === "blocked_environment" || (request.status === "failed" && (request.attempts ?? 0) > 0)) {
         resolvedRequests.push(request);
         continue;
       }
@@ -95,15 +96,19 @@ export class LegacyEvidenceCoordinator {
         && item.freshness.scopeFingerprint === fingerprint
       );
       if (reusable) {
+        const status = reusable.executionOutcome === "blocked_environment" ? "blocked_environment" as const : "collected" as const;
         request = await this.updateRequest(options, {
           ...request,
-          status: "collected",
+          status,
           permissionDecision: "not_required",
           evidenceIds: unique([...request.evidenceIds, reusable.id]),
           resolvedAt: new Date().toISOString(),
         });
         resolvedRequests.push(request);
-        reused.push(reusable);
+        // Preserve a known environment limitation for the reviewer without
+        // treating it as newly collected evidence. Otherwise a regenerated
+        // request ID can keep the review/evidence loop spinning.
+        if (status === "collected") reused.push(reusable);
         options.onProgress?.({ type: "evidence_reused", request, evidence: reusable });
         continue;
       }
@@ -213,18 +218,33 @@ export class LegacyEvidenceCoordinator {
         lastAttemptAt: attemptedAt,
       });
       let toolResult: ToolCallResult;
+      let effectivePlan = plan;
+      let validation: import("@conduit/shared").ValidationResult | undefined;
       try {
-        toolResult = await withCancellationAndTimeout(
-          this.tools.execute(plan.toolName, plan.args, "goal", {
-            // The coordinator already validated policy and recorded any user
-            // decision for this exact command, so the tool layer must not ask twice.
-            permissionMode: "auto_approve_all",
-            signal: options.signal,
-            timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-          }),
-          options.signal,
-          options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-        );
+        if (plan.command) {
+          const execution = await executeValidationCommand(plan.command, (candidate) => withCancellationAndTimeout(
+            this.tools.execute("run_command", { command: candidate }, "goal", {
+              permissionMode: "auto_approve_all",
+              signal: options.signal,
+              timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+            }),
+            options.signal,
+            options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+          ));
+          toolResult = execution.toolResult;
+          validation = execution.result;
+          effectivePlan = { ...plan, args: { command: validation.command }, command: validation.command };
+        } else {
+          toolResult = await withCancellationAndTimeout(
+            this.tools.execute(plan.toolName, plan.args, "goal", {
+              permissionMode: "auto_approve_all",
+              signal: options.signal,
+              timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+            }),
+            options.signal,
+            options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+          );
+        }
       } catch (error) {
         request = await this.updateRequest(options, {
           ...request,
@@ -250,17 +270,18 @@ export class LegacyEvidenceCoordinator {
         options.runId,
         options.workspacePath,
         request,
-        plan,
+        effectivePlan,
         toolResult.result,
         fingerprint,
         options.summaryLimit ?? DEFAULT_SUMMARY_LIMIT,
+        validation,
       );
       evidence.push(item);
       collected.push(item);
       await this.persistence?.saveEvidence(options.runId, item);
       request = await this.updateRequest(options, {
         ...request,
-        status: "collected",
+        status: item.executionOutcome === "blocked_environment" ? "blocked_environment" : "collected",
         evidenceIds: unique([...request.evidenceIds, item.id]),
         resolvedAt: new Date().toISOString(),
       });
@@ -308,6 +329,7 @@ export class LegacyEvidenceCoordinator {
     result: unknown,
     fingerprint: string,
     summaryLimit: number,
+    validation?: import("@conduit/shared").ValidationResult,
   ): Promise<EvidenceItem> {
     const collectedAt = new Date().toISOString();
     const normalized = normalizeToolResult(request, plan, result);
@@ -329,6 +351,8 @@ export class LegacyEvidenceCoordinator {
       collectedBy: "evidence_coordinator",
       collectedAt,
       trusted: normalized.trusted,
+      ...(validation?.outcome ? { executionOutcome: validation.outcome } : {}),
+      ...(validation?.limitation ? { limitation: validation.limitation } : {}),
       freshness: { status: "fresh", scopeFingerprint: fingerprint },
     });
   }

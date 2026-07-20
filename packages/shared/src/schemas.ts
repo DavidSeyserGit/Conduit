@@ -162,6 +162,7 @@ export const GoalRunStatusSchema = z.enum([
   "running",
   "waiting_for_approval",
   "completed",
+  "blocked",
   "cancelled",
   "failed",
   "iteration_limit_reached",
@@ -194,6 +195,8 @@ export interface ValidationResult {
   stdout: string;
   stderr: string;
   passed: boolean;
+  outcome?: "passed" | "failed" | "blocked_environment" | "skipped";
+  limitation?: string;
 }
 
 export interface GoalIteration {
@@ -312,7 +315,7 @@ export interface GoalRunConfig {
 }
 
 export interface GoalRunResult {
-  status: "completed" | "cancelled" | "iteration_limit_reached" | "failed";
+  status: "completed" | "blocked" | "cancelled" | "iteration_limit_reached" | "failed";
   state: GoalRunState;
   error?: string;
   report?: GoalReport;

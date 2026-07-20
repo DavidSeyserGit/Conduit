@@ -19,6 +19,7 @@ import {
   completeToolCall,
   parsePlanFromContent,
 } from "./state.js";
+import { normalizeCapturedValidation, validationResult } from "./validation-execution.js";
 
 const MAX_TOOL_ROUNDS = 30;
 
@@ -57,7 +58,7 @@ export interface CodingAgentResult {
 export class CodingAgent {
   async run(config: CodingAgentConfig): Promise<CodingAgentResult> {
     if (config.provider.runCodingIteration) {
-      return config.provider.runCodingIteration({
+      const result = await config.provider.runCodingIteration({
         goal: config.goal,
         workspacePath: config.workspacePath,
         modelId: config.modelId,
@@ -69,6 +70,10 @@ export class CodingAgent {
         permissionMode: config.permissionMode,
         signal: config.signal,
       }, config.emit);
+      return {
+        ...result,
+        validationResults: result.validationResults.map(normalizeCapturedValidation),
+      };
     }
 
     const toolCalls: StoredToolCall[] = [];
@@ -163,13 +168,7 @@ export class CodingAgent {
             stdout: string;
             stderr: string;
           };
-          const validation: ValidationResult = {
-            command: cmdResult.command,
-            exitCode: cmdResult.exitCode,
-            stdout: cmdResult.stdout,
-            stderr: cmdResult.stderr,
-            passed: cmdResult.exitCode === 0,
-          };
+          const validation = validationResult(cmdResult.command, result);
           validationResults.push(validation);
           config.emit({ type: "validation_completed", result: validation });
         }

@@ -126,7 +126,7 @@ export class GeneralReviewer {
     const messages: ModelMessage[] = [
       {
         role: "system",
-        content: `You are Conduit's General Reviewer. Verify functional completion against every success criterion, constraint, and required deliverable. Do not perform deep specialist review. Route only to relevant reviewers from the supplied registry. Return concise structured findings and evidence requests; never reveal private reasoning. Missing evidence must produce needs_evidence, not approval. Concrete unmet goal requirements must produce incomplete.`,
+        content: `You are Conduit's General Reviewer. Verify functional completion against every success criterion, constraint, and required deliverable. Do not perform deep specialist review. Route only to relevant reviewers from the supplied registry. Return concise structured findings and evidence requests; never reveal private reasoning. A file evidence request must put one repository-relative file path in suggestedCommand. Evidence marked blocked_environment means the requested validation cannot run on this execution target: do not request the same command again, do not call the implementation incomplete solely for that reason, and return blocked with the limitation. Missing evidence must produce needs_evidence, not approval. Concrete unmet goal requirements must produce incomplete.`,
       },
       {
         role: "user",
@@ -187,7 +187,7 @@ export class ModelSpecialistReviewer implements LegacyReviewer {
     const messages: ModelMessage[] = [
       {
         role: "system",
-        content: `You are Conduit's ${this.definition.name}. Your only responsibility is: ${this.definition.responsibility}\nStay narrow and independent. Review only the supplied run-scoped diff against the approved goal. Never execute or propose direct tool calls. You may only request evidence through the structured evidenceRequests field. Return no private reasoning. Use not_applicable only with a concrete summary explaining why. When a previous result is supplied, preserve the ID of any finding or evidence request that remains materially unchanged.`,
+        content: `You are Conduit's ${this.definition.name}. Your only responsibility is: ${this.definition.responsibility}\nStay narrow and independent. Review only the supplied run-scoped diff against the approved goal. Never execute or propose direct tool calls. You may only request evidence through the structured evidenceRequests field. A file evidence request must put one repository-relative file path in suggestedCommand. Do not re-request an execution whose evidence reports blocked_environment; describe the environment limitation and use blocked instead. Return no private reasoning. Use not_applicable only with a concrete summary explaining why. When a previous result is supplied, preserve the ID of any finding or evidence request that remains materially unchanged.`,
       },
       { role: "user", content: reviewPrompt(input) },
     ];
@@ -496,23 +496,27 @@ function normalizeReviewResult(
     ...(finding.criterionId ? { criterionId: finding.criterionId } : {}),
     ...(finding.remediation ? { remediation: finding.remediation } : {}),
   }));
-  const evidenceRequests = raw.evidenceRequests.map((request, index) => {
+  const evidenceRequests = raw.evidenceRequests.flatMap((request, index) => {
+    const suggestedCommand = request.suggestedCommand ?? (request.type === "file" ? inferRepositoryPath(request.description) : undefined);
+    // Optional prose-only "file" requests cannot be executed or audited. Drop
+    // them instead of allowing them to poison an otherwise actionable review.
+    if (request.type === "file" && !suggestedCommand && !request.required) return [];
     const preserved = preservedEvidenceState(request, previousReview);
-    return {
+    return [{
       ...preserved,
       id: request.id || `${reviewerId}-evidence-${index + 1}`,
       reviewerId,
       type: request.type,
       description: request.description,
       required: request.required,
-      ...(request.suggestedCommand ? { suggestedCommand: request.suggestedCommand } : {}),
+      ...(suggestedCommand ? { suggestedCommand } : {}),
       ...(request.expectedOutcome ? { expectedOutcome: request.expectedOutcome } : {}),
       ...(!preserved ? {
-      status: "pending" as const,
-      evidenceIds: [],
-      requestedAt: reviewedAt,
+        status: "pending" as const,
+        evidenceIds: [],
+        requestedAt: reviewedAt,
       } : {}),
-    };
+    }];
   });
   return ReviewResultSchema.parse({
     id: `${reviewerId}-review-${crypto.randomUUID()}`,
@@ -527,6 +531,11 @@ function normalizeReviewResult(
   });
 }
 
+function inferRepositoryPath(description: string): string | undefined {
+  const candidates = description.match(/(?:[A-Za-z0-9_.-]+\/)+[A-Za-z0-9_.-]+/g) ?? [];
+  return candidates.find((candidate) => !candidate.startsWith("/") && !candidate.split("/").includes(".."));
+}
+
 function preservedEvidenceState(
   request: ReviewDetails["evidenceRequests"][number],
   previousReview?: ReviewResult,
@@ -534,10 +543,11 @@ function preservedEvidenceState(
   if (!request.id || !previousReview) return undefined;
   const previous = previousReview.evidenceRequests.find((candidate) => candidate.id === request.id);
   if (!previous) return undefined;
+  const suggestedCommand = request.suggestedCommand ?? (request.type === "file" ? inferRepositoryPath(request.description) : undefined);
   const unchanged = previous.type === request.type
     && previous.description === request.description
     && previous.required === request.required
-    && previous.suggestedCommand === (request.suggestedCommand ?? undefined)
+    && previous.suggestedCommand === suggestedCommand
     && previous.expectedOutcome === (request.expectedOutcome ?? undefined);
   if (!unchanged) return undefined;
   return {

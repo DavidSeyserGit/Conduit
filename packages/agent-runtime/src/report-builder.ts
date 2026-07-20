@@ -229,7 +229,7 @@ export function reportToMarkdown(report: GoalReport): string {
     }),
     "## Validation and Evidence",
     "",
-    ...(safe.validationResults.length ? safe.validationResults.map((item) => `- ${item.passed ? "✓" : "✗"} \`${item.command}\` (exit ${item.exitCode}) — ${item.summary}`) : ["No normalized validation results were recorded."]),
+    ...(safe.validationResults.length ? safe.validationResults.map((item) => `- ${item.outcome === "blocked_environment" ? "⊘" : item.passed ? "✓" : "✗"} \`${item.command}\` (exit ${item.exitCode}) — ${item.limitation ?? item.summary}`) : ["No normalized validation results were recorded."]),
     ...safe.evidence.map((item) => `- ${item.freshness.status === "fresh" ? "✓" : "⚠"} **${item.title}** — ${item.summary}${item.contentLocation ? ` ([artifact](${item.contentLocation}))` : ""}`),
     "",
     "## Reviewer Results",
@@ -313,6 +313,8 @@ function normalizeValidation(run: GoalRunState): NormalizedValidationResult[] {
     type: validationType(result.command),
     command: result.command,
     passed: result.passed,
+    ...(result.outcome ? { outcome: result.outcome } : {}),
+    ...(result.limitation ? { limitation: result.limitation } : {}),
     exitCode: result.exitCode,
     durationMs: 0,
     summary: bounded([result.stdout, result.stderr].filter(Boolean).join("\n") || `${result.command} exited with code ${result.exitCode}.`),
@@ -330,6 +332,7 @@ function implementationSummary(run: GoalRunState, error?: string): string {
 function finalDecisionSummary(status: GoalReport["overview"]["finalStatus"], achieved: boolean, general: ReviewResult | undefined, error?: string): string {
   if (achieved) return general?.summary ?? "The goal completed and all mandatory approval gates passed.";
   if (status === "achieved") return "The run recorded completion, but the persisted report data does not satisfy every mandatory approval gate.";
+  if (status === "blocked" && error) return `The implementation finished, but required verification is blocked: ${bounded(error)}`;
   if (error) return `The goal was not achieved: ${bounded(error)}`;
   if (status === "cancelled") return "The run was cancelled before the goal could be approved as complete.";
   return general?.summary ?? "The run stopped without approval of the goal.";
@@ -337,6 +340,7 @@ function finalDecisionSummary(status: GoalReport["overview"]["finalStatus"], ach
 
 function finalStatus(status: GoalRunState["status"]): GoalReport["overview"]["finalStatus"] {
   if (status === "completed") return "achieved";
+  if (status === "blocked") return "blocked";
   if (status === "cancelled") return "cancelled";
   if (status === "failed") return "failed";
   if (status === "iteration_limit_reached") return "blocked";
